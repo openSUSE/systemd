@@ -2033,8 +2033,13 @@ static void service_enter_running(Service *s, ServiceResult f) {
         cgroup_ok = cgroup_good(s);
 
         if ((main_pid_ok > 0 || (main_pid_ok < 0 && cgroup_ok != 0)) &&
-            (s->bus_name_good || s->type != SERVICE_DBUS))
+            (s->bus_name_good || s->type != SERVICE_DBUS)) {
+#ifdef HAVE_SYSV_COMPAT
+                if (s->sysv_enabled && !s->pid_file)
+                        s->remain_after_exit = false;
+#endif
                 service_set_state(s, SERVICE_RUNNING);
+        }
         else if (s->remain_after_exit)
                 service_set_state(s, SERVICE_EXITED);
         else
