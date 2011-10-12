@@ -242,6 +242,9 @@ static int parse_argv(int argc, char *argv[]) {
 int main(int argc, char *argv[]) {
         int r, k;
         struct kmod_ctx *ctx;
+#ifdef HAVE_SYSV_COMPAT
+        _cleanup_free_ char *modules_on_boot = NULL;
+#endif
 
         r = parse_argv(argc, argv);
         if (r <= 0)
@@ -300,7 +303,31 @@ int main(int argc, char *argv[]) {
                                 r = k;
                 }
         }
+#ifdef HAVE_SYSV_COMPAT
+        log_debug("apply: /etc/sysconfig/kernel MODULES_LOADED_ON_BOOT");
+        if ((r = parse_env_file("/etc/sysconfig/kernel", NEWLINE,
+                                "MODULES_LOADED_ON_BOOT", &modules_on_boot,
+                                NULL)) < 0) {
+                if (r != -ENOENT)
+                        log_warning("Failed to read /etc/sysconfig/kernel: %s", strerror(-r));
+                else
+                        r = EXIT_SUCCESS;
+        } else
+                r = EXIT_SUCCESS;
+        if (modules_on_boot) {
+                char **modules = strv_split(modules_on_boot,WHITESPACE);
+                char **module;
 
+                if (modules) {
+                        STRV_FOREACH(module, modules) {
+                                k = load_module(ctx, *module);
+                                if (k < 0)
+                                        r = EXIT_FAILURE;
+                        }
+                }
+                strv_free(modules);
+        }
+#endif
 finish:
         kmod_unref(ctx);
         strv_free(arg_proc_cmdline_modules);
