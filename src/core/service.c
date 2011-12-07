@@ -139,6 +139,7 @@ static void service_init(Unit *u) {
 #ifdef HAVE_SYSV_COMPAT
         s->sysv_start_priority = -1;
         s->sysv_start_priority_from_rcnd = -1;
+        s->sysv_remain_after_exit_heuristic = true;
 #endif
         s->socket_fd = -1;
         s->guess_main_pid = true;
@@ -912,6 +913,34 @@ static int service_load_sysv_path(Service *s, const char *path) {
                                 free(short_description);
                                 short_description = d;
 
+                        } else if (startswith_no_case(t, "PIDFile:")) {
+                                char *fn;
+
+                                state = LSB;
+
+                                fn = strstrip(t+8);
+                                if (!path_is_absolute(fn)) {
+                                        log_warning("[%s:%u] PID file not absolute. Ignoring.", path, line);
+                                        continue;
+                                }
+
+                                if (!(fn = strdup(fn))) {
+                                        r = -ENOMEM;
+                                        goto finish;
+                                }
+
+                                free(s->pid_file);
+                                s->pid_file = fn;
+                                s->sysv_remain_after_exit_heuristic = false;
+                                s->remain_after_exit = false;
+                        } else if (startswith_no_case(t, "X-Systemd-RemainAfterExit:")) {
+                                char *j;
+
+                                state = LSB;
+                                if ((j = strstrip(t+26)) && *j) {
+                                        s->remain_after_exit = parse_boolean(j);
+                                        s->sysv_remain_after_exit_heuristic = false;
+                                }
                         } else if (state == LSB_DESCRIPTION) {
 
                                 if (startswith(l, "#\t") || startswith(l, "#  ")) {
@@ -962,7 +991,8 @@ static int service_load_sysv_path(Service *s, const char *path) {
 
         /* Special setting for all SysV services */
         s->type = SERVICE_FORKING;
-        s->remain_after_exit = !s->pid_file;
+        if (s->sysv_remain_after_exit_heuristic)
+                s->remain_after_exit = !s->pid_file;
         s->guess_main_pid = false;
         s->restart = SERVICE_RESTART_NO;
         s->exec_context.ignore_sigpipe = false;
@@ -2035,7 +2065,7 @@ static void service_enter_running(Service *s, ServiceResult f) {
         if ((main_pid_ok > 0 || (main_pid_ok < 0 && cgroup_ok != 0)) &&
             (s->bus_name_good || s->type != SERVICE_DBUS)) {
 #ifdef HAVE_SYSV_COMPAT
-                if (s->sysv_enabled && !s->pid_file)
+                if (s->sysv_enabled && !s->pid_file && s->sysv_remain_after_exit_heuristic)
                         s->remain_after_exit = false;
 #endif
                 service_set_state(s, SERVICE_RUNNING);

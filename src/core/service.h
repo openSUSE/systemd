@@ -177,6 +177,7 @@ struct Service {
         bool is_sysv:1;
         bool sysv_has_lsb:1;
         bool sysv_enabled:1;
+        bool sysv_remain_after_exit_heuristic:1;
         int sysv_start_priority_from_rcnd;
         int sysv_start_priority;
 
