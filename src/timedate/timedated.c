@@ -146,6 +146,13 @@ static int context_read_data(Context *c) {
                         goto have_timezone;
                 }
         }
+#ifdef HAVE_SYSV_COMPAT
+        r = parse_env_file("/etc/sysconfig/clock", NEWLINE,
+                           "TIMEZONE", &c->zone,
+                            NULL);
+        if (r < 0 && r != -ENOENT)
+                log_warning("Failed to read /etc/sysconfig/clock: %s", strerror(-r));
+#endif
 
 have_timezone:
         if (isempty(c->zone)) {
