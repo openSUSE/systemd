@@ -4662,8 +4662,28 @@ static int enable_sysv_units(const char *verb, char **args) {
                 p[strlen(p) - sizeof(".service") + 1] = 0;
                 found_sysv = access(p, F_OK) >= 0;
 
-                if (!found_sysv)
+                if (!found_sysv) {
+#ifdef HAVE_SYSV_COMPAT
+                        free(p);
+                        p = NULL;
+                        if (!isempty(arg_root))
+                                asprintf(&p, "%s/" SYSTEM_SYSVINIT_PATH "/boot.%s", arg_root, name);
+                        else
+                                asprintf(&p, SYSTEM_SYSVINIT_PATH "/boot.%s", name);
+                        if (!p) {
+                                r = log_oom();
+                                goto finish;
+                        }
+                        p[strlen(p) - sizeof(".service") + 1] = 0;
+                        found_sysv = access(p, F_OK) >= 0;
+
+                        if (!found_sysv) {
+                                continue;
+                        }
+#else
                         continue;
+#endif
+                }
 
                 /* Mark this entry, so that we don't try enabling it as native unit */
                 args[f] = (char*) "";
