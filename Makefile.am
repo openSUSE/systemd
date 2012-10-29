@@ -520,6 +520,12 @@ dist_systemunit_DATA += \
 dist_systemunit_DATA_busnames += \
 	units/busnames.target
 
+if HAVE_SYSV_COMPAT
+dist_systemunit_DATA += \
+	units/var-run.mount \
+	units/var-lock.mount
+endif
+
 nodist_systemunit_DATA = \
 	units/getty@.service \
 	units/serial-getty@.service \
@@ -6287,6 +6293,9 @@ GRAPHICAL_TARGET_WANTS += \
 	systemd-update-utmp-runlevel.service
 RESCUE_TARGET_WANTS += \
 	systemd-update-utmp-runlevel.service
+LOCAL_FS_TARGET_WANTS += \
+	var-run.mount \
+	var-lock.mount
 endif
 
 SYSINIT_TARGET_WANTS += \
