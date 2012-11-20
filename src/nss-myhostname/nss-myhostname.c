@@ -29,6 +29,9 @@
 #include <net/if.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
+#ifdef LOG_NSS_MY_HOSTNAME_WARNING
+#include <syslog.h>
+#endif
 
 #include "ifconf.h"
 #include "macro.h"
@@ -46,6 +49,10 @@
 #define LOCALADDRESS_IPV4 (htonl(0x7F000002))
 #define LOCALADDRESS_IPV6 &in6addr_loopback
 #define LOOPBACK_INTERFACE "lo"
+
+#ifdef LOG_NSS_MY_HOSTNAME_WARNING
+static void warn(const char* hn);
+#endif
 
 enum nss_status _nss_myhostname_gethostbyname4_r(
                 const char *name,
@@ -129,6 +136,9 @@ enum nss_status _nss_myhostname_gethostbyname4_r(
                         return NSS_STATUS_NOTFOUND;
                 }
 
+#ifdef LOG_NSS_MY_HOSTNAME_WARNING
+                warn(hn);
+#endif
                 /* If this fails, n_addresses is 0. Which is fine */
                 ifconf_acquire_addresses(&addresses, &n_addresses);
 
@@ -382,6 +392,9 @@ enum nss_status _nss_myhostname_gethostbyname3_r(
                 local_address_ipv4 = LOCALADDRESS_IPV4;
         }
 
+#ifdef LOG_NSS_MY_HOSTNAME_WARNING
+        warn(hn);
+#endif
         return fill_in_hostent(
                         canonical, additional,
                         af,
@@ -509,6 +522,9 @@ found:
                 canonical = hn;
         }
 
+#ifdef LOG_NSS_MY_HOSTNAME_WARNING
+        warn(hn);
+#endif
         return fill_in_hostent(
                         canonical, additional,
                         af,
@@ -537,3 +553,19 @@ enum nss_status _nss_myhostname_gethostbyaddr_r(
                         errnop, h_errnop,
                         NULL);
 }
+
+#ifdef LOG_NSS_MY_HOSTNAME_WARNING
+static void warn(const char* hn) {
+        if (strstr(program_invocation_short_name, "nscd")) {
+                syslog(LOG_WARNING,
+                        "Some application tried to resolve hostname \"%s\" which is not in DNS. Stop nscd to find out which one.\n",
+                        hn);
+        } else {
+                syslog(LOG_WARNING,
+                        "%s(%u) tried to resolve hostname \"%s\" which is not in DNS. This might be the reason for the delays you experience.\n",
+                        program_invocation_short_name,
+                        getpid(),
+                        hn);
+        }
+}
+#endif

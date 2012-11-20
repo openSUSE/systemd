@@ -942,6 +942,17 @@ if test "x$enable_myhostname" != "xno"; then
 fi
 AM_CONDITIONAL(HAVE_MYHOSTNAME, [test "$have_myhostname" = "yes"])
 
+if test "x$have_myhostname" != "xno"; then
+	AC_MSG_CHECKING([log warning messages for nss-myhostname])
+	AC_ARG_WITH(nss-my-hostname-warning, AS_HELP_STRING([--with-nss-my-hostname-warning], [log warning to syslog when nss-myhostname is called (default=no)]),[],[with_nss_my_hostname_warning=no])
+	AC_MSG_RESULT([$with_nss_my_hostname_warning])
+
+	if test x$with_nss_my_hostname_warning != xno; then
+		AC_CHECK_HEADERS([syslog.h])
+		AC_DEFINE([LOG_NSS_MY_HOSTNAME_WARNING],[1],[whether to log warning message for nss-myhostname])
+	fi
+fi
+
 # ------------------------------------------------------------------------------
 AC_ARG_WITH(firmware-path,
        AS_HELP_STRING([--with-firmware-path=DIR[[[:DIR[...]]]]],
