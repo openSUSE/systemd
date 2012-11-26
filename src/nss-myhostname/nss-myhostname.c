@@ -442,6 +442,12 @@ enum nss_status _nss_myhostname_gethostbyaddr2_r(
         uint32_t local_address_ipv4 = LOCALADDRESS_IPV4;
         const char *canonical = NULL, *additional = NULL;
 
+        if (af != AF_INET && af != AF_INET6) {
+                *errnop = EAFNOSUPPORT;
+                *h_errnop = NO_DATA;
+                return NSS_STATUS_UNAVAIL;
+        }
+
         if (len != PROTO_ADDRESS_SIZE(af)) {
                 *errnop = EINVAL;
                 *h_errnop = NO_RECOVERY;
