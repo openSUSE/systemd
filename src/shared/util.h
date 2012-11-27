@@ -141,6 +141,7 @@ char *endswith(const char *s, const char *postfix) _pure_;
 bool first_word(const char *s, const char *word) _pure_;
 
 int close_nointr(int fd);
+int safe_close(int fd);
 void close_nointr_nofail(int fd);
 void close_many(const int fds[], unsigned n_fd);
 
