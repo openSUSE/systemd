@@ -73,6 +73,11 @@ int locale_setup(char ***environment) {
         char **add;
         char *variables[_VARIABLE_MAX] = {};
         int r = 0, i;
+#ifdef HAVE_SYSV_COMPAT
+        char _cleanup_free_ *root_uses_lang;
+
+        zero(root_uses_lang);
+#endif
 
         if (detect_container(NULL) <= 0) {
                 r = parse_env_file("/proc/cmdline", WHITESPACE,
@@ -119,6 +124,27 @@ int locale_setup(char ***environment) {
                 if (r < 0 && r != -ENOENT)
                         log_warning("Failed to read /etc/locale.conf: %s", strerror(-r));
         }
+#ifdef HAVE_SYSV_COMPAT
+        if (r <= 0 &&
+            (r = parse_env_file("/etc/sysconfig/language", NEWLINE,
+                                "ROOT_USES_LANG", &root_uses_lang,
+                                "RC_LANG", &variables[VARIABLE_LANG],
+                                 NULL)) < 0) {
+            if (r != -ENOENT)
+                    log_warning("Failed to read /etc/sysconfig/language: %s", strerror(-r));
+
+        } else {
+             if (!root_uses_lang || (root_uses_lang && !strcaseeq(root_uses_lang,"yes"))) {
+                     if (root_uses_lang && strcaseeq(root_uses_lang,"ctype"))
+                            variables[VARIABLE_LC_CTYPE]=variables[VARIABLE_LANG];
+                     else
+                            free(variables[VARIABLE_LANG]);
+
+                    variables[VARIABLE_LANG]=strdup("POSIX");
+        }
+      }
+
+#endif
 
         add = NULL;
         for (i = 0; i < _VARIABLE_MAX; i++) {
