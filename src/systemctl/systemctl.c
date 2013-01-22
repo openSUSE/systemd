@@ -6413,6 +6413,28 @@ int main(int argc, char*argv[]) {
          * ellipsized. */
         original_stdout_is_tty = isatty(STDOUT_FILENO);
 
+        if (secure_getenv("SYSTEMCTL_OPTIONS") &&
+                        (!program_invocation_short_name ||
+                        (program_invocation_short_name && strstr(program_invocation_short_name, "systemctl")))) {
+                char **parsed_systemctl_options = strv_split_quoted(getenv("SYSTEMCTL_OPTIONS"));
+
+                if (*parsed_systemctl_options && **parsed_systemctl_options) {
+                        char **k,**a;
+                        char **new_argv = new(char*, strv_length(argv) + strv_length(parsed_systemctl_options) + 1);
+                        new_argv[0] = strdup(argv[0]);
+                        for (k = new_argv+1, a = parsed_systemctl_options; *a; k++, a++) {
+                                *k = strdup(*a);
+                        }
+                        for (a = argv+1; *a; k++, a++) {
+                                *k = strdup(*a);
+                        }
+                        *k = NULL;
+                        argv = new_argv;
+                        argc = strv_length(new_argv);
+                        strv_free (parsed_systemctl_options);
+                }
+        }
+
         r = parse_argv(argc, argv);
         if (r <= 0)
                 goto finish;
