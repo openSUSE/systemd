@@ -94,6 +94,7 @@ static int context_read_data(Context *c) {
 
 static bool check_nss(void) {
         void *dl;
+        return true;
 
         dl = dlopen("libnss_myhostname.so.2", RTLD_LAZY);
         if (dl) {
