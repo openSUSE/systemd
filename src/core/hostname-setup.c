@@ -61,12 +61,24 @@ int hostname_setup(void) {
 
         r = read_and_strip_hostname("/etc/hostname", &b);
         if (r < 0) {
-                if (r == -ENOENT)
-                        enoent = true;
-                else
-                        log_warning("Failed to read configured hostname: %s", strerror(-r));
+                if (r == -ENOENT) {
+                        /* use SUSE fallback */
+                        r = read_and_strip_hostname("/etc/HOSTNAME", &b);
+                        if (r < 0) {
+                                if (r == -ENOENT)
+                                        enoent = true;
+                                else
+                                        log_warning("Failed to read configured hostname: %s", strerror(-r));
+                                hn = NULL;
+                        }
+                        else
+                                hn = b;
 
-                hn = NULL;
+                }
+                else {
+                        log_warning("Failed to read configured hostname: %s", strerror(-r));
+                        hn = NULL;
+                }
         } else
                 hn = b;
 

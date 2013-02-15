@@ -89,6 +89,10 @@ static int context_read_data(Context *c) {
         if (r < 0 && r != -ENOENT)
                 return r;
 
+        r = read_one_line_file("/etc/HOSTNAME", &c->data[PROP_STATIC_HOSTNAME]);
+        if (r < 0 && r != -ENOENT)
+                return r;
+
         return 0;
 }
 
@@ -246,6 +250,7 @@ static int context_write_data_hostname(Context *c) {
 }
 
 static int context_write_data_static_hostname(Context *c) {
+        int r;
 
         assert(c);
 
@@ -256,7 +261,12 @@ static int context_write_data_static_hostname(Context *c) {
 
                 return 0;
         }
-        return write_string_file_atomic_label("/etc/hostname", c->data[PROP_STATIC_HOSTNAME]);
+
+        r = write_string_file_atomic_label("/etc/hostname", c->data[PROP_STATIC_HOSTNAME]);
+        if (!r) {
+                r = symlink_atomic("/etc/hostname", "/etc/HOSTNAME");
+        }
+        return r;
 }
 
 static int context_write_data_other(Context *c) {
