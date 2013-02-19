@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <string.h>
 #include <getopt.h>
+#include <stdlib.h>
 
 #include "systemd/sd-id128.h"
 #include "systemd/sd-messages.h"
@@ -35,6 +36,8 @@
 #include "sleep-config.h"
 
 static char* arg_verb = NULL;
+static bool delegate_to_pmutils = false;
+static const char *pmtools;
 
 static int write_mode(char **modes) {
         int r = 0;
@@ -50,9 +53,6 @@ static int write_mode(char **modes) {
                         r = k;
         }
 
-        if (r < 0)
-                log_error("Failed to write mode to /sys/power/disk: %s",
-                          strerror(-r));
 
         return r;
 }
@@ -89,6 +89,8 @@ static int execute(char **modes, char **states) {
         _cleanup_fclose_ FILE *f = NULL;
         const char* note = strappenda("SLEEP=", arg_verb);
 
+      if (!delegate_to_pmutils) {
+
         /* This file is opened first, so that if we hit an error,
          * we can abort before modifying any state. */
         f = fopen("/sys/power/state", "we");
@@ -101,6 +103,7 @@ static int execute(char **modes, char **states) {
         r = write_mode(modes);
         if (r < 0)
                 return r;
+      }
 
         arguments[0] = NULL;
         arguments[1] = (char*) "pre";
@@ -113,8 +116,10 @@ static int execute(char **modes, char **states) {
                    "MESSAGE=Suspending system...",
                    note,
                    NULL);
-
+       if (!delegate_to_pmutils)
         r = write_state(&f, states);
+       else
+        r = -system(pmtools);
         if (r < 0)
                 return r;
 
@@ -157,6 +162,7 @@ static int parse_argv(int argc, char *argv[]) {
         };
 
         int c;
+        struct stat buf;
 
         assert(argc >= 0);
         assert(argv);
@@ -192,6 +198,18 @@ static int parse_argv(int argc, char *argv[]) {
                 log_error("Unknown command '%s'.", arg_verb);
                 return -EINVAL;
         }
+
+        if (streq(arg_verb, "suspend")) {
+                pmtools = "/usr/sbin/pm-suspend";
+        }
+        else if (streq(arg_verb, "hibernate") || streq(arg_verb, "hybrid-sleep")) {
+                if (streq(arg_verb, "hibernate"))
+                        pmtools = "/usr/sbin/pm-hibernate";
+                else
+                        pmtools = "/usr/sbin/pm-suspend-hybrid";
+        }
+
+        delegate_to_pmutils = (stat(pmtools, &buf) >= 0 && S_ISREG(buf.st_mode) && (buf.st_mode & 0111));
 
         return 1 /* work to do */;
 }
