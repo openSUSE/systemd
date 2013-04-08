@@ -283,5 +283,17 @@ int devnode_acl_all(struct udev *udev,
                         r = k;
         }
 
+        /* only apply ACL on nvidia* if /dev/nvidiactl exists */
+        if (devnode_acl("/dev/nvidiactl", flush, del, old_uid, add, new_uid) >= 0) {
+                int j;
+                for (j = 0; j <= 256 ; j++) {
+                        _cleanup_free_ char *devname = NULL;
+                        if (asprintf(&devname, "/dev/nvidia%d", j) < 0)
+                                break;
+                        if (devnode_acl(devname, flush, del, old_uid, add, new_uid) < 0)
+                                break;
+                }
+        }
+
         return r;
 }
