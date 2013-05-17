@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <limits.h>
 #include <getopt.h>
+#include <sys/utsname.h>
 
 #include "log.h"
 #include "strv.h"
@@ -300,6 +301,13 @@ int main(int argc, char *argv[]) {
         } else {
                 _cleanup_strv_free_ char **files = NULL;
                 char **f;
+                char kernel_sysctl[PATH_MAX];
+                struct utsname uts;
+
+                assert_se(uname(&uts) >= 0);
+
+                snprintf(kernel_sysctl, sizeof(kernel_sysctl), "/boot/sysctl.conf-%s", uts.release);
+                r = parse_file(sysctl_options, kernel_sysctl, true);
 
                 r = conf_files_list_nulstr(&files, ".conf", NULL, conf_file_dirs);
                 if (r < 0) {

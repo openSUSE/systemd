@@ -19,6 +19,8 @@ ConditionDirectoryNotEmpty=|/usr/lib/sysctl.d
 ConditionDirectoryNotEmpty=|/usr/local/lib/sysctl.d
 ConditionDirectoryNotEmpty=|/etc/sysctl.d
 ConditionDirectoryNotEmpty=|/run/sysctl.d
+ConditionPathExistsGlob=|/boot/sysctl.conf-%v
+RequiresMountsFor=/boot
 
 [Service]
 Type=oneshot
