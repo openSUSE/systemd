@@ -32,7 +32,7 @@
 #include "fileio.h"
 
 static int read_and_strip_hostname(const char *path, char **hn) {
-        char *s;
+        char *s, *domain;
         int r;
 
         assert(path);
@@ -47,6 +47,11 @@ static int read_and_strip_hostname(const char *path, char **hn) {
         if (isempty(s)) {
                 free(s);
                 return -ENOENT;
+        }
+
+        /* strip any leftover of a domain name */
+        if (domain = strchr(s, '.')) {
+                *domain = NULL;
         }
 
         *hn = s;
