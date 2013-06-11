@@ -1,0 +1,9 @@
+# MSFT compability rules
+ACTION!="add|change", GOTO="msft_end"
+
+ENV{DEVTYPE}=="partition", IMPORT{parent}="SCSI_IDENT_*"
+KERNEL=="sd*[!0-9]|sr*", ENV{SCSI_IDENT_LUN_T10}!="?*", IMPORT{program}="/usr/bin/sg_inq -p di --export $tempnode"
+KERNEL=="sd*|sr*", ENV{DEVTYPE}=="disk", ENV{SCSI_IDENT_LUN_T10}=="?*", SYMLINK+="disk/by-id/scsi-1$env{SCSI_IDENT_LUN_T10}"
+KERNEL=="sd*", ENV{DEVTYPE}=="partition", ENV{SCSI_IDENT_LUN_T10}=="?*", SYMLINK+="disk/by-id/scsi-1$env{SCSI_IDENT_LUN_T10}-part%n"
+
+LABEL="msft_end"
