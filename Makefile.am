@@ -2854,6 +2854,18 @@ systemd_delta_LDADD = \
 	libsystemd-shared.la
 
 # ------------------------------------------------------------------------------
+if HAVE_SYSV_COMPAT
+systemd_insserv_generator_SOURCES = \
+	src/insserv-generator/insserv-generator.c
+
+systemd_insserv_generator_LDADD = \
+	libsystemd-shared.la
+
+systemgenerator_PROGRAMS += \
+	systemd-insserv-generator
+endif
+
+# ------------------------------------------------------------------------------
 systemd_getty_generator_SOURCES = \
 	src/getty-generator/getty-generator.c
 
