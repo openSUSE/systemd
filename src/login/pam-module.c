@@ -447,6 +447,25 @@ _public_ PAM_EXTERN int pam_sm_open_session(
                 r = export_legacy_dbus_address(handle, pw->pw_uid, runtime_path);
                 if (r != PAM_SUCCESS)
                         return r;
+        } else if (getenv("XDG_RUNTIME_DIR")) {
+                _cleanup_free_ char *p = NULL;
+                
+                /* Make sure that after running YaST2 or the xdg-su scripts
+                 * the runtime directory is not clobbered. Even a normal su
+                 * command without -l or with -m may clobber. */
+
+                if ((r = asprintf(&p, "/run/user/%lu", (unsigned long)pw->pw_uid)) < 0)
+                        return PAM_BUF_ERR;
+
+                r = pam_misc_setenv(handle, "XDG_RUNTIME_DIR", p, 0);
+                if (r != PAM_SUCCESS) {
+                        pam_syslog(handle, LOG_ERR, "Failed to set runtime dir.");
+                        return r;
+                }
+
+                r = export_legacy_dbus_address(handle, pw->pw_uid, p);
+                if (r != PAM_SUCCESS)
+                        return r;
         }
 
         if (!isempty(seat)) {
