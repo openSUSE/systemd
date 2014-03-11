@@ -479,7 +479,7 @@ static int log_do_header(char *header, size_t size,
                  func ? "CODE_FUNCTION=" : "",
                  func ? LINE_MAX : 0, func,
                  func ? "\n" : "",
-                 object ? object_name : "",
+                 object_name ? object_name : "",
                  object ? LINE_MAX : 0, object, /* %.0s means no output */
                  object ? "\n" : "",
                  program_invocation_short_name);
