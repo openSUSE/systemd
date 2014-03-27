@@ -17,6 +17,8 @@ Before=getty.target
 [Service]
 Environment=HOME=/root
 WorkingDirectory=/root
+ExecStartPre=-/usr/bin/plymouth quit
+ExecStartPre=-/usr/bin/plymouth --wait
 ExecStart=-/usr/sbin/sulogin
 ExecStopPost=-@SYSTEMCTL@ poweroff
 Type=idle
