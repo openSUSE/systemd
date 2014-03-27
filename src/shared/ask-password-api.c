@@ -138,7 +138,7 @@ int ask_password_tty(
                                 goto finish;
                         }
 
-                if ((k = poll(pollfd, notify > 0 ? 2 : 1, sleep_for)) < 0) {
+                if ((k = __poll_alias(pollfd, notify > 0 ? 2 : 1, sleep_for)) < 0) {
 
                         if (errno == EINTR)
                                 continue;

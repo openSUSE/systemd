@@ -142,7 +142,7 @@ static int ask_password_plymouth(
                                 goto finish;
                         }
 
-                if ((j = poll(pollfd, notify > 0 ? 2 : 1, sleep_for)) < 0) {
+                if ((j = __poll_alias(pollfd, notify > 0 ? 2 : 1, sleep_for)) < 0) {
 
                         if (errno == EINTR)
                                 continue;
@@ -595,7 +595,7 @@ static int watch_passwords(void) {
                 if ((r = show_passwords()) < 0)
                         log_error("Failed to show password: %s", strerror(-r));
 
-                if (poll(pollfd, _FD_MAX, -1) < 0) {
+                if (__poll_alias(pollfd, _FD_MAX, -1) < 0) {
 
                         if (errno == EINTR)
                                 continue;

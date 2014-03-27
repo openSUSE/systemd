@@ -50,8 +50,8 @@ static int read_and_strip_hostname(const char *path, char **hn) {
         }
 
         /* strip any leftover of a domain name */
-        if (domain = strchr(s, '.')) {
-                *domain = NULL;
+        if ((domain = strchr(s, '.'))) {
+                *domain = '\0';
         }
 
         *hn = s;
