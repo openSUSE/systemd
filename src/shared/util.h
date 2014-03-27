@@ -419,6 +419,7 @@ unsigned lines(void);
 void columns_lines_cache_reset(int _unused_ signum);
 
 bool on_tty(void);
+bool ansi_console(int fd);
 
 static inline const char *ansi_highlight(void) {
         return on_tty() ? ANSI_HIGHLIGHT_ON : "";

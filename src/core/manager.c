@@ -110,7 +110,7 @@ static int manager_watch_jobs_in_progress(Manager *m) {
 
 #define CYLON_BUFFER_EXTRA (2*(sizeof(ANSI_RED_ON)-1) + sizeof(ANSI_HIGHLIGHT_RED_ON)-1 + 2*(sizeof(ANSI_HIGHLIGHT_OFF)-1))
 
-static void draw_cylon(char buffer[], size_t buflen, unsigned width, unsigned pos) {
+static void draw_cylon(char buffer[], size_t buflen, unsigned width, unsigned pos, bool ansi_console) {
         char *p = buffer;
 
         assert(buflen >= CYLON_BUFFER_EXTRA + width + 1);
@@ -119,12 +119,14 @@ static void draw_cylon(char buffer[], size_t buflen, unsigned width, unsigned po
         if (pos > 1) {
                 if (pos > 2)
                         p = mempset(p, ' ', pos-2);
-                p = stpcpy(p, ANSI_RED_ON);
+                if (ansi_console)
+                        p = stpcpy(p, ANSI_RED_ON);
                 *p++ = '*';
         }
 
         if (pos > 0 && pos <= width) {
-                p = stpcpy(p, ANSI_HIGHLIGHT_RED_ON);
+                if (ansi_console)
+                        p = stpcpy(p, ANSI_HIGHLIGHT_RED_ON);
                 *p++ = '*';
         }
 
@@ -135,7 +137,8 @@ static void draw_cylon(char buffer[], size_t buflen, unsigned width, unsigned po
                 *p++ = '*';
                 if (pos < width-1)
                         p = mempset(p, ' ', width-1-pos);
-                strcpy(p, ANSI_HIGHLIGHT_OFF);
+                if (ansi_console)
+                        strcpy(p, ANSI_HIGHLIGHT_OFF);
         }
 }
 
@@ -150,6 +153,7 @@ void manager_flip_auto_status(Manager *m, bool enable) {
 }
 
 static void manager_print_jobs_in_progress(Manager *m) {
+        static int is_ansi_console = -1;
         _cleanup_free_ char *job_of_n = NULL;
         Iterator i;
         Job *j;
@@ -174,10 +178,20 @@ static void manager_print_jobs_in_progress(Manager *m) {
         assert(counter == print_nr + 1);
         assert(j);
 
+        if (_unlikely_(is_ansi_console < 0)) {
+                int fd = open_terminal("/dev/console", O_RDONLY|O_NOCTTY|O_CLOEXEC);
+                if (fd < 0)
+                        is_ansi_console = 0;
+                else {
+                        is_ansi_console = (int)ansi_console(fd);
+                        close(fd);
+                }
+        }
+
         cylon_pos = m->jobs_in_progress_iteration % 14;
         if (cylon_pos >= 8)
                 cylon_pos = 14 - cylon_pos;
-        draw_cylon(cylon, sizeof(cylon), 6, cylon_pos);
+        draw_cylon(cylon, sizeof(cylon), 6, cylon_pos, (bool)is_ansi_console);
 
         m->jobs_in_progress_iteration++;
 

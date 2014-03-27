@@ -2910,6 +2910,7 @@ int status_vprintf(const char *status, bool ellipse, bool ephemeral, const char 
         struct iovec iovec[6] = {};
         int n = 0;
         static bool prev_ephemeral;
+        static int is_ansi_console = -1;
 
         assert(format);
 
@@ -2922,6 +2923,41 @@ int status_vprintf(const char *status, bool ellipse, bool ephemeral, const char 
         fd = open_terminal("/dev/console", O_WRONLY|O_NOCTTY|O_CLOEXEC);
         if (fd < 0)
                 return fd;
+
+        if (_unlikely_(is_ansi_console < 0))
+                is_ansi_console = (int)ansi_console(fd);
+
+        if (status && !is_ansi_console) {
+                const char *esc, *ptr;
+                esc = strchr(status, 0x1B);
+                if (esc && (ptr = strpbrk(esc, "SOFDTI*"))) {
+                        switch(*ptr) {
+                        case 'S':
+                                status = " SKIP ";
+                                break;
+                        case 'O':
+                                status = "  OK  ";
+                                break;
+                        case 'F':
+                                status = "FAILED";
+                                break;
+                        case 'D':
+                                status = "DEPEND";
+                                break;
+                        case 'T':
+                                status = " TIME ";
+                                break;
+                        case 'I':
+                                status = " INFO ";
+                                break;
+                        case '*':
+                                status = " BUSY ";
+                                break;
+                        default:
+                                break;
+                        }
+                }
+        }
 
         if (ellipse) {
                 char *e;
@@ -2945,8 +2981,12 @@ int status_vprintf(const char *status, bool ellipse, bool ephemeral, const char 
                 }
         }
 
-        if (prev_ephemeral)
-                IOVEC_SET_STRING(iovec[n++], "\r" ANSI_ERASE_TO_END_OF_LINE);
+        if (prev_ephemeral) {
+                if (is_ansi_console)
+                        IOVEC_SET_STRING(iovec[n++], "\r" ANSI_ERASE_TO_END_OF_LINE);
+                else
+                        IOVEC_SET_STRING(iovec[n++], "\r");
+        }
         prev_ephemeral = ephemeral;
 
         if (status) {
@@ -3193,10 +3233,45 @@ void columns_lines_cache_reset(int signum) {
 bool on_tty(void) {
         static int cached_on_tty = -1;
 
-        if (_unlikely_(cached_on_tty < 0))
+        if (_unlikely_(cached_on_tty < 0)) {
                 cached_on_tty = isatty(STDOUT_FILENO) > 0;
+#if defined (__s390__) || defined (__s390x__)
+                if (cached_on_tty) {
+                        const char *e = getenv("TERM");
+                        if (!e)
+                                return cached_on_tty;
+                        if (streq(e, "dumb") || strneq(e, "ibm3", 4)) {
+                                char *mode = NULL;
+                                int r = parse_env_file("/proc/cmdline", WHITESPACE, "conmode", &mode, NULL);
+                                if (r < 0 || !mode || !streq(mode, "3270"))
+                                        cached_on_tty = 0;
+                        }
+                }
+#endif
+        }
 
         return cached_on_tty;
+}
+
+bool ansi_console(int fd) {
+        static int cached_ansi_console = -1;
+
+        if (_unlikely_(cached_ansi_console < 0)) {
+                cached_ansi_console = isatty(fd) > 0;
+#if defined (__s390__) || defined (__s390x__)
+                if (cached_ansi_console) {
+                        const char *e = getenv("TERM");
+                        if (e && (streq(e, "dumb") || strneq(e, "ibm3", 4))) {
+                                char *mode = NULL;
+                                int r = parse_env_file("/proc/cmdline", WHITESPACE, "conmode", &mode, NULL);
+                                if (r < 0 || !mode || !streq(mode, "3270"))
+                                        cached_ansi_console = 0;
+                        }
+                }
+#endif
+        }
+
+        return cached_ansi_console;
 }
 
 int running_in_chroot(void) {
@@ -3654,7 +3729,25 @@ bool tty_is_vc_resolve(const char *tty) {
 const char *default_term_for_tty(const char *tty) {
         assert(tty);
 
-        return tty_is_vc_resolve(tty) ? "TERM=linux" : "TERM=vt102";
+        if (tty_is_vc_resolve(tty))
+                return "TERM=linux";
+
+        if (startswith(tty, "/dev/"))
+                tty += 5;
+
+#if defined (__s390__) || defined (__s390x__)
+        if (streq(tty, "ttyS0")) {
+                char *mode = NULL;
+                int r = parse_env_file("/proc/cmdline", WHITESPACE, "conmode", &mode, NULL);
+                if (r < 0 || !mode || !streq(mode, "3270"))
+                        return "TERM=dumb";
+                if (streq(mode, "3270"))
+                        return "TERM=ibm327x";
+        }
+        if (streq(tty, "ttyS1"))
+                return "TERM=vt220";
+#endif
+        return "TERM=vt102";
 }
 
 bool dirent_is_file(const struct dirent *de) {
