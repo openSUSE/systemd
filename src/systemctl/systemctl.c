@@ -93,6 +93,7 @@ static bool arg_no_pager = false;
 static bool arg_no_wtmp = false;
 static bool arg_no_wall = false;
 static bool arg_no_reload = false;
+static bool arg_no_sync = false;
 static bool arg_show_types = false;
 static bool arg_ignore_inhibitors = false;
 static bool arg_dry = false;
@@ -5578,6 +5579,7 @@ static int halt_parse_argv(int argc, char *argv[]) {
                 { "reboot",    no_argument,       NULL, ARG_REBOOT  },
                 { "force",     no_argument,       NULL, 'f'         },
                 { "wtmp-only", no_argument,       NULL, 'w'         },
+                { "no-sync",   no_argument,       NULL, 'n'         },
                 { "no-wtmp",   no_argument,       NULL, 'd'         },
                 { "no-wall",   no_argument,       NULL, ARG_NO_WALL },
                 {}
@@ -5629,8 +5631,11 @@ static int halt_parse_argv(int argc, char *argv[]) {
 
                 case 'i':
                 case 'h':
-                case 'n':
                         /* Compatibility nops */
+                        break;
+
+                case 'n':
+                        arg_no_sync = true;
                         break;
 
                 case '?':
@@ -6274,20 +6279,23 @@ done:
 
 static int halt_now(enum action a) {
 
-/* Make sure C-A-D is handled by the kernel from this
+        if (!arg_no_sync)
+                sync();
+
+        /* Make sure C-A-D is handled by the kernel from this
          * point on... */
         reboot(RB_ENABLE_CAD);
 
         switch (a) {
 
-        case ACTION_HALT:
-                log_info("Halting.");
-                reboot(RB_HALT_SYSTEM);
-                return -errno;
-
         case ACTION_POWEROFF:
                 log_info("Powering off.");
                 reboot(RB_POWER_OFF);
+                /* Fall through */
+
+        case ACTION_HALT:
+                log_info("Halting.");
+                reboot(RB_HALT_SYSTEM);
                 return -errno;
 
         case ACTION_REBOOT: {

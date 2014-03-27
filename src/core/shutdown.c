@@ -449,6 +449,10 @@ int main(int argc, char *argv[]) {
         }
 
         reboot(cmd);
+
+        if (cmd == (int)RB_POWER_OFF)
+                reboot(RB_HALT_SYSTEM);
+
         if (errno == EPERM && in_container) {
                 /* If we are in a container, and we lacked
                  * CAP_SYS_BOOT just exit, this will kill our
