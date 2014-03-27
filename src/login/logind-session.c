@@ -525,6 +525,12 @@ int session_start(Session *s) {
         if (r < 0)
                 return r;
 
+        if (!s->user->slice) {
+                if (errno)
+                        return -errno;
+                return -ESTALE;
+        }
+
         /* Create cgroup */
         r = session_start_scope(s);
         if (r < 0)
