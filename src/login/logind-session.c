@@ -1124,6 +1124,7 @@ static const char* const session_type_table[_SESSION_TYPE_MAX] = {
         [SESSION_TTY] = "tty",
         [SESSION_X11] = "x11",
         [SESSION_WAYLAND] = "wayland",
+        [SESSION_MIR] = "mir",
         [SESSION_UNSPECIFIED] = "unspecified",
 };
 
