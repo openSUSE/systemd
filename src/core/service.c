@@ -404,7 +404,7 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
         static const char * const table[] = {
                 /* LSB defined facilities */
                 "local_fs",             NULL,
-                "network",              SPECIAL_NETWORK_TARGET,
+                "network",              SPECIAL_NETWORK_ONLINE_TARGET,
                 "named",                SPECIAL_NSS_LOOKUP_TARGET,
                 "portmap",              SPECIAL_RPCBIND_TARGET,
                 "remote_fs",            SPECIAL_REMOTE_FS_TARGET,
@@ -880,6 +880,9 @@ static int service_load_sysv_path(Service *s, const char *path) {
 
                                         if (r == 0)
                                                 continue;
+
+                                        if (streq(m, SPECIAL_NETWORK_ONLINE_TARGET) && d == UNIT_AFTER && e == _UNIT_DEPENDENCY_INVALID)
+                                                e = UNIT_WANTS;
 
                                         if (e != _UNIT_DEPENDENCY_INVALID)
                                                 r = unit_add_two_dependencies_by_name(u, d, e, m, NULL, true);
