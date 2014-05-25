@@ -11,7 +11,10 @@ Documentation=man:systemd-suspend.service(8)
 DefaultDependencies=no
 Requires=sleep.target
 After=sleep.target
+ConditionKernelCommandLine=resume
 
 [Service]
 Type=oneshot
+ExecStart=@rootbindir@/systemd-sleep-grub pre
 ExecStart=@rootlibexecdir@/systemd-sleep hibernate
+ExecStopPost=@rootbindir@/systemd-sleep-grub post
