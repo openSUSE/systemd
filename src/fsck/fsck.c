@@ -284,10 +284,12 @@ int main(int argc, char *argv[]) {
                 r = access(checker, X_OK);
                 if (r < 0) {
                         if (errno == ENOENT) {
-                                log_info("%s doesn't exist, not checking file system.", checker);
+                                log_info("%s doesn't exist, not checking file system on %s",
+                                         checker, device);
                                 return EXIT_SUCCESS;
                         } else
-                                log_warning("%s cannot be used: %m", checker);
+                                log_warning("%s cannot be used for %s: %m",
+                                            checker, device);
                 }
         }
 
