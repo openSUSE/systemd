@@ -68,8 +68,6 @@ AC_PATH_PROG([XSLTPROC], [xsltproc])
 AC_PATH_PROG([QUOTAON], [quotaon], [/usr/sbin/quotaon])
 AC_PATH_PROG([QUOTACHECK], [quotacheck], [/usr/sbin/quotacheck])
 
-AC_PATH_PROG([SETCAP], [setcap], [/usr/sbin/setcap])
-
 AC_PATH_PROG([KILL], [kill], [/usr/bin/kill])
 
 AC_PATH_PROG([KMOD], [kmod], [/usr/bin/kmod])
