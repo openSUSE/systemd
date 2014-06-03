@@ -293,6 +293,8 @@ int devnode_acl_all(struct udev *udev,
                         if (devnode_acl(devname, flush, del, old_uid, add, new_uid) < 0)
                                 break;
                 }
+                /* required for additional CUDA support (nvidia-uvm module with appropriate device), bnc#879767 */
+                devnode_acl("/dev/nvidia-uvm", flush, del, old_uid, add, new_uid);
         }
 
         return r;
