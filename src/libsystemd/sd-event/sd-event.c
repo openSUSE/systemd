@@ -2047,6 +2047,7 @@ _public_ int sd_event_run(sd_event *e, uint64_t timeout) {
         unsigned ev_queue_max;
         sd_event_source *p;
         int r, i, m;
+        bool timedout;
 
         assert_return(e, -EINVAL);
         assert_return(!event_pid_changed(e), -ECHILD);
@@ -2083,6 +2084,8 @@ _public_ int sd_event_run(sd_event *e, uint64_t timeout) {
                 r = errno == EAGAIN || errno == EINTR ? 1 : -errno;
                 goto finish;
         }
+
+        timedout = m == 0;
 
         dual_timestamp_get(&e->timestamp);
 
@@ -2123,7 +2126,7 @@ _public_ int sd_event_run(sd_event *e, uint64_t timeout) {
 
         p = event_next_pending(e);
         if (!p) {
-                r = 1;
+                r = !timedout;
                 goto finish;
         }
 
