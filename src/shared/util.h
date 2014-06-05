@@ -891,3 +891,5 @@ union file_handle_union {
   struct file_handle handle;
   char padding[sizeof(struct file_handle) + MAX_HANDLE_SZ];
 };
+
+int umount_recursive(const char *target, int flags);
