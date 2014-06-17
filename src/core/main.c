@@ -1247,6 +1247,7 @@ int main(int argc, char *argv[]) {
         bool loaded_policy = false;
         bool arm_reboot_watchdog = false;
         bool queue_default_job = false;
+        bool empty_etc = false;
         char *switch_root_dir = NULL, *switch_root_init = NULL;
         static struct rlimit saved_rlimit_nofile = { 0, 0 };
 
@@ -1516,6 +1517,9 @@ int main(int argc, char *argv[]) {
                 if (in_initrd())
                         log_info("Running in initial RAM disk.");
 
+                empty_etc = dir_is_empty("/etc") > 0;
+                if (empty_etc)
+                        log_info("Running with unpopulated /etc.");
         } else {
                 _cleanup_free_ char *t = uid_to_name(getuid());
                 log_debug(PACKAGE_STRING " running in user mode for user "PID_FMT"/%s. (" SYSTEMD_FEATURES ")",
