@@ -425,19 +425,21 @@ int path_is_os_tree(const char *path) {
 
 int find_binary(const char *name, char **filename) {
         assert(name);
-        assert(filename);
 
-        if (strchr(name, '/')) {
-                char *p;
+        if (is_path(name)) {
+                if (access(name, X_OK) < 0)
+                    return -errno;
 
-                if (path_is_absolute(name))
-                        p = strdup(name);
-                else
+                if (filename) {
+                        char *p;
+
                         p = path_make_absolute_cwd(name);
-                if (!p)
-                        return -ENOMEM;
+                        if (!p)
+                                return -ENOMEM;
 
-                *filename = p;
+                        *filename = p;
+                }
+
                 return 0;
         } else {
                 const char *path;
@@ -463,8 +465,10 @@ int find_binary(const char *name, char **filename) {
                                 continue;
                         }
 
-                        path_kill_slashes(p);
-                        *filename = p;
+                        if (filename) {
+                                path_kill_slashes(p);
+                                *filename = p;
+                        }
 
                         return 0;
                 }
