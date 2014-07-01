@@ -215,12 +215,52 @@ static int open_null_as(int flags, int nfd) {
         return r;
 }
 
-static int connect_logger_as(const ExecContext *context, ExecOutput output, const char *ident, const char *unit_id, int nfd) {
-        int fd, r;
+static int connect_journal_socket(int fd, uid_t uid, gid_t gid) {
         union sockaddr_union sa = {
                 .un.sun_family = AF_UNIX,
                 .un.sun_path = "/run/systemd/journal/stdout",
         };
+        uid_t olduid = ((uid_t) -1);
+        gid_t oldgid = ((gid_t) -1);
+        int r;
+
+        if (gid != ((gid_t) -1)) {
+                oldgid = getgid();
+
+                r = setegid(gid);
+                if (r < 0)
+                        return -errno;
+        }
+
+        if (uid != ((uid_t) -1)) {
+                olduid = getuid();
+
+                r = seteuid(uid);
+                if (r < 0) {
+                        r = -errno;
+                        goto restore_gid;
+                }
+        }
+
+        r = connect(fd, &sa.sa, offsetof(struct sockaddr_un, sun_path) + strlen(sa.un.sun_path));
+        if (r < 0)
+                r = -errno;
+
+        /* If we fail to restore the uid or gid, things will likely
+           fail later on. This should only happen if an LSM interferes. */
+
+        if (uid != ((uid_t) -1))
+                (void) seteuid(olduid);
+
+ restore_gid:
+        if (gid != ((gid_t) -1))
+                (void) setegid(oldgid);
+
+        return r;
+}
+
+static int connect_logger_as(const ExecContext *context, ExecOutput output, const char *ident, const char *unit_id, int nfd, uid_t uid, gid_t gid) {
+        int fd, r;
 
         assert(context);
         assert(output < _EXEC_OUTPUT_MAX);
@@ -231,10 +271,10 @@ static int connect_logger_as(const ExecContext *context, ExecOutput output, cons
         if (fd < 0)
                 return -errno;
 
-        r = connect(fd, &sa.sa, offsetof(struct sockaddr_un, sun_path) + strlen(sa.un.sun_path));
+        r = connect_journal_socket(fd, uid, gid);
         if (r < 0) {
                 close_nointr_nofail(fd);
-                return -errno;
+                return r;
         }
 
         if (shutdown(fd, SHUT_RD) < 0) {
@@ -354,7 +394,7 @@ static int setup_input(const ExecContext *context, int socket_fd, bool apply_tty
         }
 }
 
-static int setup_output(const ExecContext *context, int fileno, int socket_fd, const char *ident, const char *unit_id, bool apply_tty_stdin) {
+static int setup_output(const ExecContext *context, int fileno, int socket_fd, const char *ident, const char *unit_id, bool apply_tty_stdin, uid_t uid, gid_t gid) {
         ExecOutput o;
         ExecInput i;
         int r;
@@ -421,9 +461,9 @@ static int setup_output(const ExecContext *context, int fileno, int socket_fd, c
         case EXEC_OUTPUT_KMSG_AND_CONSOLE:
         case EXEC_OUTPUT_JOURNAL:
         case EXEC_OUTPUT_JOURNAL_AND_CONSOLE:
-                r = connect_logger_as(context, o, ident, unit_id, fileno);
+                r = connect_logger_as(context, o, ident, unit_id, fileno, uid, gid);
                 if (r < 0) {
-                        log_struct_unit(LOG_CRIT, unit_id,
+                        log_struct_unit(LOG_ERR, unit_id,
                                 "MESSAGE=Failed to connect std%s of %s to the journal socket: %s",
                                 fileno == STDOUT_FILENO ? "out" : "err",
                                 unit_id, strerror(-r),
@@ -1291,6 +1331,15 @@ int exec_spawn(ExecCommand *command,
                         }
                 }
 
+                if (context->user) {
+                        username = context->user;
+                        err = get_user_creds(&username, &uid, &gid, &home, &shell);
+                        if (err < 0) {
+                                r = EXIT_USER;
+                                goto fail_child;
+                        }
+                }
+
                 /* If a socket is connected to STDIN/STDOUT/STDERR, we
                  * must sure to drop O_NONBLOCK */
                 if (socket_fd >= 0)
@@ -1302,13 +1351,13 @@ int exec_spawn(ExecCommand *command,
                         goto fail_child;
                 }
 
-                err = setup_output(context, STDOUT_FILENO, socket_fd, basename(command->path), unit_id, apply_tty_stdin);
+                err = setup_output(context, STDOUT_FILENO, socket_fd, basename(command->path), unit_id, apply_tty_stdin, uid, gid);
                 if (err < 0) {
                         r = EXIT_STDOUT;
                         goto fail_child;
                 }
 
-                err = setup_output(context, STDERR_FILENO, socket_fd, basename(command->path), unit_id, apply_tty_stdin);
+                err = setup_output(context, STDERR_FILENO, socket_fd, basename(command->path), unit_id, apply_tty_stdin, uid, gid);
                 if (err < 0) {
                         r = EXIT_STDERR;
                         goto fail_child;
@@ -1390,20 +1439,11 @@ int exec_spawn(ExecCommand *command,
                 if (context->utmp_id)
                         utmp_put_init_process(context->utmp_id, getpid(), getsid(0), context->tty_path);
 
-                if (context->user) {
-                        username = context->user;
-                        err = get_user_creds(&username, &uid, &gid, &home, &shell);
+                if (context->user && is_terminal_input(context->std_input)) {
+                        err = chown_terminal(STDIN_FILENO, uid);
                         if (err < 0) {
-                                r = EXIT_USER;
+                                r = EXIT_STDIN;
                                 goto fail_child;
-                        }
-
-                        if (is_terminal_input(context->std_input)) {
-                                err = chown_terminal(STDIN_FILENO, uid);
-                                if (err < 0) {
-                                        r = EXIT_STDIN;
-                                        goto fail_child;
-                                }
                         }
                 }
 
