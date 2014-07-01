@@ -255,9 +255,13 @@ int util_log_priority(const char *priority)
         char *endptr;
         int prio;
 
-        prio = strtol(priority, &endptr, 10);
-        if (endptr[0] == '\0' || isspace(endptr[0]))
-                return prio;
+        prio = strtoul(priority, &endptr, 10);
+        if (endptr[0] == '\0' || isspace(endptr[0])) {
+                if (prio >= 0 && prio <= 7)
+                        return prio;
+                else
+                        return -ERANGE;
+        }
         if (startswith(priority, "err"))
                 return LOG_ERR;
         if (startswith(priority, "info"))
