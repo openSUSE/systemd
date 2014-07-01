@@ -2536,7 +2536,7 @@ int journal_file_open(
                  * shouldn't be too bad, given that we do our own
                  * checksumming). */
                 r = chattr_fd(f->fd, true, FS_NOCOW_FL);
-                if (r < 0)
+                if (r < 0 && r != -ENOTTY)
                         log_warning("Failed to set file attributes: %m");
 
                 /* Let's attach the creation time to the journal file,
