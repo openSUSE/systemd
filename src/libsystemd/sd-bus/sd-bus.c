@@ -2822,6 +2822,7 @@ static int quit_callback(sd_event_source *event, void *userdata) {
         assert(event);
 
         sd_bus_flush(bus);
+        sd_bus_close(bus);
 
         return 1;
 }
