@@ -340,23 +340,20 @@ static int set_kbd_rate(const char *vc, const char *kbd_rate, const char *kbd_de
 
 int main(int argc, char **argv) {
         const char *vc;
-        char *vc_keymap = NULL;
-        char *vc_keymap_toggle = NULL;
-        char *vc_font = NULL;
-        char *vc_font_map = NULL;
-        char *vc_font_unimap = NULL;
+        _cleanup_free_ char
+                *vc_keymap = NULL, *vc_keymap_toggle = NULL,
+                *vc_font = NULL, *vc_font_map = NULL, *vc_font_unimap = NULL;
+        _cleanup_close_ int fd = -1;
 #ifdef HAVE_SYSV_COMPAT
-        char *vc_kbd_delay = NULL;
-        char *vc_kbd_rate = NULL;
-        char *vc_kbd_disable_caps_lock = NULL;
-        char *vc_kbd_numlock = NULL;
-        char *vc_compose_table = NULL;
+        _cleanup_free_ char
+                *vc_kbd_numlock = NULL, *vc_kbd_delay = NULL,
+                *vc_kbd_rate = NULL, * vc_kbd_disable_caps_lock = NULL,
+                *vc_compose_table = NULL;
         pid_t kbd_rate_pid = 0, compose_table_pid = 0;
+        bool numlock = false;
 #endif
-        int fd = -1;
         bool utf8;
         bool disable_capslock = false;
-        bool numlock = false;
         pid_t font_pid = 0, keymap_pid = 0;
         bool font_copy = false;
         int r = EXIT_FAILURE;
@@ -377,12 +374,12 @@ int main(int argc, char **argv) {
         fd = open_terminal(vc, O_RDWR|O_CLOEXEC);
         if (fd < 0) {
                 log_error("Failed to open %s: %m", vc);
-                goto finish;
+                return EXIT_FAILURE;
         }
 
         if (!is_vconsole(fd)) {
                 log_error("Device %s is not a virtual console.", vc);
-                goto finish;
+                return EXIT_FAILURE;
         }
 
         utf8 = is_locale_utf8();
@@ -464,58 +461,62 @@ int main(int argc, char **argv) {
                 if (r < 0 && r != -ENOENT)
                         log_warning("Failed to read /proc/cmdline: %s", strerror(-r));
         }
+#ifdef HAVE_SYSV_COMPAT
+finish:
+        r = set_kbd_rate(vc, vc_kbd_rate, vc_kbd_delay, &kbd_rate_pid);
+        if (r < 0) {
+                log_error("Failed to start /bin/kbdrate: %s", strerror(-r));
+                return EXIT_FAILURE;
+        }
+
+        if (kbd_rate_pid > 0)
+                wait_for_terminate_and_warn("/bin/kbdrate", kbd_rate_pid);
+#endif
 
         if (utf8)
                 enable_utf8(fd);
         else
                 disable_utf8(fd);
 
-        r = EXIT_FAILURE;
+        r = font_load(vc, vc_font, vc_font_map, vc_font_unimap, &font_pid);
+        if (r < 0) {
+                log_error("Failed to start " KBD_SETFONT ": %s", strerror(-r));
+                return EXIT_FAILURE;
+        }
 
-        if (keymap_load(vc, vc_keymap, vc_keymap_toggle, utf8, disable_capslock, &keymap_pid) >= 0 &&
+        if (font_pid > 0)
+                wait_for_terminate_and_warn(KBD_SETFONT, font_pid);
+
 #ifdef HAVE_SYSV_COMPAT
-            load_compose_table(vc, vc_compose_table, &compose_table_pid) >= 0 &&
-            set_kbd_rate(vc, vc_kbd_rate, vc_kbd_delay, &kbd_rate_pid) >= 0 &&
-#endif
-            font_load(vc, vc_font, vc_font_map, vc_font_unimap, &font_pid) >= 0)
-                r = EXIT_SUCCESS;
+        r = load_compose_table(vc, vc_compose_table, &compose_table_pid);
+        if (r < 0) {
+                log_error("Failed to start " KBD_LOADKEYS ": %s", strerror(-r));
+                return EXIT_FAILURE;
+        }
 
-finish:
+        if (compose_table_pid > 0)
+                wait_for_terminate_and_warn(KBD_LOADKEYS, compose_table_pid);
+#endif
+
+        r = keymap_load(vc, vc_keymap, vc_keymap_toggle, utf8, disable_capslock, &keymap_pid);
+        if (r < 0) {
+                log_error("Failed to start " KBD_LOADKEYS ": %s", strerror(-r));
+                return EXIT_FAILURE;
+        }
+
         if (keymap_pid > 0)
                 wait_for_terminate_and_warn(KBD_LOADKEYS, keymap_pid);
+
+#ifdef HAVE_SYSV_COMPAT
         if (numlock)
                 touch("/run/numlock-on");
         else
                 unlink("/run/numlock-on");
-
-#ifdef HAVE_SYSV_COMPAT
-        if (compose_table_pid > 0)
-                wait_for_terminate_and_warn(KBD_LOADKEYS, compose_table_pid);
-
-        if (kbd_rate_pid > 0)
-                wait_for_terminate_and_warn("/bin/kbdrate", kbd_rate_pid);
 #endif
 
-        if (font_pid > 0) {
-                wait_for_terminate_and_warn(KBD_SETFONT, font_pid);
-                if (font_copy)
-                        font_copy_to_all_vcs(fd);
-        }
-
-        free(vc_keymap);
-        free(vc_font);
-        free(vc_font_map);
-        free(vc_font_unimap);
-        free(vc_kbd_numlock);
-#ifdef HAVE_SYSV_COMPAT
-        free(vc_kbd_delay);
-        free(vc_kbd_rate);
-        free(vc_kbd_disable_caps_lock);
-        free(vc_compose_table);
-#endif
-
-        if (fd >= 0)
-                close_nointr_nofail(fd);
+        /* Only copy the font when we started setfont successfully */
+        if (font_copy && font_pid > 0)
+                font_copy_to_all_vcs(fd);
 
         return r;
 }
