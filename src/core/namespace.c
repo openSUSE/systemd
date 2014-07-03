@@ -262,14 +262,17 @@ static int make_read_only(BindMount *m) {
 
         assert(m);
 
-        if (m->mode != INACCESSIBLE && m->mode != READONLY)
-                return 0;
+        if (IN_SET(m->mode, INACCESSIBLE, READONLY))
+                r = mount(NULL, m->path, NULL, MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
+        else if (IN_SET(m->mode, READWRITE, PRIVATE_TMP, PRIVATE_VAR_TMP, PRIVATE_DEV))
+                r = mount(NULL, m->path, NULL, MS_BIND|MS_REMOUNT|MS_REC, NULL);
+        else
+                r = 0;
 
-        r = mount(NULL, m->path, NULL, MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
         if (r < 0 && !(m->ignore && errno == ENOENT))
                 return -errno;
 
-        return 0;
+        return r;
 }
 
 int setup_namespace(
