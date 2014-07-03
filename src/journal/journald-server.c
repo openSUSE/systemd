@@ -1702,6 +1702,7 @@ void server_done(Server *s) {
         free(s->buffer);
         free(s->tty_path);
         free(s->cgroup_root);
+        free(s->hostname_field);
 
         if (s->mmap)
                 mmap_cache_unref(s->mmap);
