@@ -1104,7 +1104,7 @@ int manager_enumerate(Manager *m) {
 }
 
 static int manager_coldplug(Manager *m) {
-        int r = 0, q;
+        int r = 0;
         Iterator i;
         Unit *u;
         char *k;
@@ -1113,12 +1113,14 @@ static int manager_coldplug(Manager *m) {
 
         /* Then, let's set up their initial state. */
         HASHMAP_FOREACH_KEY(u, k, m->units, i) {
+                int q;
 
                 /* ignore aliases */
                 if (u->id != k)
                         continue;
 
-                if ((q = unit_coldplug(u)) < 0)
+                q = unit_coldplug(u);
+                if (q < 0)
                         r = q;
         }
 
@@ -1260,6 +1262,7 @@ int manager_startup(Manager *m, FILE *serialization, FDSet *fds) {
          * didn't, then let's create the bus now. */
         manager_setup_kdbus(m);
         manager_connect_bus(m, !!serialization);
+        bus_track_coldplug(m, &m->subscribed, &m->deserialized_subscribed);
 
         /* Third, fire things up! */
         q = manager_coldplug(m);
@@ -2372,7 +2375,7 @@ int manager_serialize(Manager *m, FILE *f, FDSet *fds, bool switching_root) {
                 fprintf(f, "kdbus-fd=%i\n", copy);
         }
 
-        bus_serialize(m, f);
+        bus_track_serialize(m->subscribed, f);
 
         fputc('\n', f);
 
@@ -2546,7 +2549,7 @@ int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
                                 m->kdbus_fd = fdset_remove(fds, fd);
                         }
 
-                } else if (bus_deserialize_item(m, l) == 0)
+                } else if (bus_track_deserialize_item(&m->deserialized_subscribed, l) == 0)
                         log_debug("Unknown serialization item '%s'", l);
         }
 

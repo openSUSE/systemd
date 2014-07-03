@@ -980,8 +980,6 @@ libsystemd_core_la_SOURCES = \
 	src/core/dbus-kill.h \
 	src/core/dbus-cgroup.c \
 	src/core/dbus-cgroup.h \
-	src/core/dbus-client-track.c \
-	src/core/dbus-client-track.h \
 	src/core/cgroup.c \
 	src/core/cgroup.h \
 	src/core/selinux-access.c \
@@ -2048,6 +2046,8 @@ libsystemd_internal_la_SOURCES = \
 	src/libsystemd/sd-bus/bus-gvariant.c \
 	src/libsystemd/sd-bus/bus-gvariant.h \
 	src/libsystemd/sd-bus/bus-convenience.c \
+	src/libsystemd/sd-bus/bus-track.c \
+	src/libsystemd/sd-bus/bus-track.h \
 	src/libsystemd/sd-bus/bus-util.c \
 	src/libsystemd/sd-bus/bus-util.h \
 	src/libsystemd/sd-bus/bus-protocol.h \
