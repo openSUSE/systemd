@@ -544,7 +544,7 @@ static int manager_setup_notify(Manager *m) {
 
                 r = bind(fd, &sa.sa, offsetof(struct sockaddr_un, sun_path) + 1 + strlen(sa.un.sun_path+1));
                 if (r < 0) {
-                        log_error("bind() failed: %m");
+                        log_error("bind(@%s) failed: %m", sa.un.sun_path+1);
                         return -errno;
                 }
 
