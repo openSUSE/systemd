@@ -25,6 +25,7 @@
 #include <lzma.h>
 
 #include "macro.h"
+#include "util.h"
 #include "compress.h"
 
 bool compress_blob(const void *src, uint64_t src_size, void *dst, uint64_t *dst_size) {
@@ -69,10 +70,9 @@ fail:
 bool uncompress_blob(const void *src, uint64_t src_size,
                      void **dst, uint64_t *dst_alloc_size, uint64_t* dst_size, uint64_t dst_max) {
 
-        lzma_stream s = LZMA_STREAM_INIT;
+        _cleanup_(lzma_end) lzma_stream s = LZMA_STREAM_INIT;
         lzma_ret ret;
         uint64_t space;
-        bool b = false;
 
         assert(src);
         assert(src_size > 0);
@@ -85,26 +85,18 @@ bool uncompress_blob(const void *src, uint64_t src_size,
         if (ret != LZMA_OK)
                 return false;
 
-        if (*dst_alloc_size <= src_size) {
-                void *p;
-
-                p = realloc(*dst, src_size*2);
-                if (!p)
-                        return false;
-
-                *dst = p;
-                *dst_alloc_size = src_size*2;
-        }
+        space = MIN(src_size * 2, dst_max ?: (uint64_t) -1);
+        if (!greedy_realloc(dst, dst_alloc_size, space))
+                return false;
 
         s.next_in = src;
         s.avail_in = src_size;
 
         s.next_out = *dst;
-        space = dst_max > 0 ? MIN(*dst_alloc_size, dst_max) : *dst_alloc_size;
         s.avail_out = space;
 
         for (;;) {
-                void *p;
+                uint64_t used;
 
                 ret = lzma_code(&s, LZMA_FINISH);
 
@@ -112,31 +104,25 @@ bool uncompress_blob(const void *src, uint64_t src_size,
                         break;
 
                 if (ret != LZMA_OK)
-                        goto fail;
+                        return false;
 
                 if (dst_max > 0 && (space - s.avail_out) >= dst_max)
                         break;
 
-                p = realloc(*dst, space*2);
-                if (!p)
-                        goto fail;
+                if (dst_max > 0 && space == dst_max)
+                        return false;
 
-                s.next_out = (uint8_t*) p + ((uint8_t*) s.next_out - (uint8_t*) *dst);
-                s.avail_out += space;
+                used = space - s.avail_out;
+                space = MIN(2 * space, dst_max ?: (uint64_t) -1);
+                if (!greedy_realloc(dst, dst_alloc_size, space))
+                        return false;
 
-                space *= 2;
-
-                *dst = p;
-                *dst_alloc_size = space;
+                s.avail_out = space - used;
+                s.next_out = *dst + used;
         }
 
         *dst_size = space - s.avail_out;
-        b = true;
-
-fail:
-        lzma_end(&s);
-
-        return b;
+        return true;
 }
 
 bool uncompress_startswith(const void *src, uint64_t src_size,
@@ -144,9 +130,8 @@ bool uncompress_startswith(const void *src, uint64_t src_size,
                            const void *prefix, uint64_t prefix_len,
                            uint8_t extra) {
 
-        lzma_stream s = LZMA_STREAM_INIT;
+        _cleanup_(lzma_end) lzma_stream s = LZMA_STREAM_INIT;
         lzma_ret ret;
-        bool b = false;
 
         /* Checks whether the uncompressed blob starts with the
          * mentioned prefix. The byte extra needs to follow the
@@ -163,16 +148,8 @@ bool uncompress_startswith(const void *src, uint64_t src_size,
         if (ret != LZMA_OK)
                 return false;
 
-        if (*buffer_size <= prefix_len) {
-                void *p;
-
-                p = realloc(*buffer, prefix_len*2);
-                if (!p)
-                        return false;
-
-                *buffer = p;
-                *buffer_size = prefix_len*2;
-        }
+        if (!(greedy_realloc(buffer, buffer_size, prefix_len + 1)))
+                return false;
 
         s.next_in = src;
         s.avail_in = src_size;
@@ -181,36 +158,23 @@ bool uncompress_startswith(const void *src, uint64_t src_size,
         s.avail_out = *buffer_size;
 
         for (;;) {
-                void *p;
-
                 ret = lzma_code(&s, LZMA_FINISH);
 
                 if (ret != LZMA_STREAM_END && ret != LZMA_OK)
-                        goto fail;
+                        return false;
 
-                if ((*buffer_size - s.avail_out > prefix_len) &&
-                    memcmp(*buffer, prefix, prefix_len) == 0 &&
-                    ((const uint8_t*) *buffer)[prefix_len] == extra)
-                        break;
+                if (*buffer_size - s.avail_out >= prefix_len + 1)
+                        return memcmp(*buffer, prefix, prefix_len) == 0 &&
+                                ((const uint8_t*) *buffer)[prefix_len] == extra;
 
                 if (ret == LZMA_STREAM_END)
-                        goto fail;
+                        return false;
 
-                p = realloc(*buffer, *buffer_size*2);
-                if (!p)
-                        goto fail;
-
-                s.next_out = (uint8_t*) p + ((uint8_t*) s.next_out - (uint8_t*) *buffer);
                 s.avail_out += *buffer_size;
 
-                *buffer = p;
-                *buffer_size *= 2;
+                if (!(greedy_realloc(buffer, buffer_size, *buffer_size * 2)))
+                        return false;
+
+                s.next_out = *buffer + *buffer_size - s.avail_out;
         }
-
-        b = true;
-
-fail:
-        lzma_end(&s);
-
-        return b;
 }
