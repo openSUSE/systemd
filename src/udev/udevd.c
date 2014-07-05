@@ -903,7 +903,7 @@ static void kernel_cmdline_options(struct udev *udev)
                 return;
 
         FOREACH_WORD_QUOTED(w, l, line, state) {
-                char *s, *opt;
+                char *s, *opt, *value;
 
                 s = strndup(w, l);
                 if (!s)
@@ -915,24 +915,24 @@ static void kernel_cmdline_options(struct udev *udev)
                 else
                         opt = s;
 
-                if (startswith(opt, "udev.log-priority=")) {
+                if ((value = startswith(opt, "udev.log-priority="))) {
                         int prio;
 
-                        prio = util_log_priority(opt + 18);
+                        prio = util_log_priority(value);
                         log_set_max_level(prio);
                         udev_set_log_priority(udev, prio);
-                } else if (startswith(opt, "udev.children-max=")) {
-                        r = safe_atoi(opt + 18, &children_max);
+                } else if ((value = startswith(opt, "udev.children-max="))) {
+                        r = safe_atoi(value, &children_max);
                         if (r < 0)
-                                log_warning("Invalid udev.children-max ignored: %s", opt + 18);
-                } else if (startswith(opt, "udev.exec-delay=")) {
-                        r = safe_atoi(opt + 16, &exec_delay);
+                                log_warning("Invalid udev.children-max ignored: %s", value);
+                } else if ((value = startswith(opt, "udev.exec-delay="))) {
+                        r = safe_atoi(value, &exec_delay);
                         if (r < 0)
-                                log_warning("Invalid udev.exec-delay ignored: %s", opt + 16);
-                } else if (startswith(opt, "udev.event-timeout=")) {
-                        r = safe_atou64(opt + 19, &event_timeout_usec);
+                                log_warning("Invalid udev.exec-delay ignored: %s", value);
+                } else if ((value = startswith(opt, "udev.event-timeout="))) {
+                        r = safe_atou64(value, &event_timeout_usec);
                         if (r < 0) {
-                                log_warning("Invalid udev.event-timeout ignored: %s", opt + 19);
+                                log_warning("Invalid udev.event-timeout ignored: %s", value);
                                 break;
                         }
                         event_timeout_usec *= USEC_PER_SEC;
