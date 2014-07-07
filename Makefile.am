@@ -180,6 +180,7 @@ AM_CPPFLAGS = \
 	-DPOLKIT_AGENT_BINARY_PATH=\"$(bindir)/pkttyagent\" \
 	-DQUOTACHECK=\"$(QUOTACHECK)\" \
 	-DKEXEC=\"$(KEXEC)\" \
+	-DTEST_DIR=\"$(abs_top_srcdir)/test\" \
 	-I $(top_srcdir)/src \
 	-I $(top_builddir)/src/shared \
 	-I $(top_srcdir)/src/shared \
@@ -1136,7 +1137,6 @@ CLEANFILES += \
 
 # ------------------------------------------------------------------------------
 manual_tests += \
-	test-engine \
 	test-ns \
 	test-loopback \
 	test-hostname \
@@ -1147,6 +1147,7 @@ manual_tests += \
 	test-log
 
 tests += \
+	test-engine \
 	test-job-type \
 	test-env-replace \
 	test-strbuf \

@@ -439,6 +439,9 @@ static int manager_setup_time_change(Manager *m) {
         assert(m);
         assert_cc(sizeof(time_t) == sizeof(TIME_T_MAX));
 
+        if (m->test_run)
+                return 0;
+
         /* Uses TFD_TIMER_CANCEL_ON_SET to get notifications whenever
          * CLOCK_REALTIME makes a jump relative to CLOCK_MONOTONIC */
 
@@ -500,6 +503,9 @@ static int manager_setup_signals(Manager *m) {
         int r;
 
         assert(m);
+
+        if (m->test_run)
+                return 0;
 
         assert_se(sigaction(SIGCHLD, &sa, NULL) == 0);
 
@@ -633,7 +639,7 @@ static int manager_default_environment(Manager *m) {
         return 0;
 }
 
-int manager_new(SystemdRunningAs running_as, Manager **_m) {
+int manager_new(SystemdRunningAs running_as, bool test_run, Manager **_m) {
         Manager *m;
         int r;
 
@@ -661,6 +667,8 @@ int manager_new(SystemdRunningAs running_as, Manager **_m) {
         m->resolv_conf_inotify_fd = -1;
         m->ask_password_inotify_fd = -1;
         m->have_ask_password = -EINVAL; /* we don't know */
+
+        m->test_run = test_run;
 
         r = manager_default_environment(m);
         if (r < 0)
@@ -743,6 +751,9 @@ static int manager_setup_notify(Manager *m) {
         };
         int one = 1, r;
 
+        if (m->test_run)
+                return 0;
+
         if (m->notify_fd < 0) {
                 _cleanup_close_ int fd = -1;
 
@@ -822,12 +833,10 @@ static int manager_setup_notify(Manager *m) {
 static int manager_setup_kdbus(Manager *m) {
 #ifdef ENABLE_KDBUS
         _cleanup_free_ char *p = NULL;
-#endif
 
-#ifdef ENABLE_KDBUS
         assert(m);
 
-        if (m->kdbus_fd >= 0)
+        if (m->test_run || m->kdbus_fd >= 0)
                 return 0;
 
         m->kdbus_fd = bus_kernel_create_bus(m->running_as == SYSTEMD_SYSTEM ? "system" : "user", m->running_as == SYSTEMD_SYSTEM, &p);
@@ -853,6 +862,9 @@ static int manager_connect_bus(Manager *m, bool reexecuting) {
         bool try_bus_connect;
 
         assert(m);
+
+        if (m->test_run)
+                return 0;
 
         try_bus_connect =
                 m->kdbus_fd >= 0 ||
@@ -2881,6 +2893,9 @@ void manager_run_generators(Manager *m) {
         int r;
 
         assert(m);
+
+        if (m->test_run)
+                return;
 
         generator_path = m->running_as == SYSTEMD_SYSTEM ? SYSTEM_GENERATOR_PATH : USER_GENERATOR_PATH;
         d = opendir(generator_path);

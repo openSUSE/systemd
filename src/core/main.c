@@ -1472,6 +1472,9 @@ int main(int argc, char *argv[]) {
                 goto finish;
         }
 
+        if (arg_action == ACTION_TEST)
+                skip_setup = true;
+
         pager_open_if_enabled();
 
         if (arg_action == ACTION_HELP) {
@@ -1542,7 +1545,8 @@ int main(int argc, char *argv[]) {
         if (arg_running_as == SYSTEMD_SYSTEM) {
                 const char *virtualization = NULL;
 
-                log_info(PACKAGE_STRING " running in system mode. (" SYSTEMD_FEATURES ")");
+                log_info(PACKAGE_STRING " running in %ssystem mode. (" SYSTEMD_FEATURES ")",
+                         arg_action == ACTION_TEST ? "test " : "" );
 
                 detect_virtualization(&virtualization);
                 if (virtualization)
@@ -1559,7 +1563,8 @@ int main(int argc, char *argv[]) {
                 _cleanup_free_ char *t;
 
                 t = uid_to_name(getuid());
-                log_debug(PACKAGE_STRING " running in user mode for user "UID_FMT"/%s. (" SYSTEMD_FEATURES ")", getuid(), strna(t));
+                log_debug(PACKAGE_STRING " running in %suser mode for user "UID_FMT"/%s. (" SYSTEMD_FEATURES ")",
+                          arg_action == ACTION_TEST ? " test" : "", getuid(), t);
         }
 
         if (arg_running_as == SYSTEMD_SYSTEM && !skip_setup) {
@@ -1617,7 +1622,7 @@ int main(int argc, char *argv[]) {
         if (arg_running_as == SYSTEMD_SYSTEM)
                 bump_rlimit_nofile(&saved_rlimit_nofile);
 
-        r = manager_new(arg_running_as, &m);
+        r = manager_new(arg_running_as, arg_action == ACTION_TEST, &m);
         if (r < 0) {
                 log_error("Failed to allocate manager object: %s", strerror(-r));
                 goto finish;
