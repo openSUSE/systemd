@@ -877,3 +877,5 @@ unsigned long personality_from_string(const char *p);
 const char *personality_to_string(unsigned long);
 
 int fflush_and_check(FILE *f);
+
+int take_password_lock(const char *root);
