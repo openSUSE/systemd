@@ -23,6 +23,8 @@
 
 #include "util.h"
 
+/* A cleaned up architecture definition */
+
 typedef enum Architecture {
         ARCHITECTURE_X86 = 0,
         ARCHITECTURE_X86_64,
@@ -38,7 +40,9 @@ typedef enum Architecture {
         ARCHITECTURE_SPARC,
         ARCHITECTURE_SPARC64,
         ARCHITECTURE_MIPS,
+        ARCHITECTURE_MIPS_LE,
         ARCHITECTURE_MIPS64,
+        ARCHITECTURE_MIPS64_LE,
         ARCHITECTURE_ALPHA,
         ARCHITECTURE_ARM,
         ARCHITECTURE_ARM_BE,
