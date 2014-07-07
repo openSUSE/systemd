@@ -1592,7 +1592,8 @@ int read_one_char(FILE *f, char *ret, usec_t t, bool *need_nl) {
         return 0;
 }
 
-int ask(char *ret, const char *replies, const char *text, ...) {
+int ask_char(char *ret, const char *replies, const char *text, ...) {
+        int r;
 
         assert(ret);
         assert(replies);
@@ -1601,7 +1602,6 @@ int ask(char *ret, const char *replies, const char *text, ...) {
         for (;;) {
                 va_list ap;
                 char c;
-                int r;
                 bool need_nl = true;
 
                 if (on_tty())
@@ -1637,6 +1637,49 @@ int ask(char *ret, const char *replies, const char *text, ...) {
                 }
 
                 puts("Read unexpected character, please try again.");
+        }
+}
+
+int ask_string(char **ret, const char *text, ...) {
+        assert(ret);
+        assert(text);
+
+        for (;;) {
+                char line[LINE_MAX];
+                va_list ap;
+
+                if (on_tty())
+                        fputs(ANSI_HIGHLIGHT_ON, stdout);
+
+                va_start(ap, text);
+                vprintf(text, ap);
+                va_end(ap);
+
+                if (on_tty())
+                        fputs(ANSI_HIGHLIGHT_OFF, stdout);
+
+                fflush(stdout);
+
+                errno = 0;
+                if (!fgets(line, sizeof(line), stdin))
+                        return errno ? -errno : -EIO;
+
+                if (!endswith(line, "\n"))
+                        putchar('\n');
+                else {
+                        char *s;
+
+                        if (isempty(line))
+                                continue;
+
+                        truncate_nl(line);
+                        s = strdup(line);
+                        if (!s)
+                                return -ENOMEM;
+
+                        *ret = s;
+                        return 0;
+                }
         }
 }
 
@@ -3661,7 +3704,7 @@ bool dirent_is_file_with_suffix(const struct dirent *de, const char *suffix) {
         return endswith(de->d_name, suffix);
 }
 
-void execute_directory(const char *directory, DIR *d, char *argv[]) {
+void execute_directory(const char *directory, DIR *d, char *argv[], char *env[]) {
         DIR *_d = NULL;
         struct dirent *de;
         Hashmap *pids = NULL;
@@ -3718,6 +3761,13 @@ void execute_directory(const char *directory, DIR *d, char *argv[]) {
                                 argv = _argv;
                         } else
                                 argv[0] = path;
+
+                        if (!strv_isempty(env)) {
+                                char **i;
+
+                                STRV_FOREACH(i, env)
+                                        putenv(*i);
+                        }
 
                         execv(path, argv);
 
@@ -6268,4 +6318,16 @@ const char* personality_to_string(unsigned long p) {
 #endif
 
         return NULL;
+}
+
+int fflush_and_check(FILE *f) {
+        assert(f);
+
+        errno = 0;
+        fflush(f);
+
+        if (ferror(f))
+                return errno ? -errno : -EIO;
+
+        return 0;
 }

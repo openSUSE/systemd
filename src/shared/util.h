@@ -354,7 +354,8 @@ bool fstype_is_network(const char *fstype);
 int chvt(int vt);
 
 int read_one_char(FILE *f, char *ret, usec_t timeout, bool *need_nl);
-int ask(char *ret, const char *replies, const char *text, ...) _printf_(3, 4);
+int ask_char(char *ret, const char *replies, const char *text, ...) _printf_(3, 4);
+int ask_string(char **ret, const char *text, ...) _printf_(2, 3);
 
 int reset_terminal_fd(int fd, bool switch_to_text);
 int reset_terminal(const char *name);
@@ -473,7 +474,7 @@ bool tty_is_console(const char *tty) _pure_;
 int vtnr_from_tty(const char *tty);
 const char *default_term_for_tty(const char *tty);
 
-void execute_directory(const char *directory, DIR *_d, char *argv[]);
+void execute_directory(const char *directory, DIR *_d, char *argv[], char *env[]);
 
 int kill_and_sigcont(pid_t pid, int sig);
 
@@ -874,3 +875,5 @@ int fd_warn_permissions(const char *path, int fd);
 
 unsigned long personality_from_string(const char *p);
 const char *personality_to_string(unsigned long);
+
+int fflush_and_check(FILE *f);

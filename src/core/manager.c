@@ -2471,6 +2471,9 @@ void manager_check_finished(Manager *m) {
         /* Turn off confirm spawn now */
         m->confirm_spawn = false;
 
+        /* This is no longer the first boot */
+        m->is_first_boot = false;
+
         if (dual_timestamp_is_set(&m->finish_timestamp))
                 return;
 
@@ -2620,6 +2623,7 @@ void manager_run_generators(Manager *m) {
         _cleanup_closedir_ DIR *d = NULL;
         const char *generator_path;
         const char *argv[5];
+        const char *env[2];
         int r;
 
         assert(m);
@@ -2653,8 +2657,14 @@ void manager_run_generators(Manager *m) {
         argv[3] = m->generator_unit_path_late;
         argv[4] = NULL;
 
+        if (m->is_first_boot) {
+                env[0] = (char*) "SYSTEMD_FIRST_BOOT=1";
+                env[1] = NULL;
+        } else
+                env[0] = NULL;
+
         RUN_WITH_UMASK(0022)
-                execute_directory(generator_path, d, (char**) argv);
+                execute_directory(generator_path, d, (char**) argv, (char **) env);
 
 finish:
         trim_generator_dir(m, &m->generator_unit_path);
