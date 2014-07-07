@@ -3704,7 +3704,7 @@ bool dirent_is_file_with_suffix(const struct dirent *de, const char *suffix) {
         return endswith(de->d_name, suffix);
 }
 
-void execute_directory(const char *directory, DIR *d, char *argv[], char *env[]) {
+void execute_directory(const char *directory, DIR *d, char *argv[]) {
         DIR *_d = NULL;
         struct dirent *de;
         Hashmap *pids = NULL;
@@ -3761,13 +3761,6 @@ void execute_directory(const char *directory, DIR *d, char *argv[], char *env[])
                                 argv = _argv;
                         } else
                                 argv[0] = path;
-
-                        if (!strv_isempty(env)) {
-                                char **i;
-
-                                STRV_FOREACH(i, env)
-                                        putenv(*i);
-                        }
 
                         execv(path, argv);
 

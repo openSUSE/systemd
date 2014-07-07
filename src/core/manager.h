@@ -205,6 +205,7 @@ struct Manager {
         bool dispatching_dbus_queue:1;
 
         bool taint_usr:1;
+        bool first_boot:1;
 
         ShowStatus show_status;
         bool confirm_spawn;
@@ -217,8 +218,6 @@ struct Manager {
 
         usec_t default_start_limit_interval;
         unsigned default_start_limit_burst;
-
-        bool is_first_boot;
 
         struct rlimit *rlimit[RLIMIT_NLIMITS];
 
@@ -307,6 +306,8 @@ void manager_undo_generators(Manager *m);
 void manager_recheck_journal(Manager *m);
 
 void manager_set_show_status(Manager *m, ShowStatus mode);
+void manager_set_first_boot(Manager *m, bool b);
+
 void manager_status_printf(Manager *m, bool ephemeral, const char *status, const char *format, ...) _printf_(4,5);
 void manager_flip_auto_status(Manager *m, bool enable);
 

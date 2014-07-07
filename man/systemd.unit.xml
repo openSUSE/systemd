@@ -880,6 +880,7 @@
                                 <term><varname>ConditionSecurity=</varname></term>
                                 <term><varname>ConditionCapability=</varname></term>
                                 <term><varname>ConditionACPower=</varname></term>
+                                <term><varname>ConditionFirstBoot=</varname></term>
                                 <term><varname>ConditionPathExists=</varname></term>
                                 <term><varname>ConditionPathExistsGlob=</varname></term>
                                 <term><varname>ConditionPathIsDirectory=</varname></term>
@@ -1047,6 +1048,18 @@
                                 at least one AC connector known and
                                 all AC connectors are disconnected
                                 from a power source.</para>
+
+                                <para><varname>ConditionFirstBoot=</varname>
+                                takes a boolean argument. This
+                                condition may be used to
+                                conditionalize units on whether the
+                                system is booting up with an
+                                unpopulated <filename>/etc</filename>
+                                directory. This may be used to
+                                populate <filename>/etc</filename> on
+                                the first boot after factory reset, or
+                                when a new system instances boots up
+                                for the first time.</para>
 
                                 <para>With
                                 <varname>ConditionPathExists=</varname>
