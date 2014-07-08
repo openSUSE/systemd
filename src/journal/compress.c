@@ -29,8 +29,15 @@
 #include "compress.h"
 
 bool compress_blob(const void *src, uint64_t src_size, void *dst, uint64_t *dst_size) {
-        lzma_stream s = LZMA_STREAM_INIT;
+        static const lzma_options_lzma opt = {
+                1u << 20u, NULL, 0, LZMA_LC_DEFAULT, LZMA_LP_DEFAULT,
+                LZMA_PB_DEFAULT, LZMA_MODE_FAST, 128, LZMA_MF_HC3, 4};
+        static const lzma_filter filters[2] = {
+                {LZMA_FILTER_LZMA2, (lzma_options_lzma*) &opt},
+                {LZMA_VLI_UNKNOWN, NULL}
+        };
         lzma_ret ret;
+        size_t out_pos = 0;
         bool b = false;
 
         assert(src);
@@ -41,28 +48,16 @@ bool compress_blob(const void *src, uint64_t src_size, void *dst, uint64_t *dst_
         /* Returns false if we couldn't compress the data or the
          * compressed result is longer than the original */
 
-        ret = lzma_easy_encoder(&s, LZMA_PRESET_DEFAULT, LZMA_CHECK_NONE);
+        if (src_size < 80)
+                return false;
+
+        ret = lzma_stream_buffer_encode((lzma_filter*) filters, LZMA_CHECK_NONE, NULL,
+                                        src, src_size, dst, &out_pos, src_size - 1);
         if (ret != LZMA_OK)
                 return false;
 
-        s.next_in = src;
-        s.avail_in = src_size;
-        s.next_out = dst;
-        s.avail_out = src_size;
-
-        /* Does it fit? */
-        if (lzma_code(&s, LZMA_FINISH) != LZMA_STREAM_END)
-                goto fail;
-
-        /* Is it actually shorter? */
-        if (s.avail_out == 0)
-                goto fail;
-
-        *dst_size = src_size - s.avail_out;
+        *dst_size = out_pos;
         b = true;
-
-fail:
-        lzma_end(&s);
 
         return b;
 }
