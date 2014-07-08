@@ -1992,7 +1992,8 @@ int acquire_terminal(
                  * ended our handle will be dead. It's important that
                  * we do this after sleeping, so that we don't enter
                  * an endless loop. */
-                close_nointr_nofail(fd);
+                if (fd >= 0) close_nointr_nofail(fd);
+                fd = -1;
         }
 
         if (notify >= 0)
