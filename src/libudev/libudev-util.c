@@ -422,33 +422,3 @@ static int parse_proc_cmdline_word(const char *word) {
 
         return 0;
 }
-
-ssize_t print_kmsg(const char *fmt, ...)
-{
-        _cleanup_close_ int fd = -1;
-        va_list ap;
-        char text[1024];
-        ssize_t len;
-        ssize_t ret;
-
-        if (parse_proc_cmdline(parse_proc_cmdline_word) == -115) {
-                fd = open("/dev/null", O_WRONLY|O_NOCTTY|O_CLOEXEC);
-        } else {
-                fd = open("/dev/kmsg", O_WRONLY|O_NOCTTY|O_CLOEXEC);
-        }
-
-        if (fd < 0)
-                return -errno;
-
-        len = snprintf(text, sizeof(text), "<30>systemd-udevd[%u]: ", getpid());
-
-        va_start(ap, fmt);
-        len += vsnprintf(text + len, sizeof(text) - len, fmt, ap);
-        va_end(ap);
-
-        ret = write(fd, text, len);
-        if (ret < 0)
-                return -errno;
-
-        return ret;
-}
