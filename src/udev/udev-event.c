@@ -773,7 +773,7 @@ static int rename_netif(struct udev_event *event)
 
         r = rtnl_set_link_name(rtnl, udev_device_get_ifindex(dev), name);
         if (r == 0) {
-                print_kmsg("renamed network interface %s to %s\n", oldname, name);
+                log_debug("renamed network interface %s to %s", oldname, name);
                 return r;
         } else if (r != -EEXIST) {
                 log_error("error changing net interface name %s to %s: %s",
@@ -792,7 +792,7 @@ static int rename_netif(struct udev_event *event)
         }
 
         /* log temporary name */
-        print_kmsg("renamed network interface %s to %s\n", oldname, interim);
+        log_debug("renamed network interface %s to %s", oldname, interim);
 
         loop = 90 * 20;
         while (loop--) {
@@ -801,7 +801,7 @@ static int rename_netif(struct udev_event *event)
 
                 r = rtnl_set_link_name(rtnl, udev_device_get_ifindex(dev), name);
                 if (r == 0) {
-                        print_kmsg("renamed network interface %s to %s\n", interim, name);
+                        log_debug("renamed network interface %s to %s", interim, name);
                         break;
                 }
 
