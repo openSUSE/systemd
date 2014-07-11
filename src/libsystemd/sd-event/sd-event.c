@@ -839,7 +839,6 @@ _public_ int sd_event_add_signal(
         assert_return(sig > 0, -EINVAL);
         assert_return(sig < _NSIG, -EINVAL);
         assert_return(callback, -EINVAL);
-        assert_return(ret, -EINVAL);
         assert_return(e->state != SD_EVENT_FINISHED, -ESTALE);
         assert_return(!event_pid_changed(e), -ECHILD);
 
@@ -877,7 +876,9 @@ _public_ int sd_event_add_signal(
                 }
         }
 
-        *ret = s;
+        if (ret)
+                *ret = s;
+
         return 0;
 }
 
