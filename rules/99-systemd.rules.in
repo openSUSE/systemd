@@ -11,6 +11,7 @@ SUBSYSTEM=="tty", KERNEL=="tty[a-zA-Z]*|hvc*|xvc*|hvsi*|ttysclp*|sclp_line*|3270
 
 KERNEL=="vport*", TAG+="systemd"
 
+SUBSYSTEM=="block", KERNEL!="ram*", ENV{SYSTEMD_READY}=="0", GOTO="systemd_end"
 SUBSYSTEM=="block", KERNEL!="ram*", TAG+="systemd"
 SUBSYSTEM=="block", KERNEL!="ram*", ENV{DM_UDEV_DISABLE_OTHER_RULES_FLAG}=="1", ENV{SYSTEMD_READY}="0"
 
