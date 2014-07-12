@@ -292,6 +292,17 @@
                         </varlistentry>
 
                         <varlistentry>
+                                <term><varname>mount.timeout=</varname></term>
+                                <term><varname>rd.timeout=</varname></term>
+
+                                <listitem>
+                                        <para>Configures the device timeout
+                                        logic at boot. For details, see
+                                        <citerefentry><refentrytitle>systemd-fstab-generator</refentrytitle><manvolnum>8</manvolnum></citerefentry>.</para>
+                                </listitem>
+                        </varlistentry>
+
+                        <varlistentry>
                                 <term><varname>modules-load=</varname></term>
                                 <term><varname>rd.modules-load=</varname></term>
 

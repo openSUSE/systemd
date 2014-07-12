@@ -440,7 +440,7 @@ static int mount_fix_timeouts(Mount *m) {
         Unit *other;
         Iterator i;
         usec_t u;
-        char *t;
+        char *t = NULL;
         int r;
 
         assert(m);
@@ -458,12 +458,40 @@ static int mount_fix_timeouts(Mount *m) {
                 timeout += 31;
         else if ((timeout = mount_test_option(p->options, "x-systemd.device-timeout")))
                 timeout += 25;
-        else
-                return 0;
 
-        t = strndup(timeout, strcspn(timeout, ",;" WHITESPACE));
+        if (timeout) {
+                t = strndup(timeout, strcspn(timeout, ",;" WHITESPACE));
+                if (!t)
+                        return -ENOMEM;
+        } else {
+                _cleanup_free_ char *line = NULL;
+                char *w, *state;
+                size_t l;
+
+                r = proc_cmdline(&line);
+                if (r > 0) {
+                        /*
+                         * Allow to override the device timeout from the
+                         * kernel commandline, allowing later entries
+                         * to override earlier ones.
+                         */
+                        FOREACH_WORD_QUOTED(w, l, line, state) {
+                                if (startswith(w, "mount.timeout=")) {
+                                        if (t)
+                                                free(t);
+                                        t = strdup(w + 14);
+                                } else if (startswith(w, "rd.timeout=")) {
+                                        if (in_initrd()) {
+                                                if (t)
+                                                        free(t);
+                                                t = strdup(w + 11);
+                                        }
+                                }
+                        }
+                }
+        }
         if (!t)
-                return -ENOMEM;
+                return 0;
 
         r = parse_sec(t, &u);
         free(t);
