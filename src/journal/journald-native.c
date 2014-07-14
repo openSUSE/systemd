@@ -34,8 +34,8 @@
 
 /* Make sure not to make this smaller than the maximum coredump
  * size. See COREDUMP_MAX in coredump.c */
-#define ENTRY_SIZE_MAX (1024*1024*768)
-#define DATA_SIZE_MAX (1024*1024*768)
+#define ENTRY_SIZE_MAX (1024*1024*770u)
+#define DATA_SIZE_MAX (1024*1024*768u)
 
 static bool valid_user_field(const char *p, size_t l) {
         const char *a;
@@ -86,7 +86,7 @@ void server_process_native_message(
         struct iovec *iovec = NULL;
         unsigned n = 0, j, tn = (unsigned) -1;
         const char *p;
-        size_t remaining, m = 0;
+        size_t remaining, m = 0, entry_size = 0;
         int priority = LOG_INFO;
         char *identifier = NULL, *message = NULL;
         pid_t object_pid = 0;
@@ -110,9 +110,17 @@ void server_process_native_message(
 
                 if (e == p) {
                         /* Entry separator */
+
+                        if (entry_size + n + 1 > ENTRY_SIZE_MAX) { /* data + separators + trailer */
+                                log_debug("Entry is too big with %u properties and %zu bytes, ignoring.",
+                                          n, entry_size);
+                                continue;
+                        }
+
                         server_dispatch_message(s, iovec, n, m, ucred, tv, label, label_len, NULL, priority, object_pid);
                         n = 0;
                         priority = LOG_INFO;
+                        entry_size = 0;
 
                         p++;
                         remaining--;
@@ -150,6 +158,7 @@ void server_process_native_message(
                                 iovec[n].iov_base = (char*) p;
                                 iovec[n].iov_len = l;
                                 n++;
+                                entry_size += iovec[n].iov_len;
 
                                 /* We need to determine the priority
                                  * of this entry for the rate limiting
@@ -218,7 +227,7 @@ void server_process_native_message(
                         l = le64toh(l_le);
 
                         if (l > DATA_SIZE_MAX) {
-                                log_debug("Received binary data block too large, ignoring.");
+                                log_debug("Received binary data block of %zu bytes is too large, ignoring.", l);
                                 break;
                         }
 
@@ -242,6 +251,7 @@ void server_process_native_message(
                                 iovec[n].iov_base = k;
                                 iovec[n].iov_len = (e - p) + 1 + l;
                                 n++;
+                                entry_size += iovec[n].iov_len;
                         } else
                                 free(k);
 
@@ -255,6 +265,13 @@ void server_process_native_message(
 
         tn = n++;
         IOVEC_SET_STRING(iovec[tn], "_TRANSPORT=journal");
+        entry_size += strlen("_TRANSPORT=journal");
+
+        if (entry_size + n + 1 > ENTRY_SIZE_MAX) { /* data + separators + trailer */
+                log_debug("Entry is too big with %u properties and %zu bytes, ignoring.",
+                          n, entry_size);
+                goto finish;
+        }
 
         if (message) {
                 if (s->forward_to_syslog)
