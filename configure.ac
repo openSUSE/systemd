@@ -212,8 +212,7 @@ AS_CASE([$CC], [*clang*],
         ])])
 
 AS_CASE([$CFLAGS], [*-O[[12345sz\ ]]*],
-        [CC_CHECK_FLAGS_APPEND([with_cflags], [CFLAGS], [\
-               -flto])],
+        [AC_MSG_RESULT([skipping -flto, improving debuggability])],
         [AC_MSG_RESULT([skipping -flto, optimization not enabled])])
 AC_SUBST([OUR_CFLAGS], "$with_cflags $sanitizer_cflags")
 
