@@ -27,7 +27,6 @@ ExecStart=-/sbin/agetty --keep-baud %I 115200,38400,9600 $TERM
 ExecStopPost=-/sbin/vhangup /dev/%I
 Type=idle
 Restart=always
-RestartSec=0
 UtmpIdentifier=%I
 TTYPath=/dev/%I
 TTYReset=yes
