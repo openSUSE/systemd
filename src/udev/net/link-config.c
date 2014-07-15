@@ -20,10 +20,11 @@
 ***/
 
 #include <netinet/ether.h>
-#include <net/if.h>
+#include <linux/netdevice.h>
 
 #include "sd-id128.h"
 
+#include "missing.h"
 #include "link-config.h"
 #include "ethtool-util.h"
 
@@ -297,23 +298,30 @@ static bool mac_is_random(struct udev_device *device) {
                 return false;
 
         /* check for NET_ADDR_RANDOM */
-        return type == 1;
+        return type == NET_ADDR_RANDOM;
 }
 
-static bool mac_is_permanent(struct udev_device *device) {
+static bool should_rename(struct udev_device *device) {
         const char *s;
         unsigned type;
         int r;
 
-        s = udev_device_get_sysattr_value(device, "addr_assign_type");
+        s = udev_device_get_sysattr_value(device, "name_assign_type");
         if (!s)
-                return true; /* if we don't know, assume it is permanent */
+                return true; /* if we don't know, assume we should rename */
         r = safe_atou(s, &type);
         if (r < 0)
                 return true;
 
-        /* check for NET_ADDR_PERM */
-        return type == 0;
+        switch (type) {
+        case NET_NAME_USER:
+        case NET_NAME_RENAMED:
+                return false; /* these were already named by userspace, do not touch again */
+        case NET_NAME_PREDICTABLE:
+        case NET_NAME_ENUM:
+        default:
+                return true; /* the name is known to be bad, or of an unknown type */
+        }
 }
 
 #define HASH_KEY SD_ID128_MAKE(d3,1e,48,fa,90,fe,4b,4c,9d,af,d5,d7,a1,b1,2e,8a)
@@ -429,16 +437,16 @@ int link_config_apply(link_config_ctx *ctx, link_config *config, struct udev_dev
                 }
         }
 
-        if (new_name)
-                *name = new_name; /* a name was set by a policy */
-        else if (config->name)
-                *name = config->name; /* a name was set manually in the config */
-        else
-                *name = NULL;
+        if (should_rename(device)) {
+                if (!new_name)
+                        /* if not set by policy, fall back manually set name */
+                        new_name = config->name;
+        } else
+                new_name = NULL;
 
         switch (config->mac_policy) {
                 case MACPOLICY_PERSISTENT:
-                        if (!mac_is_permanent(device)) {
+                        if (mac_is_random(device)) {
                                 r = get_mac(device, false, &generated_mac);
                                 if (r == -ENOENT)
                                         break;
@@ -466,6 +474,8 @@ int link_config_apply(link_config_ctx *ctx, link_config *config, struct udev_dev
                 log_warning("Could not set Alias, MACAddress or MTU on %s: %s", old_name, strerror(-r));
                 return r;
         }
+
+        *name = new_name;
 
         return 0;
 }
