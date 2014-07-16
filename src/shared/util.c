@@ -1796,9 +1796,6 @@ int open_terminal(const char *name, int mode) {
                 c++;
         }
 
-        if (fd < 0)
-                return -errno;
-
         r = isatty(fd);
         if (r < 0) {
                 close_nointr_nofail(fd);
