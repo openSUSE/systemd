@@ -68,10 +68,9 @@ int switch_root(const char *new_root) {
                 goto fail;
         }
 
-        /* Work-around for a kernel bug: for some reason the kernel
-         * refuses switching root if any file systems are mounted
-         * MS_SHARED. Hence remount them MS_PRIVATE here as a
-         * work-around.
+        /* Work-around for kernel design: the kernel refuses switching
+         * root if any file systems are mounted MS_SHARED. Hence
+         * remount them MS_PRIVATE here as a work-around.
          *
          * https://bugzilla.redhat.com/show_bug.cgi?id=847418 */
         if (mount(NULL, "/", NULL, MS_REC|MS_PRIVATE, NULL) < 0)
@@ -124,8 +123,8 @@ int switch_root(const char *new_root) {
                  * running off it we need to do this lazily. */
                 if (umount2("/mnt", MNT_DETACH) < 0) {
                         r = -errno;
-                        log_error("Failed to umount old root dir /mnt: %m");
-                        goto fail;
+                        log_error("Failed to lazily umount old root dir /mnt, %s: %m",
+                                  errno == ENOENT ? "ignoring" : "leaving it around");
                 }
 
         } else if (mount(new_root, "/", NULL, MS_MOVE, NULL) < 0) {

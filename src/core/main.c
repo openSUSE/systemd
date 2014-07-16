@@ -1848,7 +1848,7 @@ finish:
                         /* And switch root */
                         r = switch_root(switch_root_dir);
                         if (r < 0)
-                                log_error("Failed to switch root, ignoring: %s", strerror(-r));
+                                log_error("Failed to switch root, trying to continue: %s", strerror(-r));
                 }
 
                 args_size = MAX(6, argc+1);
