@@ -3870,7 +3870,6 @@ static int show_all(
 }
 
 static int cat(sd_bus *bus, char **args) {
-        _cleanup_free_ char *unit = NULL;
         _cleanup_strv_free_ char **names = NULL;
         char **name;
         bool first = true;
@@ -3889,6 +3888,8 @@ static int cat(sd_bus *bus, char **args) {
                 _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
                 _cleanup_strv_free_ char **dropin_paths = NULL;
                 _cleanup_free_ char *fragment_path = NULL;
+                _cleanup_free_ char *unit = NULL;
+
                 char **path;
 
                 unit = unit_dbus_path_from_name(*name);
