@@ -963,7 +963,7 @@ int main(int argc, char *argv[]) {
         int fd_worker = -1;
         struct epoll_event ep_ctrl, ep_inotify, ep_signal, ep_netlink, ep_worker;
         struct udev_ctrl_connection *ctrl_conn = NULL;
-        int rc = 1;
+        int rc = 1, r;
 
         udev = udev_new();
         if (udev == NULL)
@@ -977,7 +977,11 @@ int main(int argc, char *argv[]) {
         log_set_max_level(udev_get_log_priority(udev));
 
         log_debug("version %s", VERSION);
-        label_init("/dev");
+        r = label_init("/dev");
+        if (r < 0) {
+                log_error("could not initialize labelling: %s", strerror(-r));
+                goto exit;
+        }
 
         for (;;) {
                 int option, r;
@@ -1056,10 +1060,18 @@ int main(int argc, char *argv[]) {
         }
 
         /* set umask before creating any file/directory */
-        chdir("/");
+        r = chdir("/");
+        if (r < 0) {
+                log_error("could not change dir to /: %m");
+                goto exit;
+        }
         umask(022);
 
-        mkdir("/run/udev", 0755);
+        r = mkdir("/run/udev", 0755);
+        if (r < 0) {
+                log_error("could not create /run/udev: %m");
+                goto exit;
+        }
 
         dev_setup(NULL);
 
