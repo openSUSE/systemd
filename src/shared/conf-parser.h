@@ -171,7 +171,8 @@ int log_syntax_internal(const char *unit, int level,
                      void *data,                                               \
                      void *userdata) {                                         \
                                                                                \
-                type **enums = data, *xs, x, *ys;                              \
+                type **enums = data, x, *ys;                                   \
+                _cleanup_free_ type *xs = NULL;                                \
                 char *w, *state;                                               \
                 size_t l, i = 0;                                               \
                                                                                \
@@ -187,6 +188,7 @@ int log_syntax_internal(const char *unit, int level,
                                                                                \
                 FOREACH_WORD(w, l, rvalue, state) {                            \
                         _cleanup_free_ char *en = NULL;                        \
+                        type *new_xs;                                          \
                                                                                \
                         en = strndup(w, l);                                    \
                         if (!en)                                               \
@@ -212,8 +214,10 @@ int log_syntax_internal(const char *unit, int level,
                                 continue;                                      \
                                                                                \
                         *(xs + i) = x;                                         \
-                        xs = realloc(xs, (++i + 1) * sizeof(type));            \
-                        if (!xs)                                               \
+                        new_xs = realloc(xs, (++i + 1) * sizeof(type));        \
+                        if (new_xs)                                            \
+                                xs = new_xs;                                   \
+                        else                                                   \
                                 return -ENOMEM;                                \
                                                                                \
                         *(xs + i) = invalid;                                   \
@@ -221,5 +225,7 @@ int log_syntax_internal(const char *unit, int level,
                                                                                \
                 free(*enums);                                                  \
                 *enums = xs;                                                   \
+                xs = NULL;                                                     \
+                                                                               \
                 return 0;                                                      \
         }
