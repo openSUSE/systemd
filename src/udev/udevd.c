@@ -921,11 +921,20 @@ static void kernel_cmdline_options(struct udev *udev)
                         log_set_max_level(prio);
                         udev_set_log_priority(udev, prio);
                 } else if (startswith(opt, "udev.children-max=")) {
-                        children_max = strtoul(opt + 18, NULL, 0);
+                        r = safe_atoi(opt + 18, &children_max);
+                        if (r < 0)
+                                log_warning("Invalid udev.children-max ignored: %s", opt + 18);
                 } else if (startswith(opt, "udev.exec-delay=")) {
-                        exec_delay = strtoul(opt + 16, NULL, 0);
+                        r = safe_atoi(opt + 16, &exec_delay);
+                        if (r < 0)
+                                log_warning("Invalid udev.exec-delay ignored: %s", opt + 16);
                 } else if (startswith(opt, "udev.event-timeout=")) {
-                        event_timeout_usec = strtoul(opt + 16, NULL, 0) * USEC_PER_SEC;
+                        r = safe_atou64(opt + 16, &event_timeout_usec);
+                        if (r < 0) {
+                                log_warning("Invalid udev.event-timeout ignored: %s", opt + 16);
+                                break;
+                        }
+                        event_timeout_usec *= USEC_PER_SEC;
                         event_timeout_warn_usec = (event_timeout_usec / 3) ? : 1;
                 }
 
@@ -971,7 +980,7 @@ int main(int argc, char *argv[]) {
         label_init("/dev");
 
         for (;;) {
-                int option;
+                int option, r;
 
                 option = getopt_long(argc, argv, "c:de:DtN:hV", options, NULL);
                 if (option == -1)
@@ -982,14 +991,23 @@ int main(int argc, char *argv[]) {
                         daemonize = true;
                         break;
                 case 'c':
-                        children_max = strtoul(optarg, NULL, 0);
+                        r = safe_atoi(optarg, &children_max);
+                        if (r < 0)
+                                log_warning("Invalid --children-max ignored: %s", optarg);
                         break;
                 case 'e':
-                        exec_delay = strtoul(optarg, NULL, 0);
+                        r = safe_atoi(optarg, &exec_delay);
+                        if (r < 0)
+                                log_warning("Invalid --exec-delay ignored: %s", optarg);
                         break;
                 case 't':
-                        event_timeout_usec = strtoul(optarg, NULL, 0) * USEC_PER_SEC;
-                        event_timeout_warn_usec = (event_timeout_usec / 3) ? : 1;
+                        r = safe_atou64(optarg, &event_timeout_usec);
+                        if (r < 0)
+                                log_warning("Invalig --event-timeout ignored: %s", optarg);
+                        else {
+                                event_timeout_usec *= USEC_PER_SEC;
+                                event_timeout_warn_usec = (event_timeout_usec / 3) ? : 1;
+                        }
                         break;
                 case 'D':
                         debug = true;
