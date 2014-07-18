@@ -947,10 +947,11 @@ static void mount_enter_mounting(Mount *m) {
                 r = exec_command_set(
                                 m->control_command,
                                 "/bin/mount",
+                                "-n",
+                                "-t", m->parameters_fragment.fstype ? m->parameters_fragment.fstype : "auto",
+                                "-o", m->parameters_fragment.options ? m->parameters_fragment.options : "defaults",
                                 m->parameters_fragment.what,
                                 m->where,
-                                "-t", m->parameters_fragment.fstype ? m->parameters_fragment.fstype : "auto",
-                                m->parameters_fragment.options ? "-o" : NULL, m->parameters_fragment.options,
                                 NULL);
         else
                 r = -ENOENT;
@@ -994,10 +995,11 @@ static void mount_enter_remounting(Mount *m) {
                 r = exec_command_set(
                                 m->control_command,
                                 "/bin/mount",
-                                m->parameters_fragment.what,
-                                m->where,
+                                "-n",
                                 "-t", m->parameters_fragment.fstype ? m->parameters_fragment.fstype : "auto",
                                 "-o", o,
+                                m->parameters_fragment.what,
+                                m->where,
                                 NULL);
         } else
                 r = -ENOENT;
