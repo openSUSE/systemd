@@ -1007,7 +1007,7 @@ int main(int argc, char *argv[]) {
                 case 't':
                         r = safe_atou64(optarg, &event_timeout_usec);
                         if (r < 0)
-                                log_warning("Invalig --event-timeout ignored: %s", optarg);
+                                log_warning("Invalid --event-timeout ignored: %s", optarg);
                         else {
                                 event_timeout_usec *= USEC_PER_SEC;
                                 event_timeout_warn_usec = (event_timeout_usec / 3) ? : 1;
