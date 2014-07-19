@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/statvfs.h>
 
 #include "macro.h"
@@ -321,6 +323,23 @@ bool path_equal(const char *a, const char *b) {
                 a += j;
                 b += k;
         }
+}
+
+static int files_same(const char *filea, const char *fileb) {
+        struct stat a, b;
+
+        if (stat(filea, &a) < 0)
+                return -errno;
+
+        if (stat(fileb, &b) < 0)
+                return -errno;
+
+        return a.st_dev == b.st_dev &&
+               a.st_ino == b.st_ino;
+}
+
+bool path_equal_or_files_same(const char *a, const char *b) {
+        return path_equal(a, b) || files_same(a, b) > 0;
 }
 
 int path_is_mount_point(const char *t, bool allow_symlink) {

@@ -44,6 +44,7 @@ char* path_make_absolute_cwd(const char *p);
 char* path_kill_slashes(char *path);
 char* path_startswith(const char *path, const char *prefix) _pure_;
 bool path_equal(const char *a, const char *b) _pure_;
+bool path_equal_or_files_same(const char *a, const char *b);
 
 char** path_strv_make_absolute_cwd(char **l);
 char** path_strv_canonicalize_absolute(char **l, const char *prefix);
