@@ -2724,6 +2724,9 @@ void manager_check_finished(Manager *m) {
         if (m->n_running_jobs == 0)
                 m->jobs_in_progress_event_source = sd_event_source_unref(m->jobs_in_progress_event_source);
 
+        if (m->n_reloading > 0)
+                return;
+
         if (hashmap_size(m->jobs) > 0) {
                 if (m->jobs_in_progress_event_source) {
                         uint64_t next = now(CLOCK_MONOTONIC) + JOBS_IN_PROGRESS_WAIT_USEC;
