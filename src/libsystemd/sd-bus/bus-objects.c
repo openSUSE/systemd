@@ -1749,6 +1749,11 @@ static int add_object_vtable_internal(
                                 goto fail;
                         }
 
+                        if (v->flags & SD_BUS_VTABLE_PROPERTY_CONST) {
+                                r = -EINVAL;
+                                goto fail;
+                        }
+
                         /* Fall through */
 
                 case _SD_BUS_VTABLE_PROPERTY: {
