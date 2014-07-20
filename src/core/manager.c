@@ -2549,8 +2549,8 @@ int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
                                 m->kdbus_fd = fdset_remove(fds, fd);
                         }
 
-                } else if (bus_track_deserialize_item(&m->deserialized_subscribed, l) == 0)
-                        log_debug("Unknown serialization item '%s'", l);
+                } else if (bus_track_deserialize_item(&m->deserialized_subscribed, l) < 0)
+                        log_warning("Unknown serialization item '%s'", l);
         }
 
         for (;;) {
