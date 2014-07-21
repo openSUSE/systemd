@@ -244,7 +244,7 @@ static int context_write_data_hostname(Context *c) {
         else
                 hn = c->data[PROP_HOSTNAME];
 
-        if (sethostname(hn, strlen(hn)) < 0)
+        if (sethostname_idempotent(hn) < 0)
                 return -errno;
 
         return 0;
