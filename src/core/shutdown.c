@@ -276,6 +276,7 @@ int main(int argc, char *argv[]) {
         broadcast_signal(SIGKILL, true, false);
 
         if (in_container) {
+                need_umount = false;
                 need_swapoff = false;
                 need_dm_detach = false;
                 need_loop_detach = false;
