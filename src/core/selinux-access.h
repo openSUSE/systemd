@@ -34,7 +34,7 @@ int selinux_generic_access_check(sd_bus *bus, sd_bus_message *message, const cha
 #define selinux_access_check(bus, message, permission, error) \
         selinux_generic_access_check(bus, message, NULL, permission, error)
 #define selinux_unit_access_check(unit, bus, message, permission, error) \
-        ({ Unit *_unit = (unit); selinux_generic_access_check(bus, message, _unit->fragment_path ?: _unit->fragment_path, permission, error); })
+        ({ Unit *_unit = (unit); selinux_generic_access_check(bus, message, _unit->source_path ?: _unit->fragment_path, permission, error); })
 
 #else
 
