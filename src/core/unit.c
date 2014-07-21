@@ -2352,6 +2352,40 @@ void unit_serialize_item(Unit *u, FILE *f, const char *key, const char *value) {
         fprintf(f, "%s=%s\n", key, value);
 }
 
+static int unit_set_cgroup_path(Unit *u, const char *path) {
+        _cleanup_free_ char *p = NULL;
+        int r;
+
+        assert(u);
+
+        if (path) {
+                p = strdup(path);
+                if (!p)
+                        return -ENOMEM;
+        } else
+                p = NULL;
+
+        if (streq_ptr(u->cgroup_path, p))
+                return 0;
+
+        if (p) {
+                r = hashmap_put(u->manager->cgroup_unit, p, u);
+                if (r < 0)
+                        return r;
+        }
+
+        if (u->cgroup_path) {
+                log_debug_unit(u->id, "%s: Changing cgroup path from %s to %s.", u->id, u->cgroup_path, strna(p));
+                hashmap_remove(u->manager->cgroup_unit, u->cgroup_path);
+                free(u->cgroup_path);
+        }
+
+        u->cgroup_path = p;
+        p = NULL;
+
+        return 0;
+}
+
 int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
         ExecRuntime **rt = NULL;
         size_t offset;
@@ -2379,7 +2413,7 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
                 l = strstrip(line);
 
                 /* End marker */
-                if (l[0] == 0)
+                if (isempty(l))
                         return 0;
 
                 k = strcspn(l, "=");
@@ -2395,7 +2429,7 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
                                 /* new-style serialized job */
                                 Job *j = job_new_raw(u);
                                 if (!j)
-                                        return -ENOMEM;
+                                        return log_oom();
 
                                 r = job_deserialize(j, f, fds);
                                 if (r < 0) {
@@ -2464,16 +2498,11 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
 
                         continue;
                 } else if (streq(l, "cgroup")) {
-                        char *s;
 
-                        s = strdup(v);
-                        if (!s)
-                                return -ENOMEM;
+                        r = unit_set_cgroup_path(u, v);
+                        if (r < 0)
+                                log_debug("Failed to set cgroup path %s: %s", v, strerror(-r));
 
-                        free(u->cgroup_path);
-                        u->cgroup_path = s;
-
-                        assert(hashmap_put(u->manager->cgroup_unit, s, u) == 1);
                         continue;
                 } else if (streq(l, "cgroup-realized")) {
                         int b;
@@ -2490,15 +2519,19 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
                 if (unit_can_serialize(u)) {
                         if (rt) {
                                 r = exec_runtime_deserialize_item(rt, u, l, v, fds);
-                                if (r < 0)
-                                        return r;
+                                if (r < 0) {
+                                        log_warning_unit(u->id, "Failed to deserialize runtime parameter '%s', ignoring.", l);
+                                        continue;
+                                }
+
+                                /* Returns positive if key was handled by the call */
                                 if (r > 0)
                                         continue;
                         }
 
                         r = UNIT_VTABLE(u)->deserialize_item(u, l, v, fds);
                         if (r < 0)
-                                return r;
+                                log_warning_unit(u->id, "Failed to deserialize unit parameter '%s', ignoring.", l);
                 }
         }
 }
