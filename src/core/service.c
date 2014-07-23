@@ -820,7 +820,7 @@ static int service_load_sysv_path(Service *s, const char *path) {
 
                                         if (unit_name_to_type(m) == UNIT_SERVICE)
                                                 r = unit_merge_by_name(u, m);
-                                        else
+                                        else {
                                                 /* NB: SysV targets
                                                  * which are provided
                                                  * by a service are
@@ -835,6 +835,9 @@ static int service_load_sysv_path(Service *s, const char *path) {
                                                  * in the SysV
                                                  * services! */
                                                 r = unit_add_two_dependencies_by_name(u, UNIT_BEFORE, UNIT_WANTS, m, NULL, true);
+                                                if (r >= 0 && streq(m, SPECIAL_NETWORK_ONLINE_TARGET))
+                                                        r = unit_add_dependency_by_name(u, UNIT_BEFORE, SPECIAL_NETWORK_TARGET, NULL, true);
+                                        }
 
                                         if (r < 0)
                                                 log_error_unit(u->id,
