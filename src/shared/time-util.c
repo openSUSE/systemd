@@ -736,7 +736,7 @@ int parse_nsec(const char *t, nsec_t *nsec) {
                 { "", 1ULL }, /* default is nsec */
         };
 
-        const char *p;
+        const char *p, *s;
         nsec_t r = 0;
         bool something = false;
 
@@ -744,6 +744,18 @@ int parse_nsec(const char *t, nsec_t *nsec) {
         assert(nsec);
 
         p = t;
+
+        p += strspn(p, WHITESPACE);
+        s = startswith(p, "infinity");
+        if (s) {
+                s += strspn(s, WHITESPACE);
+                if (!*s != 0)
+                        return -EINVAL;
+
+                *nsec = ((nsec_t) -1);
+                return 0;
+        }
+
         for (;;) {
                 long long l, z = 0;
                 char *e;
