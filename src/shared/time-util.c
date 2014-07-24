@@ -194,11 +194,10 @@ char *format_timestamp_relative(char *buf, size_t l, usec_t t) {
         const char *s;
         usec_t n, d;
 
-        n = now(CLOCK_REALTIME);
-
         if (t <= 0 || (t == (usec_t) -1))
                 return NULL;
 
+        n = now(CLOCK_REALTIME);
         if (n > t) {
                 d = n - t;
                 s = "ago";
