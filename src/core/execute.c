@@ -82,6 +82,7 @@
 #include "selinux-util.h"
 #include "errno-list.h"
 #include "apparmor-util.h"
+#include "label.h"
 
 #ifdef HAVE_SECCOMP
 #include "seccomp-util.h"
@@ -1123,6 +1124,7 @@ int exec_spawn(ExecCommand *command,
                bool apply_chroot,
                bool apply_tty_stdin,
                bool confirm_spawn,
+               bool selinux_context_net,
                CGroupControllerMask cgroup_supported,
                const char *cgroup_path,
                const char *unit_id,
@@ -1594,11 +1596,29 @@ int exec_spawn(ExecCommand *command,
 #endif
 
 #ifdef HAVE_SELINUX
-                        if (context->selinux_context && use_selinux()) {
-                                err = setexeccon(context->selinux_context);
-                                if (err < 0 && !context->selinux_context_ignore) {
-                                        r = EXIT_SELINUX_CONTEXT;
-                                        goto fail_child;
+                        if (use_selinux()) {
+                                if (context->selinux_context) {
+                                        err = setexeccon(context->selinux_context);
+                                        if (err < 0 && !context->selinux_context_ignore) {
+                                                r = EXIT_SELINUX_CONTEXT;
+                                                goto fail_child;
+                                        }
+                                }
+        
+                                if (selinux_context_net && socket_fd >= 0) {
+                                        _cleanup_free_ char *label = NULL;
+        
+                                        err = label_get_child_mls_label(socket_fd, command->path, &label);
+                                        if (err < 0) {
+                                                r = EXIT_SELINUX_CONTEXT;
+                                                goto fail_child;
+                                        }
+        
+                                        err = setexeccon(label);
+                                        if (err < 0) {
+                                                r = EXIT_SELINUX_CONTEXT;
+                                                goto fail_child;
+                                        }
                                 }
                         }
 #endif
