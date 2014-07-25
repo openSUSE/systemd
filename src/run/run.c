@@ -309,12 +309,12 @@ static int start_transient_service(
         _cleanup_free_ char *name = NULL;
         int r;
 
-        if (arg_unit)
+        if (arg_unit) {
                 name = unit_name_mangle_with_suffix(arg_unit, MANGLE_NOGLOB, ".service");
-        else
-                asprintf(&name, "run-%lu.service", (unsigned long) getpid());
-        if (!name)
-                return -ENOMEM;
+                if (!name)
+                        return log_oom();
+        } else if (asprintf(&name, "run-%lu.service", (unsigned long) getpid()) < 0)
+                return log_oom();
 
         r = message_start_transient_unit_new(bus, name, &m);
         if (r < 0)
@@ -436,12 +436,12 @@ static int start_transient_scope(
 
         assert(bus);
 
-        if (arg_unit)
+        if (arg_unit) {
                 name = unit_name_mangle_with_suffix(arg_unit, MANGLE_NOGLOB, ".scope");
-        else
-                asprintf(&name, "run-%lu.scope", (unsigned long) getpid());
-        if (!name)
-                return -ENOMEM;
+                if (!name)
+                        return log_oom();
+        } else if (asprintf(&name, "run-%lu.scope", (unsigned long) getpid()) < 0)
+                return log_oom();
 
         r = message_start_transient_unit_new(bus, name, &m);
         if (r < 0)

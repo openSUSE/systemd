@@ -4638,11 +4638,11 @@ static int enable_sysv_units(const char *verb, char **args) {
 
                 STRV_FOREACH(k, paths.unit_path) {
                         if (!isempty(arg_root))
-                                asprintf(&p, "%s/%s/%s", arg_root, *k, name);
+                                j = asprintf(&p, "%s/%s/%s", arg_root, *k, name);
                         else
-                                asprintf(&p, "%s/%s", *k, name);
+                                j = asprintf(&p, "%s/%s", *k, name);
 
-                        if (!p) {
+                        if (j < 0) {
                                 r = log_oom();
                                 goto finish;
                         }
@@ -4659,10 +4659,10 @@ static int enable_sysv_units(const char *verb, char **args) {
                         continue;
 
                 if (!isempty(arg_root))
-                        asprintf(&p, "%s/" SYSTEM_SYSVINIT_PATH "/%s", arg_root, name);
+                        j = asprintf(&p, "%s/" SYSTEM_SYSVINIT_PATH "/%s", arg_root, name);
                 else
-                        asprintf(&p, SYSTEM_SYSVINIT_PATH "/%s", name);
-                if (!p) {
+                        j = asprintf(&p, SYSTEM_SYSVINIT_PATH "/%s", name);
+                if (j < 0) {
                         r = log_oom();
                         goto finish;
                 }
@@ -4675,10 +4675,10 @@ static int enable_sysv_units(const char *verb, char **args) {
                         free(p);
                         p = NULL;
                         if (!isempty(arg_root))
-                                asprintf(&p, "%s/" SYSTEM_SYSVINIT_PATH "/boot.%s", arg_root, name);
+                                j = asprintf(&p, "%s/" SYSTEM_SYSVINIT_PATH "/boot.%s", arg_root, name);
                         else
-                                asprintf(&p, SYSTEM_SYSVINIT_PATH "/boot.%s", name);
-                        if (!p) {
+                                j = asprintf(&p, SYSTEM_SYSVINIT_PATH "/boot.%s", name);
+                        if (j < 0) {
                                 r = log_oom();
                                 goto finish;
                         }
