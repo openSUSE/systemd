@@ -25,6 +25,8 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/inotify.h>
+#include <sys/epoll.h>
 #include <sys/poll.h>
 #include <sys/reboot.h>
 #include <sys/ioctl.h>
@@ -210,6 +212,96 @@ static void manager_print_jobs_in_progress(Manager *m) {
                               unit_description(j->unit),
                               time, limit);
 
+}
+
+static int have_ask_password(void) {
+        _cleanup_closedir_ DIR *dir;
+
+        dir = opendir("/run/systemd/ask-password");
+        if (!dir) {
+                if (errno == ENOENT)
+                        return false;
+                else
+                        return -errno;
+        }
+
+        for (;;) {
+                struct dirent *de;
+
+                errno = 0;
+                de = readdir(dir);
+                if (!de && errno != 0)
+                        return -errno;
+                if (!de)
+                        return false;
+
+                if (startswith(de->d_name, "ask."))
+                        return true;
+        }
+}
+
+static int manager_dispatch_ask_password_fd(sd_event_source *source,
+                                            int fd, uint32_t revents, void *userdata) {
+        Manager *m = userdata;
+
+        assert(m);
+
+        flush_fd(fd);
+
+        m->have_ask_password = have_ask_password();
+        if (m->have_ask_password < 0)
+                /* Log error but continue. Negative have_ask_password
+                 * is treated as unknown status. */
+                log_error("Failed to list /run/systemd/ask-password: %s", strerror(m->have_ask_password));
+
+        return 0;
+}
+
+static void manager_close_ask_password(Manager *m) {
+        assert(m);
+        if (m->ask_password_inotify_fd >= 0) close_nointr_nofail(m->ask_password_inotify_fd);
+        m->ask_password_inotify_fd = -1;
+        m->ask_password_event_source = sd_event_source_unref(m->ask_password_event_source);
+        m->have_ask_password = -EINVAL;
+}
+
+static int manager_check_ask_password(Manager *m) {
+        int r;
+
+        assert(m);
+
+        if (!m->ask_password_event_source) {
+                assert(m->ask_password_inotify_fd < 0);
+
+                mkdir_p_label("/run/systemd/ask-password", 0755);
+
+                m->ask_password_inotify_fd = inotify_init1(IN_NONBLOCK|IN_CLOEXEC);
+                if (m->ask_password_inotify_fd < 0) {
+                        log_error("inotify_init1() failed: %m");
+                        return -errno;
+                }
+
+                if (inotify_add_watch(m->ask_password_inotify_fd, "/run/systemd/ask-password", IN_CREATE|IN_DELETE|IN_MOVE) < 0) {
+                        log_error("Failed to add watch on /run/systemd/ask-password: %m");
+                        manager_close_ask_password(m);
+                        return -errno;
+                }
+
+                r = sd_event_add_io(m->event, &m->ask_password_event_source,
+                                    m->ask_password_inotify_fd, EPOLLIN,
+                                    manager_dispatch_ask_password_fd, m);
+                if (r < 0) {
+                        log_error("Failed to add event source for /run/systemd/ask-password: %m");
+                        manager_close_ask_password(m);
+                        return -errno;
+                }
+
+                /* Queries might have been added meanwhile... */
+                manager_dispatch_ask_password_fd(m->ask_password_event_source,
+                                                 m->ask_password_inotify_fd, EPOLLIN, m);
+        }
+
+        return m->have_ask_password;
 }
 
 static int manager_watch_idle_pipe(Manager *m) {
@@ -469,6 +561,9 @@ int manager_new(SystemdRunningAs running_as, Manager **_m) {
 
         m->pin_cgroupfs_fd = m->notify_fd = m->signal_fd = m->time_change_fd = m->dev_autofs_fd = m->private_listen_fd = m->kdbus_fd = -1;
         m->current_job_id = 1; /* start as id #1, so that we can leave #0 around as "null-like" value */
+
+        m->ask_password_inotify_fd = -1;
+        m->have_ask_password = -EINVAL; /* we don't know */
 
         r = manager_default_environment(m);
         if (r < 0)
@@ -846,6 +941,8 @@ void manager_free(Manager *m) {
                 close_nointr_nofail(m->time_change_fd);
         if (m->kdbus_fd >= 0)
                 close_nointr_nofail(m->kdbus_fd);
+
+        manager_close_ask_password(m);
 
         manager_close_idle_pipe(m);
 
@@ -2526,6 +2623,9 @@ void manager_check_finished(Manager *m) {
         /* Turn off confirm spawn now */
         m->confirm_spawn = false;
 
+        /* No need to update ask password status when we're going non-interactive */
+        manager_close_ask_password(m);
+
         if (dual_timestamp_is_set(&m->finish_timestamp))
                 return;
 
@@ -2843,12 +2943,15 @@ static bool manager_get_show_status(Manager *m) {
         if (m->no_console_output)
                 return false;
 
+        /* If we cannot find out the status properly, just proceed. */
+        if (manager_check_ask_password(m) > 0)
+                return false;
+
         if (m->show_status > 0)
                 return true;
 
         /* If Plymouth is running make sure we show the status, so
          * that there's something nice to see when people press Esc */
-
         return plymouth_running();
 }
 
