@@ -2793,6 +2793,25 @@ EXTRA_DIST += \
 	test/rule-syntax-check.py
 
 # ------------------------------------------------------------------------------
+rootsymlink_generator_SOURCES = \
+	src/udev/rootsymlink_generator/rootsymlink_generator.c
+
+rootsymlink_generator_CFLAGS = \
+	$(AM_CFLAGS)
+
+udevlibexec_PROGRAMS += \
+	rootsymlink-generator
+
+nodist_systemunit_DATA += \
+	units/systemd-udev-root-symlink.service
+
+SYSINIT_TARGET_WANTS += \
+	systemd-udev-root-symlink.service
+
+EXTRA_DIST += \
+	units/systemd-udev-root-symlink.service.in
+
+# ------------------------------------------------------------------------------
 ata_id_SOURCES = \
 	src/udev/ata_id/ata_id.c
 
