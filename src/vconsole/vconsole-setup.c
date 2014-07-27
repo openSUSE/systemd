@@ -191,17 +191,34 @@ static void font_copy_to_all_vcs(int fd) {
         unsigned short map16[E_TABSZ];
         struct unimapdesc unimapd;
         struct unipair unipairs[USHRT_MAX];
+        struct console_font_op cfo = {};
         int i, r;
+
+        bool hasmap8;
+        bool hasmap16;
+        bool hasunimap;
 
         /* get active, and 16 bit mask of used VT numbers */
         r = ioctl(fd, VT_GETSTATE, &vcs);
         if (r < 0)
                 return;
 
+        /* copy font from active VT, where the font was uploaded to */
+        cfo.op = KD_FONT_OP_COPY;
+        cfo.height = vcs.v_active-1; /* tty1 == index 0 */
+
+        hasmap8 = (ioctl(fd, GIO_SCRNMAP, map8) >= 0);
+        hasmap16 = (ioctl(fd, GIO_UNISCRNMAP, map16) >= 0);
+
+        /* unimapd is a ushort count and a pointer to an
+         * array of struct unipair { ushort, ushort } */
+        unimapd.entries  = unipairs;
+        unimapd.entry_ct = USHRT_MAX;
+        hasunimap = (ioctl(fd, GIO_UNIMAP, &unimapd) >= 0);
+
         for (i = 1; i <= 15; i++) {
                 char vcname[16];
                 _cleanup_close_ int vcfd = -1;
-                struct console_font_op cfo = {};
 
                 if (i == vcs.v_active)
                         continue;
@@ -216,25 +233,19 @@ static void font_copy_to_all_vcs(int fd) {
                 if (vcfd < 0)
                         continue;
 
-                /* copy font from active VT, where the font was uploaded to */
-                cfo.op = KD_FONT_OP_COPY;
-                cfo.height = vcs.v_active-1; /* tty1 == index 0 */
+                /* copy font from active VT to vcs */
                 ioctl(vcfd, KDFONTOP, &cfo);
 
-                /* copy map of 8bit chars */
-                if (ioctl(fd, GIO_SCRNMAP, map8) >= 0)
+                /* copy map of 8bit chars to vcs */
+                if (hasmap8)
                     ioctl(vcfd, PIO_SCRNMAP, map8);
 
-                /* copy map of 8bit chars -> 16bit Unicode values */
-                if (ioctl(fd, GIO_UNISCRNMAP, map16) >= 0)
+                /* copy map of 8bit chars -> 16bit Unicode values to vcs */
+                if (hasmap16)
                     ioctl(vcfd, PIO_UNISCRNMAP, map16);
 
-                /* copy unicode translation table */
-                /* unimapd is a ushort count and a pointer to an
-                   array of struct unipair { ushort, ushort } */
-                unimapd.entries  = unipairs;
-                unimapd.entry_ct = USHRT_MAX;
-                if (ioctl(fd, GIO_UNIMAP, &unimapd) >= 0) {
+                /* copy unicode translation table to vcs */
+                if (hasunimap) {
                         struct unimapinit adv = { 0, 0, 0 };
 
                         ioctl(vcfd, PIO_UNIMAPCLR, &adv);
