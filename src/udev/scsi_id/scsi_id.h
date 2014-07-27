@@ -43,6 +43,7 @@ struct scsi_id_device {
         char kernel[64];
         char serial[MAX_SERIAL_LEN];
         char serial_short[MAX_SERIAL_LEN];
+        char serial_compat[MAX_SERIAL_LEN];
         int use_sg;
 
         /* Always from page 0x80 e.g. 'B3G1P8500RWT' - may not be unique */
