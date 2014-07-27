@@ -32,6 +32,12 @@ ENV{MATCHADDR}="$attr{address}"
 # match interface type
 ENV{MATCHIFTYPE}="$attr{type}"
 
+# detect virtualization (none is set if we are not a guest)
+ENV{ID_VIRT}="none", PROGRAM="/usr/bin/systemd-detect-virt", RESULT=="?*", ENV{ID_VIRT}="$result"
+
+# KVM virtual interfaces, not to be confused with Realtek interfaces
+ENV{MATCHADDR}=="52:54:00:*", ENV{ID_VIRT}=="kvm", ENV{MATCHADDR}=""
+
 # ignore VMWare virtual interfaces
 ENV{MATCHADDR}=="00:0c:29:*|00:50:56:*", GOTO="persistent_net_generator_end"
 # ignore Hyper-V virtual interfaces
@@ -74,7 +80,7 @@ ENV{LAYER2}!="0", ATTR{dev_id}=="?*", ENV{MATCHDEVID}="$attr{dev_id}"
 ENV{MATCHADDR}=="?[2367abef]:*", ENV{MATCHADDR}=""
 
 # if mac is "locally administered", then use $id (KERNELS) and $driver (DRIVERS)
-ENV{MATCHADDR}=="", DRIVERS=="?*", SUBSYSTEMS=="pci", ENV{MATCHID}="$id", ENV{MATCHDRV}="$driver"
+ENV{MATCHADDR}=="", DRIVERS=="?*", SUBSYSTEMS=="pci|ccw", ENV{MATCHID}="$id", ENV{MATCHDRV}="$driver"
 
 # do not use empty address
 ENV{MATCHADDR}=="00:00:00:00:00:00", ENV{MATCHADDR}=""
@@ -83,6 +89,7 @@ LABEL="globally_administered_whitelist"
 
 # build comment line for generated rule:
 SUBSYSTEMS=="pci", ENV{COMMENT}="PCI device $attr{vendor}:$attr{device} ($driver)"
+SUBSYSTEMS=="ccw", ENV{COMMENT}="S/390 $driver device at $id"
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="?*", ENV{COMMENT}="USB device 0x$attr{idVendor}:0x$attr{idProduct} ($driver)"
 SUBSYSTEMS=="pcmcia", ENV{COMMENT}="PCMCIA device $attr{card_id}:$attr{manf_id} ($driver)"
 SUBSYSTEMS=="ieee1394", ENV{COMMENT}="Firewire device $attr{host_id})"
