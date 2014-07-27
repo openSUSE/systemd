@@ -2880,6 +2880,10 @@ dist_udevrules_DATA += \
 	rules/73-seat-numlock.rules
 
 # ------------------------------------------------------------------------------
+dist_udevrules_DATA += \
+	rules/80-hotplug-cpu-mem.rules
+
+# ------------------------------------------------------------------------------
 if ENABLE_GUDEV
 if ENABLE_GTK_DOC
 SUBDIRS += \
