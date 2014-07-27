@@ -22,8 +22,6 @@ ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="413c", ATTR{idProduct}=="2500"
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="413c", ATTR{idProduct}=="0000", TEST=="power/control", ATTR{power/control}="auto"
 
 # IBM remote access
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="04b3", ATTR{idProduct}=="4001", TEST=="power/control", ATTR{power/control}="auto"
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="04b3", ATTR{idProduct}=="4002", TEST=="power/control", ATTR{power/control}="auto"
 ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="04b3", ATTR{idProduct}=="4012", TEST=="power/control", ATTR{power/control}="auto"
 
 # Raritan Computer, Inc KVM.
