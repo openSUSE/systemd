@@ -454,7 +454,7 @@ static void event_run(struct event *event)
 
         if (children >= children_max) {
                 if (children_max > 1)
-                        log_debug("maximum number (%i) of children reached", children);
+                        log_error("maximum number (%i) of children reached", children);
                 return;
         }
 
@@ -1277,7 +1277,7 @@ int main(int argc, char *argv[]) {
                 children_max = 8;
 
                 if (sched_getaffinity(0, sizeof (cpu_set), &cpu_set) == 0) {
-                        children_max +=  CPU_COUNT(&cpu_set) * 2;
+                        children_max += CPU_COUNT(&cpu_set) * 64;
                 }
         }
         log_debug("set children_max to %u", children_max);
