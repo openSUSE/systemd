@@ -1311,16 +1311,16 @@ int main(int argc, char *argv[])
                                 if (worker->state != WORKER_RUNNING)
                                         continue;
 
-                                if ((now(CLOCK_MONOTONIC) - worker->event_start_usec) > 30 * 1000 * 1000) {
+                                if ((now(CLOCK_MONOTONIC) - worker->event_start_usec) > 30 * USEC_PER_SEC) {
                                         log_error("worker [%u] %s timeout; kill it", worker->pid,
                                             worker->event ? worker->event->devpath : "<idle>");
                                         kill(worker->pid, SIGKILL);
                                         worker->state = WORKER_KILLED;
+
                                         /* drop reference taken for state 'running' */
                                         worker_unref(worker);
                                         if (worker->event) {
-                                                log_error("seq %llu '%s' killed",
-                                                          udev_device_get_seqnum(worker->event->dev), worker->event->devpath);
+                                                log_error("seq %llu '%s' killed", udev_device_get_seqnum(worker->event->dev), worker->event->devpath);
                                                 worker->event->exitcode = -64;
                                                 event_queue_delete(worker->event, true);
                                                 worker->event = NULL;
