@@ -473,7 +473,7 @@ int server_open_kernel_seqnum(Server *s) {
                 return 0;
         }
 
-        p = mmap(NULL, sizeof(uint64_t), PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+        p = mmap(NULL, sizeof(uint64_t), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_STACK, fd, 0);
         if (p == MAP_FAILED) {
                 log_error("Failed to map sequential number file, ignoring: %m");
                 close_nointr_nofail(fd);

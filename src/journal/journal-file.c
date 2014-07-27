@@ -2554,7 +2554,7 @@ int journal_file_open(
                 goto fail;
         }
 
-        f->header = mmap(NULL, PAGE_ALIGN(sizeof(Header)), prot_from_flags(flags), MAP_SHARED, f->fd, 0);
+        f->header = mmap(NULL, PAGE_ALIGN(sizeof(Header)), prot_from_flags(flags), MAP_SHARED|MAP_STACK, f->fd, 0);
         if (f->header == MAP_FAILED) {
                 f->header = NULL;
                 r = -errno;

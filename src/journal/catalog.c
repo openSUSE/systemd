@@ -472,9 +472,19 @@ finish:
 
 static int open_mmap(const char *database, int *_fd, struct stat *_st, void **_p) {
         const CatalogHeader *h;
-        int fd;
+        static const struct {
+                const int index;
+                int advise;
+        } advises[] = {
+                {0,MADV_WILLNEED},
+                {1,MADV_SEQUENTIAL},
+                {2,MADV_DONTDUMP},
+                {3,MADV_DONTFORK}
+        };
+        int n, fd;
         void *p;
         struct stat st;
+        size_t psize;
 
         assert(_fd);
         assert(_st);
@@ -494,10 +504,17 @@ static int open_mmap(const char *database, int *_fd, struct stat *_st, void **_p
                 return -EINVAL;
         }
 
-        p = mmap(NULL, PAGE_ALIGN(st.st_size), PROT_READ, MAP_SHARED, fd, 0);
+        psize = PAGE_ALIGN(st.st_size);
+        p = mmap(NULL, psize, PROT_READ, MAP_SHARED|MAP_POPULATE|MAP_NONBLOCK, fd, 0);
         if (p == MAP_FAILED) {
                 close_nointr_nofail(fd);
                 return -errno;
+        }
+
+        for (n=0; n < sizeof(advises)/sizeof(advises[0]); n++) {
+                int r = madvise(p, psize, advises[n].advise);
+                if (r < 0)
+                        log_warning("Failed to give advice about use of memory: %m");
         }
 
         h = p;
