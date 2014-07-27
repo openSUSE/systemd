@@ -1349,7 +1349,14 @@ int main(int argc, char *argv[]) {
                         if (hwclock_is_localtime() > 0) {
                                 int min;
 
-                                /* The first-time call to settimeofday() does a time warp in the kernel */
+                                /*
+                                 * The very first call of settimeofday() also does a time warp in the kernel.
+                                 *
+                                 * In the rtc-in-local time mode, we set the kernel's timezone, and rely on
+                                 * external tools to take care of maintaining the RTC and do all adjustments.
+                                 * This matches the behavior of Windows, which leaves the RTC alone if the
+                                 * registry tells that the RTC runs in UTC.
+                                 */
                                 r = hwclock_set_timezone(&min);
                                 if (r < 0)
                                         log_error("Failed to apply local time delta, ignoring: %s", strerror(-r));
@@ -1357,19 +1364,19 @@ int main(int argc, char *argv[]) {
                                         log_info("RTC configured in localtime, applying delta of %i minutes to system time.", min);
                         } else if (!in_initrd()) {
                                 /*
-                                 * Do dummy first-time call to seal the kernel's time warp magic
+                                 * Do a dummy very first call to seal the kernel's time warp magic.
                                  *
                                  * Do not call this this from inside the initrd. The initrd might not
                                  * carry /etc/adjtime with LOCAL, but the real system could be set up
                                  * that way. In such case, we need to delay the time-warp or the sealing
                                  * until we reach the real system.
+                                 *
+                                 * Do no set the kernel's timezone. The concept of local time cannot
+                                 * be supported reliably, the time will jump or be incorrect at every daylight
+                                 * saving time change. All kernel local time concepts will be treated
+                                 * as UTC that way.
                                  */
-                                hwclock_reset_timezone();
-
-                                /* Tell the kernel our timezone */
-                                r = hwclock_set_timezone(NULL);
-                                if (r < 0)
-                                        log_error("Failed to set the kernel's timezone, ignoring: %s", strerror(-r));
+                                hwclock_reset_timewarp();
                         }
                 }
 
