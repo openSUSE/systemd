@@ -1469,9 +1469,11 @@ static int method_do_shutdown_or_sleep(
                 sd_bus_error *error) {
 
         _cleanup_bus_creds_unref_ sd_bus_creds *creds = NULL;
-        bool multiple_sessions, blocked;
+        bool multiple_sessions, blocked, shutdown_through_acpi;
         int interactive, r;
         uid_t uid;
+        int fd;
+        struct stat buf;
 
         assert(m);
         assert(message);
@@ -1515,7 +1517,17 @@ static int method_do_shutdown_or_sleep(
         multiple_sessions = r > 0;
         blocked = manager_is_inhibited(m, w, INHIBIT_BLOCK, NULL, false, true, uid, NULL);
 
-        if (multiple_sessions) {
+        fd = open ("/run/systemd/acpi-shutdown", O_NOFOLLOW|O_PATH|O_CLOEXEC);
+        if (fd >= 0) {
+            shutdown_through_acpi = ((fstat(fd,&buf) == 0) && (time(NULL) - buf.st_mtime <= 65) && !sleep_verb);
+            close(fd);
+            unlink ("/run/systemd/acpi-shutdown");
+        }
+        else
+            shutdown_through_acpi = false;
+
+
+        if (multiple_sessions && !shutdown_through_acpi) {
                 r = bus_verify_polkit_async(m->bus, &m->polkit_registry, message,
                                             action_multiple_sessions, interactive, error, method, m);
                 if (r < 0)
@@ -1524,7 +1536,7 @@ static int method_do_shutdown_or_sleep(
                         return 1; /* No authorization for now, but the async polkit stuff will call us again when it has it */
         }
 
-        if (blocked) {
+        if (blocked && !shutdown_through_acpi) {
                 r = bus_verify_polkit_async(m->bus, &m->polkit_registry, message,
                                             action_ignore_inhibit, interactive, error, method, m);
                 if (r < 0)
@@ -1533,7 +1545,7 @@ static int method_do_shutdown_or_sleep(
                         return 1; /* No authorization for now, but the async polkit stuff will call us again when it has it */
         }
 
-        if (!multiple_sessions && !blocked) {
+        if (!multiple_sessions && !blocked && !shutdown_through_acpi) {
                 r = bus_verify_polkit_async(m->bus, &m->polkit_registry, message,
                                             action, interactive, error, method, m);
                 if (r < 0)
