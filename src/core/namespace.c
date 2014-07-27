@@ -123,8 +123,7 @@ static void drop_duplicates(BindMount *m, unsigned *n) {
                 if (previous && path_equal(f->path, previous->path))
                         continue;
 
-                t->path = f->path;
-                t->mode = f->mode;
+                *t = *f;
 
                 previous = t;
 
