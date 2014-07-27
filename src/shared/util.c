@@ -214,7 +214,7 @@ void close_nointr_nofail(int fd) {
         /* like close_nointr() but cannot fail, and guarantees errno
          * is unchanged */
 
-        assert_se(close_nointr(fd) == 0);
+        assert_se(close_nointr(fd) != -EBADF);
 }
 
 void close_many(const int fds[], unsigned n_fd) {

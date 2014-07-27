@@ -503,7 +503,11 @@ _public_ PAM_EXTERN int pam_sm_open_session(
                 r = pam_set_data(handle, "systemd.session-fd", INT_TO_PTR(session_fd+1), NULL);
                 if (r != PAM_SUCCESS) {
                         pam_syslog(handle, LOG_ERR, "Failed to install session fd.");
-                        close_nointr_nofail(session_fd);
+                        if (session_fd >= 0) {
+                                PROTECT_ERRNO;
+                                if (_unlikely_(!(close_nointr(session_fd) != -EBADF)))
+                                         pam_syslog(handle, LOG_ERR, "Unexpected error code on closing session fd: %m");
+                        }
                         return r;
                 }
         }
