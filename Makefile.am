@@ -2543,6 +2543,7 @@ dist_udevrules_DATA += \
 	rules/60-persistent-input.rules \
 	rules/60-persistent-alsa.rules \
 	rules/60-persistent-storage.rules \
+	rules/60-ssd-scheduler.rules \
 	rules/64-btrfs.rules \
 	rules/75-net-description.rules \
 	rules/75-tty-description.rules \
