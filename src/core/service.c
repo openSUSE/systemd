@@ -1811,7 +1811,7 @@ static int service_spawn(
         if (r < 0)
                 goto fail;
 
-        our_env = new0(char*, 4);
+        our_env = new0(char*, 5);
         if (!our_env) {
                 r = -ENOMEM;
                 goto fail;
@@ -1834,6 +1834,14 @@ static int service_spawn(
                         r = -ENOMEM;
                         goto fail;
                 }
+
+#ifdef HAVE_SYSV_COMPAT
+        if (s->is_sysv)
+                if (asprintf(our_env + n_env++, "XDG_SESSION_CLASS=service") < 0) {
+                        r = -ENOMEM;
+                        goto fail;
+                }
+#endif
 
         final_env = strv_env_merge(2, UNIT(s)->manager->environment, our_env, NULL);
         if (!final_env) {
