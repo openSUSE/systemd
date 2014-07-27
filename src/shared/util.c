@@ -918,6 +918,18 @@ int reset_all_signal_handlers(void) {
         return 0;
 }
 
+static int reset_signal_mask(void) {
+        sigset_t ss;
+
+        if (sigemptyset(&ss) < 0)
+                return -errno;
+
+        if (sigprocmask(SIG_SETMASK, &ss, NULL) < 0)
+                return -errno;
+
+        return 0;
+}
+
 char *strstrip(char *s) {
         char *e;
 
@@ -5143,9 +5155,9 @@ int fd_inc_rcvbuf(int fd, size_t n) {
 }
 
 int fork_agent(pid_t *pid, const int except[], unsigned n_except, const char *path, ...) {
-        pid_t parent_pid, agent_pid;
-        int fd;
         bool stdout_is_tty, stderr_is_tty;
+        pid_t parent_pid, agent_pid;
+        sigset_t ss, saved_ss;
         unsigned n, i;
         va_list ap;
         char **l;
@@ -5153,16 +5165,25 @@ int fork_agent(pid_t *pid, const int except[], unsigned n_except, const char *pa
         assert(pid);
         assert(path);
 
-        parent_pid = getpid();
-
         /* Spawns a temporary TTY agent, making sure it goes away when
          * we go away */
 
+        parent_pid = getpid();
+
+        /* First we temporarily block all signals, so that the new
+         * child has them blocked initially. This way, we can be sure
+         * that SIGTERMs are not lost we might send to the agent. */
+        assert_se(sigfillset(&ss) >= 0);
+        assert_se(sigprocmask(SIG_SETMASK, &ss, &saved_ss) >= 0);
+
         agent_pid = fork();
-        if (agent_pid < 0)
+        if (agent_pid < 0) {
+                assert_se(sigprocmask(SIG_SETMASK, &saved_ss, NULL) >= 0);
                 return -errno;
+        }
 
         if (agent_pid != 0) {
+                assert_se(sigprocmask(SIG_SETMASK, &saved_ss, NULL) >= 0);
                 *pid = agent_pid;
                 return 0;
         }
@@ -5172,6 +5193,12 @@ int fork_agent(pid_t *pid, const int except[], unsigned n_except, const char *pa
          * Make sure the agent goes away when the parent dies */
         if (prctl(PR_SET_PDEATHSIG, SIGTERM) < 0)
                 _exit(EXIT_FAILURE);
+
+        /* Make sure we actually can kill the agent, if we need to, in
+         * case somebody invoked us from a shell script that trapped
+         * SIGTERM or so... */
+        reset_all_signal_handlers();
+        reset_signal_mask();
 
         /* Check whether our parent died before we were able
          * to set the death signal */
@@ -5185,6 +5212,8 @@ int fork_agent(pid_t *pid, const int except[], unsigned n_except, const char *pa
         stderr_is_tty = isatty(STDERR_FILENO);
 
         if (!stdout_is_tty || !stderr_is_tty) {
+		int fd;
+
                 /* Detach from stdout/stderr. and reopen
                  * /dev/tty for them. This is important to
                  * ensure that when systemctl is started via
