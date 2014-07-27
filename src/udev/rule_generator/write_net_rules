@@ -101,6 +101,11 @@ if [ "$MATCHDEVID" ]; then
 fi
 
 if [ "$MATCHID" ]; then
+        ID="$(find_all_rules 'KERNELS==' "$MATCHID")"
+        if [ "$ID" == "$MATCHID" ]; then
+                unlock_rules_file
+                exit 0
+        fi
         match="$match, KERNELS==\"$MATCHID\""
 fi
 
