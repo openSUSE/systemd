@@ -2600,7 +2600,7 @@ static int kill_unit(sd_bus *bus, char **args) {
                                 "ssi", *names, arg_kill_who, arg_signal);
                 if (q < 0) {
                         log_error("Failed to kill unit %s: %s",
-                                  *names, bus_error_message(&error, r));
+                                  *names, bus_error_message(&error, q));
                         if (r == 0)
                                 r = q;
                 }
@@ -6430,7 +6430,7 @@ static int runlevel_main(void) {
 }
 
 int main(int argc, char*argv[]) {
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         setlocale(LC_ALL, "");
