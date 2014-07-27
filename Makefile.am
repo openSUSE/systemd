@@ -2823,6 +2823,17 @@ udevlibexec_PROGRAMS += \
 	ata_id
 
 # ------------------------------------------------------------------------------
+path_id_compat_SOURCES = \
+	src/udev/path_id_compat/path_id_compat.c
+
+path_id_compat_LDADD = \
+	libudev-internal.la \
+	libsystemd-shared.la
+
+udevlibexec_PROGRAMS += \
+	path_id_compat
+
+# ------------------------------------------------------------------------------
 cdrom_id_SOURCES = \
 	src/udev/cdrom_id/cdrom_id.c
 

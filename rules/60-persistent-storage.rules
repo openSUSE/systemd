@@ -64,6 +64,11 @@ ENV{DEVTYPE}=="disk", DEVPATH!="*/virtual/*", IMPORT{builtin}="path_id"
 ENV{DEVTYPE}=="disk", ENV{ID_PATH}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH}"
 ENV{DEVTYPE}=="partition", ENV{ID_PATH}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH}-part%n"
 
+# by-path (parent device path, compat version, only for ATA bus)
+ENV{DEVTYPE}=="disk", ENV{ID_BUS}=="ata", DEVPATH!="*/virtual/*", IMPORT{program}="path_id_compat %p"
+ENV{DEVTYPE}=="disk", ENV{ID_PATH_COMPAT}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH_COMPAT}"
+ENV{DEVTYPE}=="partition", ENV{ID_PATH_COMPAT}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH_COMPAT}-part%n"
+
 # skip unpartitioned removable media devices from drivers which do not send "change" events
 ENV{DEVTYPE}=="disk", KERNEL!="sd*|sr*", ATTR{removable}=="1", GOTO="persistent_storage_end"
 
