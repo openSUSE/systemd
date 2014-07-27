@@ -3788,7 +3788,20 @@ const char *default_term_for_tty(const char *tty) {
         if (streq(tty, "ttyS1"))
                 return "TERM=vt220";
 #endif
-        return "TERM=vt102";
+        if (detect_virtualization(NULL) && (streq(tty, "xvc0") || streq(tty, "hvc0") || streq(tty, "ttyS0"))) {
+                char *buf = NULL;
+
+                parse_env_file("/proc/cmdline", WHITESPACE, "term", &buf, NULL);
+                if (buf && *buf) {
+                        char *term;
+                        if (asprintf(&term, "TERM=%s", buf) < 0)
+                                return "TERM=vt220";
+ 
+                        return term;
+                }      
+        } 
+
+        return "TERM=vt220";
 }
 
 bool dirent_is_file(const struct dirent *de) {
