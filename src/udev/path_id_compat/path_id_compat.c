@@ -61,6 +61,22 @@ static int path_prepend(char **path, const char *fmt, ...)
         return 0;
 }
 
+/*
+** Linux only supports 32 bit luns.
+** See drivers/scsi/scsi_scan.c::scsilun_to_int() for more details.
+*/
+static int format_lun_number(struct udev_device *dev, char **path)
+{
+       unsigned long lun = strtoul(udev_device_get_sysnum(dev), NULL, 10);
+
+       /* address method 0, peripheral device addressing with bus id of zero */
+       if (lun < 256)
+               return path_prepend(path, "lun-%d", lun);
+
+       /* handle all other lun addressing methods by using a variant of the original lun format */
+       return path_prepend(path, "lun-0x%04x%04x00000000", (lun & 0xffff), (lun >> 16) & 0xffff);
+}
+
 static struct udev_device *skip_subsystem(struct udev_device *dev, const char *subsys)
 {
         struct udev_device *parent = dev;
@@ -160,6 +176,81 @@ out:
         return hostdev;
 }
 
+static struct udev_device *handle_scsi_sas(struct udev_device *parent, char **path)
+{
+       struct udev *udev  = udev_device_get_udev(parent);
+       struct udev_device *targetdev;
+       struct udev_device *target_parent;
+       struct udev_device *sasdev;
+       struct udev_device *portdev;
+       struct dirent *dent;
+       DIR *dir;
+       const char *sas_address;
+       int tmp_phy_id, phy_id = 255;
+       char *lun = NULL;
+
+       targetdev = udev_device_get_parent_with_subsystem_devtype(parent, "scsi", "scsi_target");
+       if (!targetdev)
+               return NULL;
+
+       target_parent = udev_device_get_parent(targetdev);
+       if (!target_parent)
+               return NULL;
+
+       portdev = udev_device_get_parent(target_parent);
+       if (!portdev)
+               return NULL;
+
+       dir = opendir(udev_device_get_syspath(portdev));
+       if (!dir)
+               return NULL;
+
+       for (dent = readdir(dir); dent != NULL; dent = readdir(dir)) {
+               const char *name = dent->d_name;
+               char *phy_id_str;
+
+               if (dent->d_type != DT_LNK)
+                       continue;
+
+               if (strncmp(dent->d_name, "phy", 3) != 0)
+                       continue;
+
+               phy_id_str = strstr(name, ":");
+               if (phy_id_str == NULL)
+                       continue;
+
+               phy_id_str++;
+
+               tmp_phy_id = atoi(phy_id_str);
+               if (tmp_phy_id >= 0 && tmp_phy_id < phy_id)
+                       phy_id = tmp_phy_id;
+       }
+       closedir(dir);
+
+       if (phy_id == 255)
+               return NULL;
+
+       sasdev = udev_device_new_from_subsystem_sysname(udev, "sas_device",
+                                                       udev_device_get_sysname(target_parent));
+       if (sasdev == NULL)
+               return NULL;
+
+       sas_address = udev_device_get_sysattr_value(sasdev, "sas_address");
+       if (sas_address == NULL) {
+               parent = NULL;
+               goto out;
+       }
+
+       format_lun_number(parent, &lun);
+       path_prepend(path, "sas-phy%d-%s-%s", phy_id, sas_address, lun);
+
+       if (lun)
+               free(lun);
+out:
+       udev_device_unref(sasdev);
+       return parent;
+}
+
 static struct udev_device *handle_scsi(struct udev_device *parent, char **path)
 {
         const char *devtype;
@@ -171,6 +262,11 @@ static struct udev_device *handle_scsi(struct udev_device *parent, char **path)
 
         /* lousy scsi sysfs does not have a "subsystem" for the transport */
         name = udev_device_get_syspath(parent);
+
+        if (strstr(name, "/end_device-") != NULL) {
+                parent = handle_scsi_sas(parent, path);
+                goto out;
+        }
 
         if (strstr(name, "/ata") != NULL) {
                 parent = handle_ata(parent, path);
