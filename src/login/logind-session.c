@@ -479,6 +479,7 @@ static int session_start_scope(Session *s) {
                 _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
                 _cleanup_free_ char *description = NULL;
                 char *scope, *job = NULL;
+                char *killmode = s->class == SESSION_SERVICE ? "none" : "control-group";
 
                 description = strjoin("Session ", s->id, " of user ", s->user->name, NULL);
                 if (!description)
@@ -488,7 +489,7 @@ static int session_start_scope(Session *s) {
                 if (!scope)
                         return log_oom();
 
-                r = manager_start_scope(s->manager, scope, s->leader, s->user->slice, description, "systemd-logind.service", "systemd-user-sessions.service", &error, &job);
+                r = manager_start_scope(s->manager, scope, s->leader, s->user->slice, description, "systemd-logind.service", "systemd-user-sessions.service", killmode, &error, &job);
                 if (r < 0) {
                         log_error("Failed to start session scope %s: %s %s",
                                   scope, bus_error_message(&error, r), error.name);
@@ -1165,7 +1166,8 @@ static const char* const session_class_table[_SESSION_CLASS_MAX] = {
         [SESSION_USER] = "user",
         [SESSION_GREETER] = "greeter",
         [SESSION_LOCK_SCREEN] = "lock-screen",
-        [SESSION_BACKGROUND] = "background"
+        [SESSION_BACKGROUND] = "background",
+        [SESSION_SERVICE] = "service",
 };
 
 DEFINE_STRING_TABLE_LOOKUP(session_class, SessionClass);

@@ -46,6 +46,7 @@ typedef enum SessionClass {
         SESSION_GREETER,
         SESSION_LOCK_SCREEN,
         SESSION_BACKGROUND,
+        SESSION_SERVICE,
         _SESSION_CLASS_MAX,
         _SESSION_CLASS_INVALID = -1
 } SessionClass;

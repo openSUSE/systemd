@@ -2241,6 +2241,7 @@ int manager_start_scope(
                 const char *slice,
                 const char *description,
                 const char *after, const char *after2,
+                const char *killmode,
                 sd_bus_error *error,
                 char **job) {
 
@@ -2289,6 +2290,12 @@ int manager_start_scope(
 
         if (!isempty(after2)) {
                 r = sd_bus_message_append(m, "(sv)", "After", "as", 1, after2);
+                if (r < 0)
+                        return r;
+        }
+
+        if (!isempty(killmode)) {
+                r = sd_bus_message_append(m, "(sv)", "KillMode", "s", killmode);
                 if (r < 0)
                         return r;
         }
