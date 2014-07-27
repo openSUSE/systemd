@@ -3825,6 +3825,14 @@ dist_udevrules_DATA += \
 	rules/60-persistent-v4l.rules
 
 # ------------------------------------------------------------------------------
+dist_udevrules_DATA += \
+	rules/75-persistent-net-generator.rules
+
+udevlibexec_PROGRAMS += \
+	src/udev/rule_generator/rule_generator.functions \
+	src/udev/rule_generator/write_net_rules
+
+# ------------------------------------------------------------------------------
 mtd_probe_SOURCES =  \
 	src/udev/mtd_probe/mtd_probe.c \
 	src/udev/mtd_probe/mtd_probe.h \
