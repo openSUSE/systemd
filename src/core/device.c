@@ -320,7 +320,7 @@ static int device_setup_unit(Manager *m, struct udev_device *dev, const char *pa
         if (u &&
             DEVICE(u)->sysfs &&
             !path_equal(DEVICE(u)->sysfs, sysfs)) {
-                log_error_unit(u->id, "Device %s appeared twice with different sysfs paths %s and %s", e, DEVICE(u)->sysfs, sysfs);
+                log_debug_unit(u->id, "Device %s appeared twice with different sysfs paths %s and %s", e, DEVICE(u)->sysfs, sysfs);
                 return -EEXIST;
         }
 
