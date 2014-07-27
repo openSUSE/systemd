@@ -89,6 +89,12 @@ choose_rules_file
 
 # the DRIVERS key is needed to not match bridges and VLAN sub-interfaces
 if [ "$MATCHADDR" ]; then
+        # Check if MACADDR doesn't exist already in the generated rules
+        MAC="$(/usr/bin/grep -w -o -C1 -m1 "$MATCHADDR" "$RULES_FILE" 2>/dev/null || true)"
+        if [ "$MAC" = "$MATCHADDR" ]; then
+                unlock_rules_file
+                exit 0
+        fi
         match="$match, DRIVERS==\"?*\", ATTR{address}==\"$MATCHADDR\""
 fi
 
@@ -101,8 +107,9 @@ if [ "$MATCHDEVID" ]; then
 fi
 
 if [ "$MATCHID" ]; then
-        ID="$(find_all_rules 'KERNELS==' "$MATCHID")"
-        if [ "$ID" == "$MATCHID" ]; then
+        # Check if KERNEL doesn't exist already in the generated rules
+        KERNEL="$(find_all_rules 'KERNELS==' "$MATCHID")"
+        if [ "$KERNEL" = "$MATCHID" ]; then
                 unlock_rules_file
                 exit 0
         fi
