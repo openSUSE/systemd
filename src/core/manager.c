@@ -37,6 +37,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <sys/timerfd.h>
+#include <resolv.h>
 
 #ifdef HAVE_AUDIT
 #include <libaudit.h>
@@ -304,6 +305,101 @@ static int manager_check_ask_password(Manager *m) {
         return m->have_ask_password;
 }
 
+static int manager_setup_resolv_conf_change(Manager *);
+
+static int manager_dispatch_resolv_conf_fd(sd_event_source *source,
+                                           int fd, uint32_t revents, void *userdata) {
+        Manager *m = userdata;
+
+        assert(m);
+        assert(m->resolv_conf_inotify_fd == fd);
+
+        if (revents != EPOLLIN) {
+                log_warning("Got unexpected poll event for notify fd.");
+                return 0;
+        }
+
+        if (fd >= 0)
+                flush_fd(fd);
+
+        m->resolv_conf_event_source = sd_event_source_unref(m->resolv_conf_event_source);
+
+        if (m->resolv_conf_inotify_fd >= 0)
+                close_nointr_nofail(m->resolv_conf_inotify_fd);
+        m->resolv_conf_inotify_fd = -1;
+
+        manager_setup_resolv_conf_change(m);
+
+        return m->resolv_conf_noent ? 0 : res_init();
+}
+
+static int manager_setup_resolv_conf_change(Manager *m) {
+        int r;
+
+        assert(m);
+        assert(m->resolv_conf_inotify_fd < 0);
+
+        m->resolv_conf_inotify_fd = inotify_init1(IN_NONBLOCK|IN_CLOEXEC);
+        if (m->resolv_conf_inotify_fd < 0) {
+                log_error("inotify_init1() failed: %m");
+                r = -errno;
+                goto fail;
+        }
+        if (inotify_add_watch(m->resolv_conf_inotify_fd, "/etc/resolv.conf",
+                              IN_CLOSE_WRITE|IN_MODIFY|IN_ATTRIB|IN_DELETE_SELF) < 0) {
+                if (errno == ENOENT) {
+                        m->resolv_conf_noent = true;
+                        if (inotify_add_watch(m->resolv_conf_inotify_fd, "/etc", IN_CREATE|IN_MOVED_TO) < 0) {
+                                log_error("Failed to add watch on /etc: %m");
+                                r = -errno;
+                                goto fail;
+                        }
+                } else {
+                        log_error("Failed to add watch on /etc/resolv.conf: %m");
+                        r = -errno;
+                        goto fail;
+                }
+        }
+        if (inotify_add_watch(m->resolv_conf_inotify_fd, "/etc/host.conf",
+                              IN_CLOSE_WRITE|IN_MODIFY|IN_ATTRIB|IN_DELETE_SELF) < 0 && errno != ENOENT) {
+                log_error("Failed to add watch on /etc/host.conf: %m");
+                r = -errno;
+                goto fail;
+        }
+
+        r = sd_event_add_io(m->event, &m->resolv_conf_event_source,
+                            m->resolv_conf_inotify_fd, EPOLLIN,
+                            manager_dispatch_resolv_conf_fd, m);
+        if (r < 0) {
+                log_error("Failed to add event source for resolver: %s", strerror(-r));
+                goto fail;
+        }
+
+        r = sd_event_source_set_priority(m->resolv_conf_event_source, -10);
+        if (r < 0) {
+                log_error("Failed to add event source for resolver: %s", strerror(-r));
+                m->resolv_conf_event_source = sd_event_source_unref(m->resolv_conf_event_source);
+                goto fail;
+        }
+
+        return 0;
+fail:
+        if (m->resolv_conf_inotify_fd >= 0)
+                close_nointr_nofail(m->resolv_conf_inotify_fd);
+        m->resolv_conf_inotify_fd = -1;
+
+        return 0;   /* Ignore error here */
+}
+
+static void manager_shutdown_resolv_conf_change(Manager *m) {
+        assert(m);
+
+        m->resolv_conf_event_source = sd_event_source_unref(m->resolv_conf_event_source);
+        if (m->resolv_conf_inotify_fd >= 0)
+                close_nointr_nofail(m->resolv_conf_inotify_fd);
+        m->resolv_conf_inotify_fd = -1;
+}
+
 static int manager_watch_idle_pipe(Manager *m) {
         int r;
 
@@ -562,6 +658,7 @@ int manager_new(SystemdRunningAs running_as, Manager **_m) {
         m->pin_cgroupfs_fd = m->notify_fd = m->signal_fd = m->time_change_fd = m->dev_autofs_fd = m->private_listen_fd = m->kdbus_fd = -1;
         m->current_job_id = 1; /* start as id #1, so that we can leave #0 around as "null-like" value */
 
+        m->resolv_conf_inotify_fd = -1;
         m->ask_password_inotify_fd = -1;
         m->have_ask_password = -EINVAL; /* we don't know */
 
@@ -610,6 +707,10 @@ int manager_new(SystemdRunningAs running_as, Manager **_m) {
                 goto fail;
 
         r = manager_setup_time_change(m);
+        if (r < 0)
+                goto fail;
+
+        r = manager_setup_resolv_conf_change(m);
         if (r < 0)
                 goto fail;
 
@@ -905,6 +1006,8 @@ void manager_free(Manager *m) {
         int i;
 
         assert(m);
+
+        manager_shutdown_resolv_conf_change(m);
 
         manager_clear_jobs_and_units(m);
 

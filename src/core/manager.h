@@ -157,6 +157,11 @@ struct Manager {
         FILE *proc_self_mountinfo;
         sd_event_source *mount_event_source;
 
+        /* Watch out any change of /etc/resolv.conf */
+        int resolv_conf_inotify_fd;
+        sd_event_source *resolv_conf_event_source;
+        bool resolv_conf_noent;
+
         /* Data specific to the swap filesystem */
         FILE *proc_swaps;
         sd_event_source *swap_event_source;
