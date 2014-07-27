@@ -88,6 +88,7 @@ int udev_event_spawn(struct udev_event *event,
                      char *result, size_t ressize);
 void udev_event_execute_rules(struct udev_event *event, usec_t timeout_usec, usec_t timeout_warn_usec,
                               struct udev_rules *rules, const sigset_t *sigset);
+bool udev_check_for_kmod(pid_t pid);
 void udev_event_execute_run(struct udev_event *event, usec_t timeout_usec, usec_t timeout_warn_usec, const sigset_t *sigset);
 int udev_build_argv(struct udev *udev, char *cmd, int *argc, char *argv[]);
 

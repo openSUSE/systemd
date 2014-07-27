@@ -75,6 +75,7 @@ static int children_max;
 static int exec_delay;
 static usec_t event_timeout_usec = 180 * USEC_PER_SEC;
 static usec_t event_timeout_warn_usec = 180 * USEC_PER_SEC / 3;
+static bool event_killkmod = false;
 static sigset_t sigmask_orig;
 static UDEV_LIST(event_list);
 static UDEV_LIST(worker_list);
@@ -936,6 +937,12 @@ static void kernel_cmdline_options(struct udev *udev)
                         }
                         event_timeout_usec *= USEC_PER_SEC;
                         event_timeout_warn_usec = (event_timeout_usec / 3) ? : 1;
+                } else if (startswith(opt, "udev.killkmod=")) {
+                        r = parse_boolean(opt + 14);
+                        if (r < 0)
+                                log_warning("Invalid udev.killkmod Ignoring: %s", opt + 14);
+                        else
+                                event_killkmod = r;
                 }
 
                 free(s);
@@ -984,7 +991,7 @@ int main(int argc, char *argv[]) {
         }
 
         for (;;) {
-                int option, r;
+                int option;
 
                 option = getopt_long(argc, argv, "c:de:DtN:hV", options, NULL);
                 if (option == -1)
@@ -1282,6 +1289,12 @@ int main(int argc, char *argv[]) {
         udev_list_node_init(&event_list);
         udev_list_node_init(&worker_list);
 
+        r = mkdir_p("/run/udev/kmod", 0755);
+        if (r < 0 && errno != EEXIST) {
+                log_error("could not create /run/udev/kmod: %m");
+                goto exit;
+        }
+
         for (;;) {
                 static usec_t last_usec;
                 struct epoll_event ev[8];
@@ -1354,7 +1367,13 @@ int main(int argc, char *argv[]) {
 
                                 if (worker->state != WORKER_RUNNING)
                                         continue;
-
+#ifdef HAVE_KMOD
+                                if (udev_check_for_kmod(worker->pid)) {
+                                        log_debug("worker [%u] %s is using kmod", worker->pid, worker->event->devpath);
+                                        if (!event_killkmod)
+                                                continue;
+                                }
+#endif
                                 ts = now(CLOCK_MONOTONIC);
 
                                 if ((ts - worker->event_start_usec) > event_timeout_warn_usec) {

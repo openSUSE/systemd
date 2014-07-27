@@ -959,6 +959,46 @@ void udev_event_execute_rules(struct udev_event *event,
         }
 }
 
+#ifdef HAVE_KMOD
+static inline void udev_check_and_set_kmod(enum udev_builtin_cmd builtin_cmd, struct udev_event *event) {
+        char filename[UTIL_PATH_SIZE];
+        switch (builtin_cmd) {
+        case UDEV_BUILTIN_KMOD:
+                snprintf(filename, sizeof(filename), "/run/udev/kmod/%u", (unsigned)getpid());
+                touch(filename);
+        default:
+                break;
+        }
+}
+
+static inline void udev_check_and_unset_kmod(enum udev_builtin_cmd builtin_cmd, struct udev_event *event) {
+        char filename[UTIL_PATH_SIZE];
+        switch (builtin_cmd) {
+        case UDEV_BUILTIN_KMOD:
+                snprintf(filename, sizeof(filename), "/run/udev/kmod/%u", (unsigned)getpid());
+                unlink(filename);
+        default:
+                break;
+        }
+}
+
+bool udev_check_for_kmod(pid_t pid) {
+        char filename[UTIL_PATH_SIZE];
+        struct stat st;
+        snprintf(filename, sizeof(filename), "/run/udev/kmod/%u", (unsigned)pid);
+        if (stat(filename, &st) == 0) {
+                return true;
+        }
+        return false;
+}
+#else
+# define udev_check_and_set_kmod(a,b)
+# define udev_check_and_unset_kmod(a,b)
+bool udev_check_for_kmod(pid_t pid) {
+        return false;
+}
+#endif
+
 void udev_event_execute_run(struct udev_event *event, usec_t timeout_usec, usec_t timeout_warn_usec, const sigset_t *sigmask) {
         struct udev_list_entry *list_entry;
 
@@ -970,7 +1010,9 @@ void udev_event_execute_run(struct udev_event *event, usec_t timeout_usec, usec_
                         char command[UTIL_PATH_SIZE];
 
                         udev_event_apply_format(event, cmd, command, sizeof(command));
+                        udev_check_and_set_kmod(builtin_cmd, event);
                         udev_builtin_run(event->dev, builtin_cmd, command, false);
+                        udev_check_and_unset_kmod(builtin_cmd, event);
                 } else {
                         char program[UTIL_PATH_SIZE];
                         char **envp;
