@@ -263,6 +263,7 @@ static int dir_cleanup(
         struct timespec times[2];
         bool deleted = false;
         int r = 0;
+        Item *found = NULL;
 
         while ((dent = readdir(d))) {
                 struct stat s;
@@ -306,11 +307,43 @@ static int dir_cleanup(
                 }
 
                 /* Is there an item configured for this path? */
-                if (hashmap_get(items, sub_path))
-                        continue;
+                found = hashmap_get(items, sub_path);
+         
+                if (!found)
+                        found = find_glob(globs, sub_path);
 
-                if (find_glob(globs, sub_path))
-                        continue;
+                if (found) {
+                        /* evaluate username arguments in ignore statements */
+                        if (found->type == IGNORE_PATH || found->type == IGNORE_DIRECTORY_PATH) {
+                                if (!found->argument)
+                                        continue; 
+                                else {
+                                        struct passwd *pw;
+                                        char *userfound = NULL, *args = strdup(found->argument);
+                                        bool match = false;
+                                        int uid = -1;
+
+                                        while ((userfound = strsep(&args, ","))) {
+                                                pw = getpwnam(userfound);
+
+                                                if (!pw)
+                                                        log_error("Unknown user '%s' in ignore statement.", userfound);
+                                                else {
+                                                        uid = pw->pw_uid;
+                                                        if (s.st_uid == uid) { 
+                                                                match = true;
+                                                                break;
+                                                        }
+                                                }
+                                        }
+                                        if (match) {
+                                                found = NULL;
+                                                continue;  
+                                        }
+                                }
+                        } else 
+                                 continue; 
+                }
 
                 if (S_ISDIR(s.st_mode)) {
 

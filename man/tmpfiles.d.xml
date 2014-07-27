@@ -435,8 +435,12 @@ r! /tmp/.X[0-9]*-lock</programlisting>
                         <varname>f</varname>, <varname>F</varname>,
                         and <varname>w</varname> may be used to
                         specify a short string that is written to the
-                        file, suffixed by a newline. Ignored for all
-                        other lines.</para>
+                        file, suffixed by a newline. 
+                        For <varname>x</varname>, <varname>X</varname>
+                        a comma separated list of usernames. If given, 
+                        only paths belonging to these users will be 
+                        excluded during directory cleanup.
+                        Ignored for all other lines.</para>
                 </refsect2>
 
         </refsect1>
