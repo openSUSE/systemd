@@ -193,6 +193,18 @@ static bool enable_name_policy(void) {
         r = proc_cmdline(&line);
         if (r < 0)
                 log_warning("Failed to read /proc/cmdline, ignoring: %s", strerror(-r));
+#if defined(NET_IFNAMES) && (NET_IFNAMES == 1)
+# warning Using persistent rules as a default
+        if (r <= 0)
+                return false;
+
+        FOREACH_WORD_QUOTED(w, l, line, state)
+                if (strneq(w, "net.ifnames=1", l))
+                       return true;
+
+        return false;
+#else
+# warning Using predictable rules as a default
         if (r <= 0)
                 return true;
 
@@ -201,6 +213,7 @@ static bool enable_name_policy(void) {
                         return false;
 
         return true;
+#endif
 }
 
 int link_config_load(link_config_ctx *ctx) {
