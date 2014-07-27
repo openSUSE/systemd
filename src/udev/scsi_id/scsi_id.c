@@ -46,6 +46,7 @@ static const struct option options[] = {
         { "replace-whitespace", no_argument,       NULL, 'u' },
         { "sg-version",         required_argument, NULL, 's' },
         { "verbose",            no_argument,       NULL, 'v' },
+        { "truncated-serial",   no_argument,       NULL, '9' },
         { "version",            no_argument,       NULL, 'V' }, /* don't advertise -V */
         { "export",             no_argument,       NULL, 'x' },
         { "help",               no_argument,       NULL, 'h' },
@@ -57,6 +58,7 @@ static bool dev_specified = false;
 static char config_file[MAX_PATH_LEN] = "/etc/scsi_id.config";
 static enum page_code default_page_code = PAGE_UNSPECIFIED;
 static int sg_version = 4;
+static bool compat_truncated = false;
 static bool reformat_serial = false;
 static bool export = false;
 static char vendor_str[64];
@@ -319,6 +321,7 @@ static void help(void) {
                "  -g --whitelisted                 Treat device as whitelisted\n"
                "  -u --replace-whitespace          Replace all whitespace by underscores\n"
                "  -v --verbose                     Verbose logging\n"
+               "     --truncated-serial            truncated serial for compatibility with systems configured with by-id links created by udev < 184\n"
                "  -x --export                      Print values as environment keys\n"
                , program_invocation_short_name);
 
@@ -388,6 +391,10 @@ static int set_options(struct udev *udev,
                         log_set_target(LOG_TARGET_CONSOLE);
                         log_set_max_level(LOG_DEBUG);
                         log_open();
+                        break;
+
+                case '9':
+                        compat_truncated = true;
                         break;
 
                 case 'V':
@@ -531,6 +538,9 @@ static int scsi_id(struct udev *udev, char *maj_min_dev)
                         util_replace_whitespace(dev_scsi.serial, serial_str, sizeof(serial_str));
                         util_replace_chars(serial_str, NULL);
                         printf("ID_SERIAL=%s\n", serial_str);
+                        util_replace_whitespace(dev_scsi.serial_compat, serial_str, sizeof(serial_str));
+                        util_replace_chars(serial_str, NULL);
+                        printf("ID_SERIAL_COMPAT=%s\n", serial_str);
                         util_replace_whitespace(dev_scsi.serial_short, serial_str, sizeof(serial_str));
                         util_replace_chars(serial_str, NULL);
                         printf("ID_SERIAL_SHORT=%s\n", serial_str);
@@ -558,7 +568,10 @@ static int scsi_id(struct udev *udev, char *maj_min_dev)
         if (reformat_serial) {
                 char serial_str[MAX_SERIAL_LEN];
 
-                util_replace_whitespace(dev_scsi.serial, serial_str, sizeof(serial_str));
+                if (compat_truncated)
+                        util_replace_whitespace(dev_scsi.serial_compat, serial_str, sizeof(serial_str));
+                else
+                        util_replace_whitespace(dev_scsi.serial, serial_str, sizeof(serial_str));
                 util_replace_chars(serial_str, NULL);
                 printf("%s\n", serial_str);
                 goto out;
