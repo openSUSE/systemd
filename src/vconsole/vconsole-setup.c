@@ -487,6 +487,15 @@ finish:
         if (font_pid > 0)
                 wait_for_terminate_and_warn(KBD_SETFONT, font_pid);
 
+        r = keymap_load(vc, vc_keymap, vc_keymap_toggle, utf8, disable_capslock, &keymap_pid);
+        if (r < 0) {
+                log_error("Failed to start " KBD_LOADKEYS ": %s", strerror(-r));
+                return EXIT_FAILURE;
+        }
+
+        if (keymap_pid > 0)
+                wait_for_terminate_and_warn(KBD_LOADKEYS, keymap_pid);
+
 #ifdef HAVE_SYSV_COMPAT
         r = load_compose_table(vc, vc_compose_table, &compose_table_pid);
         if (r < 0) {
@@ -497,15 +506,6 @@ finish:
         if (compose_table_pid > 0)
                 wait_for_terminate_and_warn(KBD_LOADKEYS, compose_table_pid);
 #endif
-
-        r = keymap_load(vc, vc_keymap, vc_keymap_toggle, utf8, disable_capslock, &keymap_pid);
-        if (r < 0) {
-                log_error("Failed to start " KBD_LOADKEYS ": %s", strerror(-r));
-                return EXIT_FAILURE;
-        }
-
-        if (keymap_pid > 0)
-                wait_for_terminate_and_warn(KBD_LOADKEYS, keymap_pid);
 
 #ifdef HAVE_SYSV_COMPAT
         if (numlock)
