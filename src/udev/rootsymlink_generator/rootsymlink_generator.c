@@ -34,7 +34,7 @@ int main()
 	struct stat statbuf;
 
 	if (stat(_ROOTDEV_, &statbuf) != 0)
-		return 1;
+		return 0;
 
 	if (major(statbuf.st_dev) > 0) {
 		int fd = -1;
