@@ -1509,6 +1509,11 @@ int server_init(Server *s) {
 
         server_parse_config_file(s);
         server_parse_proc_cmdline(s);
+        default_tty_path(s);
+
+        if (s->tty_path)
+                klogconsole(s);
+
         if (!!s->rate_limit_interval ^ !!s->rate_limit_burst) {
                 log_debug("Setting both rate limit interval and burst from %llu,%u to 0,0",
                           (long long unsigned) s->rate_limit_interval,

@@ -23,6 +23,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#ifdef HAVE_SYSV_COMPAT
+# include <linux/tiocl.h>
+# include <linux/vt.h>
+# include <sys/ioctl.h>
+# include <sys/klog.h>
+# include <errno.h>
+# include "util.h"
+#endif
 
 #include "fileio.h"
 #include "journald-server.h"
@@ -43,6 +51,74 @@ static bool prefix_timestamp(void) {
         return cached_printk_time;
 }
 
+#ifdef HAVE_SYSV_COMPAT
+void default_tty_path(Server *s)
+{
+        static const char list[] = "/dev/tty10\0" "/dev/console\0";
+        const char *vc;
+
+        if (s->tty_path)
+                return;
+
+        NULSTR_FOREACH(vc, list) {
+                _cleanup_close_ int fd = -1;
+
+                if (access(vc, F_OK) < 0)
+                        continue;
+
+                fd = open_terminal(vc, O_WRONLY|O_NOCTTY|O_CLOEXEC);
+                if (fd < 0)
+                        continue;
+
+                s->tty_path = strdup(vc);
+                break;
+        }
+}
+
+void klogconsole(Server *s)
+{
+        _cleanup_free_ char *klogconsole_params = NULL;
+        _cleanup_close_ int fd = -1;
+        const char *vc = s->tty_path;
+        const char *num;
+        int tiocl[2];
+        int r;
+
+        if (!vc || *vc == 0 || !strneq("/dev/tty", vc, 8))
+                return;
+
+        num = vc + strcspn(vc, "0123456789");
+        if (safe_atoi(num, &r) < 0)
+                return;
+
+        if (access(vc, F_OK) < 0)
+                return;
+
+        fd = open_terminal(vc, O_RDWR|O_NOCTTY|O_CLOEXEC);
+        if (fd < 0)
+                return;
+
+        tiocl[0] = TIOCL_SETKMSGREDIRECT;
+        tiocl[1] = r;
+
+        if (ioctl(fd, TIOCLINUX, tiocl) < 0)
+                return;
+
+        zero(klogconsole_params);
+        r = parse_env_file("/etc/sysconfig/boot", NEWLINE,
+                           "KLOGCONSOLE_PARAMS", &klogconsole_params,
+                           NULL);
+        if (r < 0)
+                return;
+        if (!klogconsole_params || *klogconsole_params == 0)
+                return;
+
+        num = klogconsole_params + strcspn(klogconsole_params, "0123456789");
+        if (safe_atoi(num, &r) == 0)
+                klogctl(8, 0, r);
+}
+#endif
+
 void server_forward_console(
                 Server *s,
                 int priority,
@@ -62,6 +138,10 @@ void server_forward_console(
         assert(message);
 
         if (LOG_PRI(priority) > s->max_level_console)
+                return;
+
+        /* Do not write security/authorization (private) messages to console */
+        if ((priority & LOG_FACMASK) == LOG_AUTHPRIV)
                 return;
 
         /* First: timestamp */
@@ -101,7 +181,23 @@ void server_forward_console(
         fd = open_terminal(tty, O_WRONLY|O_NOCTTY|O_CLOEXEC);
         if (fd < 0) {
                 log_debug("Failed to open %s for logging: %m", tty);
+#ifdef HAVE_SYSV_COMPAT
+                if (fd != -ENOENT && fd != -ENODEV)
+                        return;
+                if (tty != s->tty_path)
+                        return;
+                if (!streq("/dev/console", tty)) {
+                        if (s->tty_path)
+                                free(s->tty_path);
+                        s->tty_path = NULL;
+                        tty = "/dev/console";
+                        fd = open_terminal(tty, O_WRONLY|O_NOCTTY|O_CLOEXEC);
+                        if (fd < 0)
+                                return;
+                }
+#else
                 return;
+#endif
         }
 
         if (writev(fd, iovec, n) < 0)
