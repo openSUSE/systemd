@@ -1381,7 +1381,7 @@ static int mount_dispatch_timer(sd_event_source *source, usec_t usec, void *user
         return 0;
 }
 
-static int mount_add_one(
+static int mount_setup_unit(
                 Manager *m,
                 const char *what,
                 const char *where,
@@ -1427,7 +1427,7 @@ static int mount_add_one(
 
                 u = unit_new(m, sizeof(Mount));
                 if (!u)
-                        return -ENOMEM;
+                        return log_oom();
 
                 r = unit_add_name(u, e);
                 if (r < 0)
@@ -1558,6 +1558,8 @@ static int mount_add_one(
         return 0;
 
 fail:
+        log_warning("Failed to set up mount unit: %s", strerror(-r));
+
         if (delete && u)
                 unit_free(u);
 
@@ -1608,11 +1610,16 @@ static int mount_load_proc_self_mountinfo(Manager *m, bool set_flags) {
                         return log_oom();
 
                 d = cunescape(device);
-                p = cunescape(path);
-                if (!d || !p)
+                if (!d)
                         return log_oom();
 
-                k = mount_add_one(m, d, p, o, fstype, set_flags);
+                p = cunescape(path);
+                if (!p)
+                        return log_oom();
+
+		(void) device_found_node(m, d, true, DEVICE_FOUND_MOUNT, set_flags);
+
+                k = mount_setup_unit(m, d, p, o, fstype, set_flags);
                 if (k < 0)
                         r = k;
         }
@@ -1692,8 +1699,6 @@ static int mount_dispatch_io(sd_event_source *source, int fd, uint32_t revents, 
 
         r = mount_load_proc_self_mountinfo(m, true);
         if (r < 0) {
-                log_error("Failed to reread /proc/self/mountinfo: %s", strerror(-r));
-
                 /* Reset flags, just in case, for later calls */
                 LIST_FOREACH(units_by_type, u, m->units_by_type[UNIT_MOUNT]) {
                         Mount *mount = MOUNT(u);
@@ -1725,6 +1730,10 @@ static int mount_dispatch_io(sd_event_source *source, int fd, uint32_t revents, 
                         default:
                                 break;
                         }
+
+                        if (mount->parameters_proc_self_mountinfo.what)
+                                (void) device_found_node(m, mount->parameters_proc_self_mountinfo.what, false, DEVICE_FOUND_MOUNT, true);
+
 
                 } else if (mount->just_mounted || mount->just_changed) {
 
