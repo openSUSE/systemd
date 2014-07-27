@@ -247,7 +247,7 @@ void udev_node_update_old_links(struct udev_device *dev, struct udev_device *dev
                 if (found)
                         continue;
 
-                log_debug("update old name, '%s' no longer belonging to '%s'",
+                log_error("remove old symlink, '%s' no longer belonging to '%s'",
                      name, udev_device_get_devpath(dev));
                 link_update(dev, name, false);
         }
