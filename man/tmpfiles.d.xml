@@ -158,12 +158,18 @@ L    /tmp/foobar -    -    -    -   /dev/null</programlisting>
 
                                 <varlistentry>
                                         <term><varname>c</varname></term>
-                                        <listitem><para>Create a character device node if it does not exist yet.</para></listitem>
+                                        <listitem><para>Create a character device node if it does not exist yet. 
+                                            It is recommended to suffix this entry with an exclamation mark to only 
+                                            create static device nodes at boot, as udev will not manage static device 
+                                            nodes that are created at runtime.</para></listitem>
                                 </varlistentry>
 
                                 <varlistentry>
                                         <term><varname>b</varname></term>
-                                        <listitem><para>Create a block device node if it does not exist yet.</para></listitem>
+                                        <listitem><para>Create a block device node if it does not exist yet.
+                                            It is recommended to suffix this entry with an exclamation mark to only 
+                                            create static device nodes at boot, as udev will not manage static device 
+                                            nodes that re created at runtime.</para></listitem>
                                 </varlistentry>
 
                                 <varlistentry>
