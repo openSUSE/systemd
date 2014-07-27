@@ -43,7 +43,7 @@ __filter_units_by_property () {
         local units=("$@")
         local props
         IFS=$'\n' read -rd '' -a props < \
-            <(__systemctl $mode show --property "$property" -- "${units[@]}")
+            <(__systemctl $mode show --property "$property" -- "${units[@]}" 2> /dev/null)
         for ((i=0; $i < ${#units[*]}; i++)); do
                 if [[ "${props[i]}" = "$property=$value" ]]; then
                         echo " ${units[i]}"
