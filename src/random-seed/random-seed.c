@@ -22,7 +22,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <linux/random.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 
 #include "log.h"
@@ -32,8 +34,8 @@
 #define POOL_SIZE_MIN 512
 
 int main(int argc, char *argv[]) {
-        _cleanup_close_ int seed_fd = -1, random_fd = -1;
-        _cleanup_free_ void* buf = NULL;
+        _cleanup_close_ int seed_fd = -1, random_fd = -1, entropy_fd = -1;
+        _cleanup_free_ struct rand_pool_info *entropy = NULL;
         size_t buf_size = 0;
         ssize_t k;
         int r;
@@ -64,11 +66,12 @@ int main(int argc, char *argv[]) {
         if (buf_size <= POOL_SIZE_MIN)
                 buf_size = POOL_SIZE_MIN;
 
-        buf = malloc(buf_size);
-        if (!buf) {
+        entropy = (struct rand_pool_info*) malloc(sizeof(struct rand_pool_info) + buf_size);
+        if (!entropy) {
                 r = log_oom();
                 goto finish;
         }
+        entropy->buf_size = (typeof(entropy->buf_size)) buf_size;
 
         r = mkdir_parents_label(RANDOM_SEED, 0755);
         if (r < 0) {
@@ -81,6 +84,23 @@ int main(int argc, char *argv[]) {
          * to make sure the next boot gets seeded differently. */
 
         if (streq(argv[1], "load")) {
+
+                entropy_fd = open(RANDOM_SEED_DIR "entropy_count", O_RDONLY|O_CLOEXEC|O_NOCTTY, 0600);
+                if (entropy_fd < 0) {
+                         entropy->entropy_count = 0;                    
+                         if (errno != ENOENT) {
+                                log_error("Failed to open " RANDOM_SEED "/entropy_count: %m");
+                                r = -errno;
+                                goto finish;
+                         }
+                } else {
+                        r = read(entropy_fd, &entropy->entropy_count, sizeof(entropy->entropy_count));
+                        if (r < 0) {
+                                log_error("Failed to read entropy count file: %m");
+                                r = -errno;
+                                goto finish;
+                        }
+                }
 
                 seed_fd = open(RANDOM_SEED, O_RDWR|O_CLOEXEC|O_NOCTTY|O_CREAT, 0600);
                 if (seed_fd < 0) {
@@ -102,7 +122,7 @@ int main(int argc, char *argv[]) {
                         }
                 }
 
-                k = loop_read(seed_fd, buf, buf_size, false);
+                k = loop_read(seed_fd, entropy->buf, (size_t)entropy->buf_size, false);
                 if (k <= 0) {
 
                         if (r != 0)
@@ -113,15 +133,31 @@ int main(int argc, char *argv[]) {
                 } else {
                         lseek(seed_fd, 0, SEEK_SET);
 
-                        k = loop_write(random_fd, buf, (size_t) k, false);
-                        if (k <= 0) {
-                                log_error("Failed to write seed to /dev/urandom: %s", r < 0 ? strerror(-r) : "short write");
+                        if (entropy->entropy_count && (size_t)k == (size_t)entropy->buf_size) {
+                                r = ioctl(random_fd, RNDADDENTROPY, entropy);
+                                if (r < 0) {
+                                        log_error("Failed to write seed to /dev/urandom: %m");
+                                        r = -errno;
+                                }
+                        } else {
+                                k = loop_write(random_fd, entropy->buf, (size_t) k, false);
+                                if (k <= 0) {
+                                        log_error("Failed to write seed to /dev/urandom: %s", r < 0 ? strerror(-r) : "short write");
 
-                                r = k == 0 ? -EIO : (int) k;
+                                        r = k == 0 ? -EIO : (int) k;
+                                }
                         }
                 }
 
         } else if (streq(argv[1], "save")) {
+
+                /* Read available entropy count, if possible */
+                f = fopen("/proc/sys/kernel/random/entropy_avail", "re");
+                if (f) {
+                        if (fscanf(f, "%d", &entropy->entropy_count) < 0)
+                                entropy->entropy_count = 0;
+                        fclose(f);
+                }
 
                 seed_fd = open(RANDOM_SEED, O_WRONLY|O_CLOEXEC|O_NOCTTY|O_CREAT, 0600);
                 if (seed_fd < 0) {
@@ -137,6 +173,21 @@ int main(int argc, char *argv[]) {
                         goto finish;
                 }
 
+                if (entropy->entropy_count) {
+                        entropy_fd = open(RANDOM_SEED_DIR "entropy_count", O_WRONLY|O_CLOEXEC|O_NOCTTY|O_CREAT, 0600);
+                        if (seed_fd < 0) {
+                                log_error("Failed to open " RANDOM_SEED_DIR "entropy_count: %m");
+                                r = -errno;
+                                goto finish;
+                        }
+                        r = write(entropy_fd, &entropy->entropy_count, sizeof(entropy->entropy_count));
+                        if (r < 0) {
+                                log_error("Failed to write entropy count file: %m");
+                                r = -errno;
+                                goto finish;
+                        }
+                }
+
         } else {
                 log_error("Unknown verb %s.", argv[1]);
                 r = -EINVAL;
@@ -149,12 +200,12 @@ int main(int argc, char *argv[]) {
         fchmod(seed_fd, 0600);
         fchown(seed_fd, 0, 0);
 
-        k = loop_read(random_fd, buf, buf_size, false);
+        k = loop_read(random_fd, entropy->buf, (size_t)entropy->buf_size, false);
         if (k <= 0) {
                 log_error("Failed to read new seed from /dev/urandom: %s", r < 0 ? strerror(-r) : "EOF");
                 r = k == 0 ? -EIO : (int) k;
         } else {
-                r = loop_write(seed_fd, buf, (size_t) k, false);
+                r = loop_write(seed_fd, entropy->buf, (size_t) k, false);
                 if (r <= 0) {
                         log_error("Failed to write new random seed file: %s", r < 0 ? strerror(-r) : "short write");
                         r = r == 0 ? -EIO : r;
