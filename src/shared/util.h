@@ -902,3 +902,6 @@ union file_handle_union {
 int umount_recursive(const char *target, int flags);
 
 int sethostname_idempotent(const char *s);
+
+int chattr_fd(int fd, bool b, int mask);
+int chattr_path(const char *p, bool b, int mask);

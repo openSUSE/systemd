@@ -779,7 +779,10 @@ libsystemd_shared_la_SOURCES = \
 	src/shared/condition-util.c \
 	src/shared/condition-util.h \
 	src/shared/bus-label.c \
-	src/shared/bus-label.h
+	src/shared/bus-label.h \
+	src/shared/btrfs-util.c \
+	src/shared/btrfs-util.h
+
 
 nodist_libsystemd_shared_la_SOURCES = \
 	src/shared/errno-from-name.h \
@@ -820,7 +823,7 @@ libsystemd_label_la_SOURCES = \
 	src/shared/fileio-label.c \
 	src/shared/fileio-label.h \
 	src/shared/dev-setup.c \
-	src/shared/dev-setup.h
+	src/shared/dev-setup.h 
 
 libsystemd_label_la_CFLAGS = \
 	$(AM_CFLAGS) \
