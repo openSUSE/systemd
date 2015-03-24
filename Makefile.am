@@ -747,8 +747,6 @@ libsystemd_shared_la_SOURCES = \
 	src/shared/spawn-polkit-agent.h \
 	src/shared/hwclock.c \
 	src/shared/hwclock.h \
-	src/shared/time-dst.c \
-	src/shared/time-dst.h \
 	src/shared/calendarspec.c \
 	src/shared/calendarspec.h \
 	src/shared/fileio.c \
