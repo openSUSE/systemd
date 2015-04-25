@@ -792,13 +792,13 @@ int udev_monitor_send_device(struct udev_monitor *udev_monitor,
         count = sendmsg(udev_monitor->sock, &smsg, 0);
         if (count < 0) {
                 if (!destination && errno == ECONNREFUSED) {
-                        udev_dbg(udev_monitor->udev, "passed unknown number of bytes to netlink monitor %p", udev_monitor);
+                        udev_dbg(udev_monitor->udev, "passed device to netlink monitor %p", udev_monitor);
                         return 0;
                 } else
                         return -errno;
         }
 
-        udev_dbg(udev_monitor->udev, "passed %zi bytes to netlink monitor %p\n", count, udev_monitor);
+        udev_dbg(udev_monitor->udev, "passed %zi byte device to netlink monitor %p", count, udev_monitor);
         return count;
 }
 
