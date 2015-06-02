@@ -47,6 +47,7 @@ WatchdogSec=3min
 
 [Install]
 WantedBy=multi-user.target
+Alias=network.service
 Also=systemd-networkd.socket
 Alias=dbus-org.freedesktop.network1.service
 
