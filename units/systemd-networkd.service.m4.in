@@ -34,4 +34,5 @@ WatchdogSec=3min
 
 [Install]
 WantedBy=multi-user.target
+Alias=network.service
 Also=systemd-networkd.socket
