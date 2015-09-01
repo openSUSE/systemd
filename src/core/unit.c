@@ -3175,14 +3175,18 @@ int unit_kill_context(
                 } else if (r > 0) {
 
                         /* FIXME: For now, we will not wait for the
-                         * cgroup members to die, simply because
-                         * cgroup notification is unreliable. It
-                         * doesn't work at all in containers, and
-                         * outside of containers it can be confused
-                         * easily by leaving directories in the
-                         * cgroup. */
+                         * cgroup members to die if we are running in
+                         * a container or if this is a delegation
+                         * unit, simply because cgroup notification is
+                         * unreliable in these cases. It doesn't work
+                         * at all in containers, and outside of
+                         * containers it can be confused easily by
+                         * left-over directories in the cgroup --
+                         * which however should not exist in
+                         * non-delegated units. */
 
-                        /* wait_for_exit = true; */
+                        if  (detect_container(NULL) == 0)
+                                wait_for_exit = true;
 
                         if (c->send_sighup && !sigkill) {
                                 set_free(pid_set);
