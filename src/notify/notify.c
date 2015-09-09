@@ -216,10 +216,10 @@ int main(int argc, char* argv[]) {
         if (r < 0) {
                 log_error("Failed to notify init system: %s", strerror(-r));
                 goto finish;
+        } else if (r == 0) {
+                log_error("No status data could be sent: $NOTIFY_SOCKET was not set");
+                r = -EOPNOTSUPP;
         }
-
-        if (r == 0)
-                r = -ENOTSUP;
 
 finish:
         return r < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
