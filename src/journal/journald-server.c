@@ -21,6 +21,7 @@
 
 #include <sys/signalfd.h>
 #include <sys/ioctl.h>
+#include <linux/fs.h>
 #include <linux/sockios.h>
 #include <sys/statvfs.h>
 #include <sys/mman.h>
@@ -925,7 +926,7 @@ finish:
 
 
 static int system_journal_open(Server *s) {
-        int r;
+        int r, fd;
         char *fn;
         sd_id128_t machine;
         char ids[33];
@@ -952,7 +953,31 @@ static int system_journal_open(Server *s) {
                         (void) mkdir("/var/log/journal/", 0755);
 
                 fn = strappenda("/var/log/journal/", ids);
-                (void) mkdir(fn, 0755);
+                (void)mkdir(fn, 0755);
+
+                /*
+                 * On journaling and/or compressing file systems avoid doubling the
+                 * efforts for the system, that is set NOCOW and NOCOMP inode flags.
+                 * Check for every single flag as otherwise some of the file systems
+                 * may return EOPNOTSUPP on one unkown flag (like BtrFS does).
+                 */
+                if ((fd = open(fn, O_DIRECTORY)) >= 0) {
+                        long flags;
+                        if (ioctl(fd, FS_IOC_GETFLAGS, &flags) == 0) {
+                                int old = flags;
+                                if (!(flags&FS_NOATIME_FL) && ioctl(fd, FS_IOC_SETFLAGS, flags|FS_NOATIME_FL) == 0)
+                                        flags |= FS_NOATIME_FL;
+                                if (!(flags&FS_NOCOW_FL) && ioctl(fd, FS_IOC_SETFLAGS, flags|FS_NOCOW_FL) == 0)
+                                        flags |= FS_NOCOW_FL;
+                                if (!(flags&FS_NOCOMP_FL) && s->compress) {
+                                        flags &= ~FS_COMPR_FL;
+                                        flags |= FS_NOCOMP_FL;
+                                }
+                                if (old != flags)
+                                        ioctl(fd, FS_IOC_SETFLAGS, flags);
+                        }
+                        close(fd);
+                }
 
                 fn = strappenda(fn, "/system.journal");
                 r = journal_file_open_reliably(fn, O_RDWR|O_CREAT, 0640, s->compress, s->seal, &s->system_metrics, s->mmap, NULL, &s->system_journal);
