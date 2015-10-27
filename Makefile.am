@@ -4553,12 +4553,6 @@ lib_LTLIBRARIES += \
 	libsystemd-id128.la \
 	libsystemd-daemon.la
 
-pkgconfiglib_DATA += \
-	src/compat-libs/libsystemd-journal.pc \
-	src/compat-libs/libsystemd-login.pc \
-	src/compat-libs/libsystemd-id128.pc \
-	src/compat-libs/libsystemd-daemon.pc
-
 # move lib from $(libdir) to $(rootlibdir) and update devel link, if needed
 compat-lib-install-hook:
 	libname=libsystemd-login.so && $(move-to-rootlibdir)
@@ -4575,6 +4569,12 @@ compat-lib-uninstall-hook:
 INSTALL_EXEC_HOOKS += compat-lib-install-hook
 UNINSTALL_EXEC_HOOKS += compat-lib-uninstall-hook
 endif
+
+pkgconfiglib_DATA += \
+	src/compat-libs/libsystemd-journal.pc \
+	src/compat-libs/libsystemd-login.pc \
+	src/compat-libs/libsystemd-id128.pc \
+	src/compat-libs/libsystemd-daemon.pc
 
 EXTRA_DIST += \
 	src/compat-libs/libsystemd-journal.pc.in \
