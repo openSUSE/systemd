@@ -6093,7 +6093,11 @@ int parse_proc_cmdline(int (*parse_word)(const char *word)) {
 
                 r = parse_word(word);
                 if (r < 0) {
-                        log_error("Failed on cmdline argument %s: %s", word, strerror(-r));
+                        if (r == -115) {
+                                log_error("Warning: %s set, redirecting messages to /dev/null.", word);
+                        } else {
+                                log_error("Failed on cmdline argument %s: %s", word, strerror(-r));
+                        }
                         return r;
                 }
         }

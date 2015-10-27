@@ -92,12 +92,24 @@ void log_close_kmsg(void) {
         kmsg_fd = -1;
 }
 
+static int parse_proc_cmdline_word(const char *word) {
+        if (streq(word, "systemd.log_target=null"))
+                return -115;
+
+        return 0;
+}
+
 static int log_open_kmsg(void) {
 
         if (kmsg_fd >= 0)
                 return 0;
 
-        kmsg_fd = open("/dev/kmsg", O_WRONLY|O_NOCTTY|O_CLOEXEC);
+        if (parse_proc_cmdline(parse_proc_cmdline_word) == -115) {
+                kmsg_fd = open("/dev/null", O_WRONLY|O_NOCTTY|O_CLOEXEC);
+        } else {
+                kmsg_fd = open("/dev/kmsg", O_WRONLY|O_NOCTTY|O_CLOEXEC);
+        }
+
         if (kmsg_fd < 0)
                 return -errno;
 

@@ -391,12 +391,24 @@ static int dispatch_dev_kmsg(sd_event_source *es, int fd, uint32_t revents, void
         return server_read_dev_kmsg(s);
 }
 
+static int parse_proc_cmdline_word(const char *word) {
+        if (streq(word, "systemd.log_target=null"))
+                return -115;
+
+        return 0;
+}
+
 int server_open_dev_kmsg(Server *s) {
         int r;
 
         assert(s);
 
-        s->dev_kmsg_fd = open("/dev/kmsg", O_RDWR|O_CLOEXEC|O_NONBLOCK|O_NOCTTY);
+        if (parse_proc_cmdline(parse_proc_cmdline_word) == -115) {
+                s->dev_kmsg_fd = open("/dev/null", O_RDWR|O_CLOEXEC|O_NONBLOCK|O_NOCTTY);
+        } else {
+                s->dev_kmsg_fd = open("/dev/kmsg", O_RDWR|O_CLOEXEC|O_NONBLOCK|O_NOCTTY);
+        }
+
         if (s->dev_kmsg_fd < 0) {
                 log_full(errno == ENOENT ? LOG_DEBUG : LOG_WARNING,
                          "Failed to open /dev/kmsg, ignoring: %m");
