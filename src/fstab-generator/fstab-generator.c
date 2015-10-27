@@ -255,10 +255,12 @@ static int add_mount(
               "SourcePath=%s\n",
               source);
 
-        if (post && !noauto && !nofail && !automount)
-                fprintf(f,
-                        "Before=%s\n",
-                        post);
+        if (post && !noauto && !nofail && !automount) {
+                if (!streq(type, "nfs") || (streq(type, "nfs") && !strstr(opts, "bg")))
+                        fprintf(f,
+                                "Before=%s\n",
+                                post);
+        }
 
         r = add_fsck(f, what, where, type, passno);
         if (r < 0)
