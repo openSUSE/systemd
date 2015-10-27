@@ -371,7 +371,7 @@ along with systemd; If not, see <http://www.gnu.org/licenses/>.
         <term><option>--force</option></term>
 
         <listitem>
-          <para>When used with <command>enable</command>, overwrite
+          <para>When used with <command>enable</command> or <command>set-default</command>, overwrite
           any existing conflicting symlinks.</para>
 
           <para>When used with <command>halt</command>,
@@ -1035,6 +1035,8 @@ kobject-uevent 1 systemd-udevd-kernel.socket systemd-udevd.service
           <listitem>
             <para>Set the default target to boot into. Command links
             <filename>default.target</filename> to the given unit.</para>
+            <para>If combined with <option>--force</option>, override
+            an already existing symlink for the default target.</para>
           </listitem>
         </varlistentry>
       </variablelist>
