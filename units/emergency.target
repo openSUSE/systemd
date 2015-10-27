@@ -10,4 +10,5 @@ Description=Emergency Mode
 Documentation=man:systemd.special(7)
 Requires=emergency.service
 After=emergency.service
+Conflicts=getty.target rescue.target
 AllowIsolate=yes
