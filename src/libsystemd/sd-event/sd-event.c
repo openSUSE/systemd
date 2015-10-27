@@ -2191,8 +2191,11 @@ _public_ int sd_event_exit(sd_event *e, int code) {
 _public_ int sd_event_get_now_realtime(sd_event *e, uint64_t *usec) {
         assert_return(e, -EINVAL);
         assert_return(usec, -EINVAL);
-        assert_return(dual_timestamp_is_set(&e->timestamp), -ENODATA);
         assert_return(!event_pid_changed(e), -ECHILD);
+
+        /* If we haven't run yet, just get the actual time */
+        if (!dual_timestamp_is_set(&e->timestamp))
+                return -ENODATA;
 
         *usec = e->timestamp.realtime;
         return 0;
@@ -2201,8 +2204,11 @@ _public_ int sd_event_get_now_realtime(sd_event *e, uint64_t *usec) {
 _public_ int sd_event_get_now_monotonic(sd_event *e, uint64_t *usec) {
         assert_return(e, -EINVAL);
         assert_return(usec, -EINVAL);
-        assert_return(dual_timestamp_is_set(&e->timestamp), -ENODATA);
         assert_return(!event_pid_changed(e), -ECHILD);
+
+        /* If we haven't run yet, just get the actual time */
+        if (!dual_timestamp_is_set(&e->timestamp))
+                return -ENODATA;
 
         *usec = e->timestamp.monotonic;
         return 0;
