@@ -37,6 +37,10 @@ _systemd_analyze() {
                 [LOG_LEVEL]='set-log-level'
         )
 
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
+
         _init_completion || return
 
         for ((i=0; i < COMP_CWORD; i++)); do
@@ -83,4 +87,4 @@ _systemd_analyze() {
         return 0
 }
 
-complete -F _systemd_analyze systemd-analyze
+complete -o default -o bashdefault -F _systemd_analyze systemd-analyze

@@ -30,6 +30,10 @@ _hostnamectl() {
         local OPTS='-h --help --version --transient --static --pretty
                     --no-ask-password -H --host'
 
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
+
         if [[ $cur = -* ]]; then
                 COMPREPLY=( $(compgen -W '${OPTS[*]}' -- "$cur") )
                 return 0
@@ -58,4 +62,4 @@ _hostnamectl() {
         return 0
 }
 
-complete -F _hostnamectl hostnamectl
+complete -o default -o bashdefault -F _hostnamectl hostnamectl

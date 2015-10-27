@@ -37,6 +37,10 @@ _loginctl () {
                       [ARG]='--host -H --kill-who --property -p --signal -s'
         )
 
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
+
         if __contains_word "$prev" ${OPTS[ARG]}; then
                 case $prev in
                         --signal|-s)
@@ -106,4 +110,4 @@ _loginctl () {
         return 0
 }
 
-complete -F _loginctl loginctl
+complete -o default -o bashdefault -F _loginctl loginctl

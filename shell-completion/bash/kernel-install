@@ -18,10 +18,21 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with systemd; If not, see <http://www.gnu.org/licenses/>.
 
+__contains_word () {
+        local w word=$1; shift
+        for w in "$@"; do
+                [[ $w = "$word" ]] && return
+        done
+}
+
 _kernel_install() {
         local comps
         local MACHINE_ID
         local cur=${COMP_WORDS[COMP_CWORD]}
+
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
 
         case $COMP_CWORD in
             1)
@@ -47,4 +58,4 @@ _kernel_install() {
         return 0
 }
 
-complete -F _kernel_install kernel-install
+complete -o default -o bashdefault -F _kernel_install kernel-install

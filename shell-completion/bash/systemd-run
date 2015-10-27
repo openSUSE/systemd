@@ -17,6 +17,13 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with systemd; If not, see <http://www.gnu.org/licenses/>.
 
+__contains_word () {
+        local w word=$1; shift
+        for w in "$@"; do
+                [[ $w = "$word" ]] && return
+        done
+}
+
 __systemctl() {
         local mode=$1; shift 1
         systemctl $mode --full --no-legend "$@"
@@ -31,6 +38,11 @@ _systemd_run() {
 
     local mode=--system
     local i
+
+    if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+    fi
+
     for (( i=1; i <= COMP_CWORD; i++ )); do
         if [[ ${COMP_WORDS[i]} != -* ]]; then
             local root_command=${COMP_WORDS[i]}
@@ -60,4 +72,4 @@ _systemd_run() {
     return 0
 }
 
-complete -F _systemd_run systemd-run
+complete -o default -o bashdefault -F _systemd_run systemd-run

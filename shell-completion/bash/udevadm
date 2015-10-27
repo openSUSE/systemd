@@ -36,6 +36,10 @@ _udevadm() {
 
         local verbs=(info trigger settle control monitor hwdb test-builtin test)
 
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
+
         for ((i=0; i < COMP_CWORD; i++)); do
                 if __contains_word "${COMP_WORDS[i]}" "${verbs[@]}" &&
                  ! __contains_word "${COMP_WORDS[i-1]}" ${OPTS[ARG]}; then
@@ -94,4 +98,4 @@ _udevadm() {
         return 0
 }
 
-complete -F _udevadm udevadm
+complete -o default -o bashdefault -F _udevadm udevadm

@@ -77,6 +77,10 @@ _systemctl () {
                       [ARG]='--host -H --kill-who --property -p --signal -s --type -t --state --root'
         )
 
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
+
         if __contains_word "--user" ${COMP_WORDS[*]}; then
             mode=--user
         else
@@ -223,4 +227,4 @@ _systemctl () {
         return 0
 }
 
-complete -F _systemctl systemctl
+complete -o default -o bashdefault -F _systemctl systemctl

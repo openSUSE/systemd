@@ -49,6 +49,10 @@ _journalctl() {
                               --verify-key'
         )
 
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
+
         if __contains_word "$prev" ${OPTS[ARG]} ${OPTS[ARGUNKNOWN]}; then
                 case $prev in
                         --boot|--this-boot|-b)
@@ -111,4 +115,4 @@ _journalctl() {
         fi
 }
 
-complete -F _journalctl journalctl
+complete -o default -o bashdefault -F _journalctl journalctl
