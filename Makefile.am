@@ -2847,6 +2847,19 @@ dist_udevrules_DATA += \
 	rules/61-accelerometer.rules
 
 # ------------------------------------------------------------------------------
+numlock_on_SOURCES = \
+	src/login/numlock-on.c
+
+numlock_on_CFLAGS = \
+	$(AM_CFLAGS)
+
+udevlibexec_PROGRAMS += \
+	numlock-on
+
+dist_udevrules_DATA += \
+	rules/73-seat-numlock.rules
+
+# ------------------------------------------------------------------------------
 if ENABLE_GUDEV
 if ENABLE_GTK_DOC
 SUBDIRS += \

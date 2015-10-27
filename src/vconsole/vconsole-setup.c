@@ -42,6 +42,10 @@
 #include "fileio.h"
 #include "strv.h"
 
+#define BIOS_DATA_AREA  0x400
+#define BDA_KEYBOARD_STATUS_FLAGS_4 0x97
+#define BDA_KSF4_NUMLOCK_MASK 0x02
+
 static bool is_vconsole(int fd) {
         unsigned char data[1];
 
@@ -321,12 +325,14 @@ int main(int argc, char **argv) {
         char *vc_kbd_delay = NULL;
         char *vc_kbd_rate = NULL;
         char *vc_kbd_disable_caps_lock = NULL;
+        char *vc_kbd_numlock = NULL;
         char *vc_compose_table = NULL;
         pid_t kbd_rate_pid = 0, compose_table_pid = 0;
 #endif
         int fd = -1;
         bool utf8;
         bool disable_capslock = false;
+        bool numlock = false;
         pid_t font_pid = 0, keymap_pid = 0;
         bool font_copy = false;
         int r = EXIT_FAILURE;
@@ -363,6 +369,7 @@ int main(int argc, char **argv) {
                 "KBD_DELAY", &vc_kbd_delay,
                 "KBD_RATE", &vc_kbd_rate,
                 "KBD_DISABLE_CAPS_LOCK", &vc_kbd_disable_caps_lock,
+                "KBD_NUMLOCK", &vc_kbd_numlock,
                 "COMPOSETABLE", &vc_compose_table,
                 NULL);
         if (r < 0 && r != -ENOENT)
@@ -377,6 +384,36 @@ int main(int argc, char **argv) {
             log_warning("Failed to read /etc/sysconfig/console: %s", strerror(-r));
 
         disable_capslock = vc_kbd_disable_caps_lock && strcasecmp(vc_kbd_disable_caps_lock, "YES") == 0;
+#if defined(__i386__) || defined(__x86_64__)
+                if (vc_kbd_numlock && strcaseeq(vc_kbd_numlock, "bios")) {
+                        int _cleanup_close_ fdmem;
+                        char c;
+
+                        fdmem = open ("/dev/mem", O_RDONLY);
+
+                        if(fdmem < 0) {
+                                r = EXIT_FAILURE;
+                                log_error("Failed to open /dev/mem: %m");
+                                goto finish;
+                        }
+
+                        if(lseek(fdmem, BIOS_DATA_AREA + BDA_KEYBOARD_STATUS_FLAGS_4, SEEK_SET) == (off_t) -1) {
+                                r = EXIT_FAILURE;
+                                log_error("Failed to seek /dev/mem: %m");
+                                goto finish;
+                        }
+
+                        if(read (fdmem, &c, sizeof(char)) == -1) {
+                                r = EXIT_FAILURE;
+                                log_error("Failed to read /dev/mem: %m");
+                                goto finish;
+                        }
+
+                        if (c & BDA_KSF4_NUMLOCK_MASK)
+                                numlock = true;
+                } else
+#endif
+                        numlock = vc_kbd_numlock && strcaseeq(vc_kbd_numlock, "yes");
 #endif
 
         r = parse_env_file("/etc/vconsole.conf", NEWLINE,
@@ -422,6 +459,10 @@ int main(int argc, char **argv) {
 finish:
         if (keymap_pid > 0)
                 wait_for_terminate_and_warn(KBD_LOADKEYS, keymap_pid);
+        if (numlock)
+                touch("/run/numlock-on");
+        else
+                unlink("/run/numlock-on");
 
 #ifdef HAVE_SYSV_COMPAT
         if (compose_table_pid > 0)
@@ -441,6 +482,7 @@ finish:
         free(vc_font);
         free(vc_font_map);
         free(vc_font_unimap);
+        free(vc_kbd_numlock);
 #ifdef HAVE_SYSV_COMPAT
         free(vc_kbd_delay);
         free(vc_kbd_rate);
