@@ -1794,7 +1794,8 @@ static int manager_dispatch_jobs_in_progress(sd_event_source *source, usec_t use
         assert(m);
         assert(source);
 
-        manager_print_jobs_in_progress(m);
+        if (m->n_running_jobs > 0)
+                manager_print_jobs_in_progress(m);
 
         next = now(CLOCK_MONOTONIC) + JOBS_IN_PROGRESS_PERIOD_USEC;
         r = sd_event_source_set_time(source, next);
