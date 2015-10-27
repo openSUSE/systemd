@@ -409,6 +409,8 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
                 "remote_fs",            SPECIAL_REMOTE_FS_TARGET,
                 "syslog",               NULL,
                 "time",                 SPECIAL_TIME_SYNC_TARGET,
+                "all",                  SPECIAL_DEFAULT_TARGET,
+                "null",                 NULL,
         };
 
         unsigned i;
@@ -418,7 +420,7 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
         assert(name);
         assert(_r);
 
-        n = *name == '$' ? name + 1 : name;
+        n = (*name == '$' || *name == '+') ? name + 1 : name;
 
         for (i = 0; i < ELEMENTSOF(table); i += 2) {
 
@@ -845,10 +847,13 @@ static int service_load_sysv_path(Service *s, const char *path) {
                                    startswith_no_case(t, "Should-Start:") ||
                                    startswith_no_case(t, "X-Start-Before:") ||
                                    startswith_no_case(t, "X-Start-After:")) {
+                                UnitDependency d, e;
                                 char *i, *w;
                                 size_t z;
 
                                 state = LSB;
+                                d = startswith_no_case(t, "X-Start-Before:") ? UNIT_BEFORE : UNIT_AFTER;
+                                e = startswith_no_case(t, "Required-Start:") ? UNIT_REQUIRES_OVERRIDABLE : _UNIT_DEPENDENCY_INVALID;
 
                                 FOREACH_WORD_QUOTED(w, z, strchr(t, ':')+1, i) {
                                         char *n, *m;
@@ -867,12 +872,18 @@ static int service_load_sysv_path(Service *s, const char *path) {
                                                 continue;
                                         }
 
+                                        if (*n == '+')
+                                                e = UNIT_WANTS;
+
                                         free(n);
 
                                         if (r == 0)
                                                 continue;
 
-                                        r = unit_add_dependency_by_name(u, startswith_no_case(t, "X-Start-Before:") ? UNIT_BEFORE : UNIT_AFTER, m, NULL, true);
+                                        if (e != _UNIT_DEPENDENCY_INVALID)
+                                                r = unit_add_two_dependencies_by_name(u, d, e, m, NULL, true);
+                                        else
+                                                r = unit_add_dependency_by_name(u, d, m, NULL, true);
 
                                         if (r < 0)
                                                 log_error_unit(u->id, "[%s:%u] Failed to add dependency on %s, ignoring: %s",
