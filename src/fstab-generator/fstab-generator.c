@@ -37,6 +37,50 @@
 static const char *arg_dest = "/tmp";
 static bool arg_enabled = true;
 
+static int check_crypttab(const char *what) {
+        _cleanup_fclose_ FILE *f = NULL;
+        unsigned n = 0;
+
+        f = fopen("/etc/crypttab", "re");
+        if (!f) {
+                if (errno != ENOENT)
+                    log_error("Failed to open /etc/crypttab: %m");
+
+                return 1;
+        }
+
+
+        for (;;) {
+                char line[LINE_MAX], *l;
+                _cleanup_free_ char *name = NULL, *device = NULL, *password = NULL, *options = NULL;
+                int k;
+
+                if (!fgets(line, sizeof(line), f))
+                        break;
+
+                n++;
+
+                l = strstrip(line);
+                if (*l == '#' || *l == 0)
+                        continue;
+
+                k = sscanf(l, "%ms %ms %ms %ms", &name, &device, &password, &options);
+                if (k < 2 || k > 4) {
+                        log_error("Failed to parse /etc/crypttab:%u, ignoring.", n);
+                        continue;
+                }
+
+                if (strcmp((what + 12), name) == 0) {
+                        if (options && strstr(options, "noauto"))
+                                return 0;
+
+                        return 1;
+                }
+        }
+        return 1;
+}
+
+
 static int mount_find_pri(struct mntent *me, int *ret) {
         char *end, *pri;
         unsigned long r;
@@ -212,7 +256,7 @@ static int add_mount(
                 *name = NULL, *unit = NULL, *lnk = NULL,
                 *automount_name = NULL, *automount_unit = NULL;
         _cleanup_fclose_ FILE *f = NULL;
-        int r;
+        int r, c;
 
         assert(what);
         assert(where);
@@ -288,7 +332,8 @@ static int add_mount(
                 return -errno;
         }
 
-        if (!noauto) {
+        c = check_crypttab(what);
+        if (!noauto && (c != 0)) {
                 if (post) {
                         lnk = strjoin(arg_dest, "/", post, nofail || automount ? ".wants/" : ".requires/", name, NULL);
                         if (!lnk)
