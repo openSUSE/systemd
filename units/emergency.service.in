@@ -17,7 +17,7 @@ Environment=HOME=/root
 WorkingDirectory=/root
 ExecStartPre=-/bin/plymouth quit
 ExecStartPre=-/bin/echo -e 'Welcome to emergency mode! After logging in, type "journalctl -xb" to view\\nsystem logs, "systemctl reboot" to reboot, "systemctl default" to try again\\nto boot into default mode.'
-ExecStart=-/sbin/sulogin
+ExecStart=-/usr/sbin/sulogin
 ExecStopPost=@SYSTEMCTL@ --fail --no-block default
 Type=idle
 StandardInput=tty-force
