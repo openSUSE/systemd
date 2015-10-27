@@ -10,8 +10,9 @@ Description=Exit the Session
 Documentation=man:systemd.special(7)
 DefaultDependencies=no
 Requires=shutdown.target
-After=shutdown.target
+After=shutdown.target multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=@KILL@ -s 58 $MANAGERPID
+WorkingDirectory=/
+ExecStart=@KILL@ -s SIGRTMIN+24 $MANAGERPID
