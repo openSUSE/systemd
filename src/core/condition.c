@@ -91,6 +91,20 @@ static bool condition_test_capability(Condition *c) {
         return !!(capabilities & (1ULL << value)) == !c->negate;
 }
 
+static bool condition_test_first_boot(Condition *c) {
+        int r;
+
+        assert(c);
+        assert(c->parameter);
+        assert(c->type == CONDITION_FIRST_BOOT);
+
+        r = parse_boolean(c->parameter);
+        if (r < 0)
+                return c->negate;
+
+        return ((access("/run/systemd/first-boot", F_OK) >= 0) == !!r) == !c->negate;
+}
+
 static bool condition_test(Condition *c) {
         assert(c);
 
@@ -169,6 +183,9 @@ static bool condition_test(Condition *c) {
 
         case CONDITION_ARCHITECTURE:
                 return condition_test_architecture(c);
+
+        case CONDITION_FIRST_BOOT:
+                return condition_test_first_boot(c);
 
         case CONDITION_NULL:
                 return !c->negate;

@@ -1291,6 +1291,7 @@ int main(int argc, char *argv[]) {
         bool loaded_policy = false;
         bool arm_reboot_watchdog = false;
         bool queue_default_job = false;
+        bool empty_etc = false;
         char *switch_root_dir = NULL, *switch_root_init = NULL;
         static struct rlimit saved_rlimit_nofile = { 0, 0 };
 
@@ -1575,10 +1576,22 @@ int main(int argc, char *argv[]) {
                 if (in_initrd())
                         log_info("Running in initial RAM disk.");
 
+                /* Let's check whether /etc is already populated. We
+                 * don't actually really check for that, but use
+                 * /etc/machine-id as flag file. This allows container
+                 * managers and installers to provision a couple of
+                 * files already. If the container manager wants to
+                 * provision the machine ID itself it should pass
+                 * $container_uuid to PID 1.*/
+
+                empty_etc = access("/etc/machine-id", F_OK) < 0;
+                if (empty_etc)
+                        log_info("Running with unpopulated /etc.");
         } else {
                 _cleanup_free_ char *t;
 
                 t = uid_to_name(getuid());
+
                 log_debug(PACKAGE_STRING " running in %suser mode for user "UID_FMT"/%s. (" SYSTEMD_FEATURES ")",
                           arg_action == ACTION_TEST ? " test" : "", getuid(), t);
         }
@@ -1655,6 +1668,7 @@ int main(int argc, char *argv[]) {
 
         manager_set_defaults(m);
         manager_set_show_status(m, arg_show_status);
+        manager_set_first_boot(m, empty_etc);
 
         /* Remember whether we should queue the default job */
         queue_default_job = !arg_serialization || arg_switched_root;

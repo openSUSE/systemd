@@ -690,6 +690,8 @@ libsystemd_shared_la_SOURCES = \
 	src/shared/path-util.h \
 	src/shared/time-util.c \
 	src/shared/time-util.h \
+	src/shared/locale-util.c \
+	src/shared/locale-util.h \
 	src/shared/hashmap.c \
 	src/shared/hashmap.h \
 	src/shared/siphash24.c \
@@ -1677,6 +1679,33 @@ EXTRA_DIST += \
 	units/systemd-tmpfiles-setup-dev.service.in \
 	units/systemd-tmpfiles-setup.service.in \
 	units/systemd-tmpfiles-clean.service.in
+
+# ------------------------------------------------------------------------------
+if ENABLE_FIRSTBOOT
+systemd_firstboot_SOURCES = \
+	src/firstboot/firstboot.c
+
+systemd_firstboot_LDADD = \
+	libsystemd-units.la \
+	libsystemd-label.la \
+	libsystemd-capability.la \
+	libsystemd-internal.la \
+	libsystemd-shared.la \
+	-lcrypt
+
+rootbin_PROGRAMS += \
+	systemd-firstboot
+
+nodist_systemunit_DATA += \
+	units/systemd-firstboot.service
+
+EXTRA_DIST += \
+	units/systemd-firstboot.service.in
+
+SYSINIT_TARGET_WANTS += \
+	systemd-firstboot.service
+
+endif
 
 # ------------------------------------------------------------------------------
 systemd_machine_id_setup_SOURCES = \

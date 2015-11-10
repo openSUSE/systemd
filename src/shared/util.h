@@ -362,7 +362,8 @@ bool fstype_is_network(const char *fstype);
 int chvt(int vt);
 
 int read_one_char(FILE *f, char *ret, usec_t timeout, bool *need_nl);
-int ask(char *ret, const char *replies, const char *text, ...) _printf_(3, 4);
+int ask_char(char *ret, const char *replies, const char *text, ...) _printf_(3, 4);
+int ask_string(char **ret, const char *text, ...) _printf_(2, 3);
 
 int reset_terminal_fd(int fd, bool switch_to_text);
 int reset_terminal(const char *name);
@@ -905,3 +906,8 @@ int sethostname_idempotent(const char *s);
 
 int chattr_fd(int fd, bool b, int mask);
 int chattr_path(const char *p, bool b, int mask);
+
+int fflush_and_check(FILE *f);
+
+int take_password_lock(const char *root);
+

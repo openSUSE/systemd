@@ -24,6 +24,7 @@
 /systemd-binfmt.service
 /systemd-bus-driverd.service
 /systemd-bus-proxyd@.service
+/systemd-firstboot.service
 /systemd-fsck-root.service
 /systemd-fsck@.service
 /systemd-halt.service

@@ -260,6 +260,7 @@ static const char* const condition_type_table[_CONDITION_TYPE_MAX] = {
         [CONDITION_HOST] = "ConditionHost",
         [CONDITION_AC_POWER] = "ConditionACPower",
         [CONDITION_ARCHITECTURE] = "ConditionArchitecture",
+        [CONDITION_FIRST_BOOT] = "ConditionFirstBoot",
         [CONDITION_NULL] = "ConditionNull"
 };
 

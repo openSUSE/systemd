@@ -1641,7 +1641,7 @@ int read_one_char(FILE *f, char *ret, usec_t t, bool *need_nl) {
         return 0;
 }
 
-int ask(char *ret, const char *replies, const char *text, ...) {
+int ask_char(char *ret, const char *replies, const char *text, ...) {
         int r;
 
         assert(ret);
@@ -1686,6 +1686,49 @@ int ask(char *ret, const char *replies, const char *text, ...) {
                 }
 
                 puts("Read unexpected character, please try again.");
+        }
+}
+
+int ask_string(char **ret, const char *text, ...) {
+        assert(ret);
+        assert(text);
+
+        for (;;) {
+                char line[LINE_MAX];
+                va_list ap;
+
+                if (on_tty())
+                        fputs(ANSI_HIGHLIGHT_ON, stdout);
+
+                va_start(ap, text);
+                vprintf(text, ap);
+                va_end(ap);
+
+                if (on_tty())
+                        fputs(ANSI_HIGHLIGHT_OFF, stdout);
+
+                fflush(stdout);
+
+                errno = 0;
+                if (!fgets(line, sizeof(line), stdin))
+                        return errno ? -errno : -EIO;
+
+                if (!endswith(line, "\n"))
+                        putchar('\n');
+                else {
+                        char *s;
+
+                        if (isempty(line))
+                                continue;
+
+                        truncate_nl(line);
+                        s = strdup(line);
+                        if (!s)
+                                return -ENOMEM;
+
+                        *ret = s;
+                        return 0;
+                }
         }
 }
 
@@ -6557,6 +6600,58 @@ const char* personality_to_string(unsigned long p) {
         return NULL;
 }
 
+int fflush_and_check(FILE *f) {
+        assert(f);
+
+        errno = 0;
+        fflush(f);
+
+        if (ferror(f))
+                return errno ? -errno : -EIO;
+
+        return 0;
+}
+
+int take_password_lock(const char *root) {
+
+        struct flock flock = {
+                .l_type = F_WRLCK,
+                .l_whence = SEEK_SET,
+                .l_start = 0,
+                .l_len = 0,
+        };
+
+        const char *path;
+        int fd, r;
+
+        /* This is roughly the same as lckpwdf(), but not as awful. We
+         * don't want to use alarm() and signals, hence we implement
+         * our own trivial version of this.
+         *
+         * Note that shadow-utils also takes per-database locks in
+         * addition to lckpwdf(). However, we don't given that they
+         * are redundant as they they invoke lckpwdf() first and keep
+         * it during everything they do. The per-database locks are
+         * awfully racy, and thus we just won't do them. */
+
+        if (root)
+                path = strappenda(root, "/etc/.pwd.lock");
+        else
+                path = "/etc/.pwd.lock";
+
+        fd = open(path, O_WRONLY|O_CREAT|O_CLOEXEC|O_NOCTTY|O_NOFOLLOW, 0600);
+        if (fd < 0)
+                return -errno;
+
+        r = fcntl(fd, F_SETLKW, &flock);
+        if (r < 0) {
+                close_nointr_nofail(fd);
+                return -errno;
+        }
+
+        return fd;
+}
+
 int chattr_fd(int fd, bool b, int mask) {
         int old_attr, new_attr;
 
@@ -6588,3 +6683,4 @@ int chattr_path(const char *p, bool b, int mask) {
 
         return chattr_fd(fd, b, mask);
 }
+

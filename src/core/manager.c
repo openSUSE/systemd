@@ -2754,6 +2754,9 @@ void manager_check_finished(Manager *m) {
         /* No need to update ask password status when we're going non-interactive */
         manager_close_ask_password(m);
 
+        /* This is no longer the first boot */
+        manager_set_first_boot(m, false);
+
         if (dual_timestamp_is_set(&m->finish_timestamp))
                 return;
 
@@ -3084,6 +3087,20 @@ static bool manager_get_show_status(Manager *m) {
         /* If Plymouth is running make sure we show the status, so
          * that there's something nice to see when people press Esc */
         return plymouth_running();
+}
+
+void manager_set_first_boot(Manager *m, bool b) {
+        assert(m);
+
+        if (m->running_as != SYSTEMD_SYSTEM)
+                return;
+
+        m->first_boot = b;
+
+        if (m->first_boot)
+                touch("/run/systemd/first-boot");
+        else
+                unlink("/run/systemd/first-boot");
 }
 
 void manager_status_printf(Manager *m, bool ephemeral, const char *status, const char *format, ...) {
