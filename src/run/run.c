@@ -37,7 +37,7 @@ static const char *arg_description = NULL;
 static const char *arg_slice = NULL;
 static bool arg_send_sighup = false;
 static BusTransport arg_transport = BUS_TRANSPORT_LOCAL;
-static char *arg_host = NULL;
+static const char *arg_host = NULL;
 static bool arg_user = false;
 static const char *arg_service_type = NULL;
 static const char *arg_exec_user = NULL;
@@ -183,7 +183,7 @@ static int parse_argv(int argc, char *argv[]) {
 
                 case ARG_NICE:
                         r = safe_atoi(optarg, &arg_nice);
-                        if (r < 0) {
+                        if (r < 0 || arg_nice < PRIO_MIN || arg_nice >= PRIO_MAX) {
                                 log_error("Failed to parse nice value");
                                 return -EINVAL;
                         }
@@ -309,12 +309,12 @@ static int start_transient_service(
         _cleanup_free_ char *name = NULL;
         int r;
 
-        if (arg_unit)
+        if (arg_unit) {
                 name = unit_name_mangle_with_suffix(arg_unit, MANGLE_NOGLOB, ".service");
-        else
-                asprintf(&name, "run-%lu.service", (unsigned long) getpid());
-        if (!name)
-                return -ENOMEM;
+                if (!name)
+                        return log_oom();
+        } else if (asprintf(&name, "run-%lu.service", (unsigned long) getpid()) < 0)
+                return log_oom();
 
         r = message_start_transient_unit_new(bus, name, &m);
         if (r < 0)
@@ -436,12 +436,12 @@ static int start_transient_scope(
 
         assert(bus);
 
-        if (arg_unit)
+        if (arg_unit) {
                 name = unit_name_mangle_with_suffix(arg_unit, MANGLE_NOGLOB, ".scope");
-        else
-                asprintf(&name, "run-%lu.scope", (unsigned long) getpid());
-        if (!name)
-                return -ENOMEM;
+                if (!name)
+                        return log_oom();
+        } else if (asprintf(&name, "run-%lu.scope", (unsigned long) getpid()) < 0)
+                return log_oom();
 
         r = message_start_transient_unit_new(bus, name, &m);
         if (r < 0)
@@ -462,7 +462,7 @@ static int start_transient_scope(
 
 int main(int argc, char* argv[]) {
         _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         _cleanup_free_ char *description = NULL, *command = NULL;
         int r;
 
@@ -490,7 +490,7 @@ int main(int argc, char* argv[]) {
                 arg_description = description;
         }
 
-        r = bus_open_transport(arg_transport, arg_host, arg_user, &bus);
+        r = bus_open_transport_systemd(arg_transport, arg_host, arg_user, &bus);
         if (r < 0) {
                 log_error("Failed to create bus connection: %s", strerror(-r));
                 goto finish;

@@ -25,6 +25,8 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/inotify.h>
+#include <sys/epoll.h>
 #include <sys/poll.h>
 #include <sys/reboot.h>
 #include <sys/ioctl.h>
@@ -35,6 +37,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <sys/timerfd.h>
+#include <resolv.h>
 
 #ifdef HAVE_AUDIT
 #include <libaudit.h>
@@ -110,7 +113,7 @@ static int manager_watch_jobs_in_progress(Manager *m) {
 
 #define CYLON_BUFFER_EXTRA (2*(sizeof(ANSI_RED_ON)-1) + sizeof(ANSI_HIGHLIGHT_RED_ON)-1 + 2*(sizeof(ANSI_HIGHLIGHT_OFF)-1))
 
-static void draw_cylon(char buffer[], size_t buflen, unsigned width, unsigned pos) {
+static void draw_cylon(char buffer[], size_t buflen, unsigned width, unsigned pos, bool ansi_console) {
         char *p = buffer;
 
         assert(buflen >= CYLON_BUFFER_EXTRA + width + 1);
@@ -119,12 +122,14 @@ static void draw_cylon(char buffer[], size_t buflen, unsigned width, unsigned po
         if (pos > 1) {
                 if (pos > 2)
                         p = mempset(p, ' ', pos-2);
-                p = stpcpy(p, ANSI_RED_ON);
+                if (ansi_console)
+                        p = stpcpy(p, ANSI_RED_ON);
                 *p++ = '*';
         }
 
         if (pos > 0 && pos <= width) {
-                p = stpcpy(p, ANSI_HIGHLIGHT_RED_ON);
+                if (ansi_console)
+                        p = stpcpy(p, ANSI_HIGHLIGHT_RED_ON);
                 *p++ = '*';
         }
 
@@ -135,7 +140,8 @@ static void draw_cylon(char buffer[], size_t buflen, unsigned width, unsigned po
                 *p++ = '*';
                 if (pos < width-1)
                         p = mempset(p, ' ', width-1-pos);
-                strcpy(p, ANSI_HIGHLIGHT_OFF);
+                if (ansi_console)
+                        strcpy(p, ANSI_HIGHLIGHT_OFF);
         }
 }
 
@@ -150,6 +156,7 @@ void manager_flip_auto_status(Manager *m, bool enable) {
 }
 
 static void manager_print_jobs_in_progress(Manager *m) {
+        static int is_ansi_console = -1;
         _cleanup_free_ char *job_of_n = NULL;
         Iterator i;
         Job *j;
@@ -174,10 +181,20 @@ static void manager_print_jobs_in_progress(Manager *m) {
         assert(counter == print_nr + 1);
         assert(j);
 
+        if (_unlikely_(is_ansi_console < 0)) {
+                int fd = open_terminal("/dev/console", O_RDONLY|O_NOCTTY|O_CLOEXEC);
+                if (fd < 0)
+                        is_ansi_console = 0;
+                else {
+                        is_ansi_console = (int)ansi_console(fd);
+                        close(fd);
+                }
+        }
+
         cylon_pos = m->jobs_in_progress_iteration % 14;
         if (cylon_pos >= 8)
                 cylon_pos = 14 - cylon_pos;
-        draw_cylon(cylon, sizeof(cylon), 6, cylon_pos);
+        draw_cylon(cylon, sizeof(cylon), 6, cylon_pos, (bool)is_ansi_console);
 
         m->jobs_in_progress_iteration++;
 
@@ -196,6 +213,191 @@ static void manager_print_jobs_in_progress(Manager *m) {
                               unit_description(j->unit),
                               time, limit);
 
+}
+
+static int have_ask_password(void) {
+        _cleanup_closedir_ DIR *dir;
+
+        dir = opendir("/run/systemd/ask-password");
+        if (!dir) {
+                if (errno == ENOENT)
+                        return false;
+                else
+                        return -errno;
+        }
+
+        for (;;) {
+                struct dirent *de;
+
+                errno = 0;
+                de = readdir(dir);
+                if (!de && errno != 0)
+                        return -errno;
+                if (!de)
+                        return false;
+
+                if (startswith(de->d_name, "ask."))
+                        return true;
+        }
+}
+
+static int manager_dispatch_ask_password_fd(sd_event_source *source,
+                                            int fd, uint32_t revents, void *userdata) {
+        Manager *m = userdata;
+
+        assert(m);
+
+        flush_fd(fd);
+
+        m->have_ask_password = have_ask_password();
+        if (m->have_ask_password < 0)
+                /* Log error but continue. Negative have_ask_password
+                 * is treated as unknown status. */
+                log_error("Failed to list /run/systemd/ask-password: %s", strerror(m->have_ask_password));
+
+        return 0;
+}
+
+static void manager_close_ask_password(Manager *m) {
+        assert(m);
+        if (m->ask_password_inotify_fd >= 0) close_nointr_nofail(m->ask_password_inotify_fd);
+        m->ask_password_inotify_fd = -1;
+        m->ask_password_event_source = sd_event_source_unref(m->ask_password_event_source);
+        m->have_ask_password = -EINVAL;
+}
+
+static int manager_check_ask_password(Manager *m) {
+        int r;
+
+        assert(m);
+
+        if (!m->ask_password_event_source) {
+                assert(m->ask_password_inotify_fd < 0);
+
+                mkdir_p_label("/run/systemd/ask-password", 0755);
+
+                m->ask_password_inotify_fd = inotify_init1(IN_NONBLOCK|IN_CLOEXEC);
+                if (m->ask_password_inotify_fd < 0) {
+                        log_error("inotify_init1() failed: %m");
+                        return -errno;
+                }
+
+                if (inotify_add_watch(m->ask_password_inotify_fd, "/run/systemd/ask-password", IN_CREATE|IN_DELETE|IN_MOVE) < 0) {
+                        log_error("Failed to add watch on /run/systemd/ask-password: %m");
+                        manager_close_ask_password(m);
+                        return -errno;
+                }
+
+                r = sd_event_add_io(m->event, &m->ask_password_event_source,
+                                    m->ask_password_inotify_fd, EPOLLIN,
+                                    manager_dispatch_ask_password_fd, m);
+                if (r < 0) {
+                        log_error("Failed to add event source for /run/systemd/ask-password: %m");
+                        manager_close_ask_password(m);
+                        return -errno;
+                }
+
+                /* Queries might have been added meanwhile... */
+                manager_dispatch_ask_password_fd(m->ask_password_event_source,
+                                                 m->ask_password_inotify_fd, EPOLLIN, m);
+        }
+
+        return m->have_ask_password;
+}
+
+static int manager_setup_resolv_conf_change(Manager *);
+
+static int manager_dispatch_resolv_conf_fd(sd_event_source *source,
+                                           int fd, uint32_t revents, void *userdata) {
+        Manager *m = userdata;
+
+        assert(m);
+        assert(m->resolv_conf_inotify_fd == fd);
+
+        if (revents != EPOLLIN) {
+                log_warning("Got unexpected poll event for notify fd.");
+                return 0;
+        }
+
+        if (fd >= 0)
+                flush_fd(fd);
+
+        m->resolv_conf_event_source = sd_event_source_unref(m->resolv_conf_event_source);
+
+        if (m->resolv_conf_inotify_fd >= 0)
+                close_nointr_nofail(m->resolv_conf_inotify_fd);
+        m->resolv_conf_inotify_fd = -1;
+
+        manager_setup_resolv_conf_change(m);
+
+        return m->resolv_conf_noent ? 0 : res_init();
+}
+
+static int manager_setup_resolv_conf_change(Manager *m) {
+        int r;
+
+        assert(m);
+        assert(m->resolv_conf_inotify_fd < 0);
+
+        m->resolv_conf_inotify_fd = inotify_init1(IN_NONBLOCK|IN_CLOEXEC);
+        if (m->resolv_conf_inotify_fd < 0) {
+                log_error("inotify_init1() failed: %m");
+                r = -errno;
+                goto fail;
+        }
+        if (inotify_add_watch(m->resolv_conf_inotify_fd, "/etc/resolv.conf",
+                              IN_CLOSE_WRITE|IN_MODIFY|IN_ATTRIB|IN_DELETE_SELF) < 0) {
+                if (errno == ENOENT) {
+                        m->resolv_conf_noent = true;
+                        if (inotify_add_watch(m->resolv_conf_inotify_fd, "/etc", IN_CREATE|IN_MOVED_TO) < 0) {
+                                log_error("Failed to add watch on /etc: %m");
+                                r = -errno;
+                                goto fail;
+                        }
+                } else {
+                        log_error("Failed to add watch on /etc/resolv.conf: %m");
+                        r = -errno;
+                        goto fail;
+                }
+        }
+        if (inotify_add_watch(m->resolv_conf_inotify_fd, "/etc/host.conf",
+                              IN_CLOSE_WRITE|IN_MODIFY|IN_ATTRIB|IN_DELETE_SELF) < 0 && errno != ENOENT) {
+                log_error("Failed to add watch on /etc/host.conf: %m");
+                r = -errno;
+                goto fail;
+        }
+
+        r = sd_event_add_io(m->event, &m->resolv_conf_event_source,
+                            m->resolv_conf_inotify_fd, EPOLLIN,
+                            manager_dispatch_resolv_conf_fd, m);
+        if (r < 0) {
+                log_error("Failed to add event source for resolver: %s", strerror(-r));
+                goto fail;
+        }
+
+        r = sd_event_source_set_priority(m->resolv_conf_event_source, -10);
+        if (r < 0) {
+                log_error("Failed to add event source for resolver: %s", strerror(-r));
+                m->resolv_conf_event_source = sd_event_source_unref(m->resolv_conf_event_source);
+                goto fail;
+        }
+
+        return 0;
+fail:
+        if (m->resolv_conf_inotify_fd >= 0)
+                close_nointr_nofail(m->resolv_conf_inotify_fd);
+        m->resolv_conf_inotify_fd = -1;
+
+        return 0;   /* Ignore error here */
+}
+
+static void manager_shutdown_resolv_conf_change(Manager *m) {
+        assert(m);
+
+        m->resolv_conf_event_source = sd_event_source_unref(m->resolv_conf_event_source);
+        if (m->resolv_conf_inotify_fd >= 0)
+                close_nointr_nofail(m->resolv_conf_inotify_fd);
+        m->resolv_conf_inotify_fd = -1;
 }
 
 static int manager_watch_idle_pipe(Manager *m) {
@@ -236,6 +438,9 @@ static int manager_setup_time_change(Manager *m) {
 
         assert(m);
         assert_cc(sizeof(time_t) == sizeof(TIME_T_MAX));
+
+        if (m->test_run)
+                return 0;
 
         /* Uses TFD_TIMER_CANCEL_ON_SET to get notifications whenever
          * CLOCK_REALTIME makes a jump relative to CLOCK_MONOTONIC */
@@ -299,11 +504,17 @@ static int manager_setup_signals(Manager *m) {
 
         assert(m);
 
-        /* We are not interested in SIGSTOP and friends. */
+        if (m->test_run)
+                return 0;
+
         assert_se(sigaction(SIGCHLD, &sa, NULL) == 0);
 
-        assert_se(sigemptyset(&mask) == 0);
+        /* We make liberal use of realtime signals here. On
+         * Linux/glibc we have 30 of them (with the exception of Linux
+         * on hppa, see below), between SIGRTMIN+0 ... SIGRTMIN+30
+         * (aka SIGRTMAX). */
 
+        assert_se(sigemptyset(&mask) == 0);
         sigset_add_many(&mask,
                         SIGCHLD,     /* Child died */
                         SIGTERM,     /* Reexecute daemon */
@@ -313,6 +524,7 @@ static int manager_setup_signals(Manager *m) {
                         SIGINT,      /* Kernel sends us this on control-alt-del */
                         SIGWINCH,    /* Kernel sends us this on kbrequest (alt-arrowup) */
                         SIGPWR,      /* Some kernel drivers and upsd send us this on power failure */
+
                         SIGRTMIN+0,  /* systemd: start default.target */
                         SIGRTMIN+1,  /* systemd: isolate rescue.target */
                         SIGRTMIN+2,  /* systemd: isolate emergency.target */
@@ -320,19 +532,40 @@ static int manager_setup_signals(Manager *m) {
                         SIGRTMIN+4,  /* systemd: start poweroff.target */
                         SIGRTMIN+5,  /* systemd: start reboot.target */
                         SIGRTMIN+6,  /* systemd: start kexec.target */
+
+                        /* ... space for more special targets ... */
+
                         SIGRTMIN+13, /* systemd: Immediate halt */
                         SIGRTMIN+14, /* systemd: Immediate poweroff */
                         SIGRTMIN+15, /* systemd: Immediate reboot */
                         SIGRTMIN+16, /* systemd: Immediate kexec */
+
+                        /* ... space for more immediate system state changes ... */
+
                         SIGRTMIN+20, /* systemd: enable status messages */
                         SIGRTMIN+21, /* systemd: disable status messages */
                         SIGRTMIN+22, /* systemd: set log level to LOG_DEBUG */
                         SIGRTMIN+23, /* systemd: set log level to LOG_INFO */
                         SIGRTMIN+24, /* systemd: Immediate exit (--user only) */
+
+                        /* .. one free signal here ... */
+
+#if !defined(__hppa64__) && !defined(__hppa__)
+                        /* Apparently Linux on hppa has fewer RT
+                         * signals (SIGRTMAX is SIGRTMIN+25 there),
+                         * hence let's not try to make use of them
+                         * here. Since these commands are accessible
+                         * by different means and only really a safety
+                         * net, the missing functionality on hppa
+                         * shouldn't matter. */
+
                         SIGRTMIN+26, /* systemd: set log target to journal-or-kmsg */
                         SIGRTMIN+27, /* systemd: set log target to console */
                         SIGRTMIN+28, /* systemd: set log target to kmsg */
                         SIGRTMIN+29, /* systemd: set log target to syslog-or-kmsg */
+
+                        /* ... one free signal here SIGRTMIN+30 ... */
+#endif
                         -1);
         assert_se(sigprocmask(SIG_SETMASK, &mask, NULL) == 0);
 
@@ -406,7 +639,7 @@ static int manager_default_environment(Manager *m) {
         return 0;
 }
 
-int manager_new(SystemdRunningAs running_as, Manager **_m) {
+int manager_new(SystemdRunningAs running_as, bool test_run, Manager **_m) {
         Manager *m;
         int r;
 
@@ -430,6 +663,12 @@ int manager_new(SystemdRunningAs running_as, Manager **_m) {
 
         m->pin_cgroupfs_fd = m->notify_fd = m->signal_fd = m->time_change_fd = m->dev_autofs_fd = m->private_listen_fd = m->kdbus_fd = -1;
         m->current_job_id = 1; /* start as id #1, so that we can leave #0 around as "null-like" value */
+
+        m->resolv_conf_inotify_fd = -1;
+        m->ask_password_inotify_fd = -1;
+        m->have_ask_password = -EINVAL; /* we don't know */
+
+        m->test_run = test_run;
 
         r = manager_default_environment(m);
         if (r < 0)
@@ -479,6 +718,10 @@ int manager_new(SystemdRunningAs running_as, Manager **_m) {
         if (r < 0)
                 goto fail;
 
+        r = manager_setup_resolv_conf_change(m);
+        if (r < 0)
+                goto fail;
+
         m->udev = udev_new();
         if (!m->udev) {
                 r = -ENOMEM;
@@ -508,6 +751,9 @@ static int manager_setup_notify(Manager *m) {
         };
         int one = 1, r;
 
+        if (m->test_run)
+                return 0;
+
         if (m->notify_fd < 0) {
                 _cleanup_close_ int fd = -1;
 
@@ -530,8 +776,22 @@ static int manager_setup_notify(Manager *m) {
 
                 r = bind(fd, &sa.sa, offsetof(struct sockaddr_un, sun_path) + 1 + strlen(sa.un.sun_path+1));
                 if (r < 0) {
-                        log_error("bind() failed: %m");
-                        return -errno;
+                        log_error("bind(@%s) failed: %m", sa.un.sun_path+1);
+                        if (errno == EADDRINUSE) {
+                                log_notice("Removing %s socket and trying again.", m->notify_socket);
+                                r = unlink(m->notify_socket);
+                                if (r < 0) {
+                                        log_error("Failed to remove %s: %m", m->notify_socket);
+                                        return -EADDRINUSE;
+                                }
+
+                                r = bind(fd, &sa.sa, offsetof(struct sockaddr_un, sun_path) + strlen(sa.un.sun_path));
+                                if (r < 0) {
+                                        log_error("bind(@%s) failed: %m", sa.un.sun_path+1);
+                                        return -errno;
+                                }
+                        } else
+                                return -errno;
                 }
 
                 r = setsockopt(fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
@@ -573,12 +833,10 @@ static int manager_setup_notify(Manager *m) {
 static int manager_setup_kdbus(Manager *m) {
 #ifdef ENABLE_KDBUS
         _cleanup_free_ char *p = NULL;
-#endif
 
-#ifdef ENABLE_KDBUS
         assert(m);
 
-        if (m->kdbus_fd >= 0)
+        if (m->test_run || m->kdbus_fd >= 0)
                 return 0;
 
         m->kdbus_fd = bus_kernel_create_bus(m->running_as == SYSTEMD_SYSTEM ? "system" : "user", m->running_as == SYSTEMD_SYSTEM, &p);
@@ -604,6 +862,9 @@ static int manager_connect_bus(Manager *m, bool reexecuting) {
         bool try_bus_connect;
 
         assert(m);
+
+        if (m->test_run)
+                return 0;
 
         try_bus_connect =
                 m->kdbus_fd >= 0 ||
@@ -758,6 +1019,8 @@ void manager_free(Manager *m) {
 
         assert(m);
 
+        manager_shutdown_resolv_conf_change(m);
+
         manager_clear_jobs_and_units(m);
 
         for (c = 0; c < _UNIT_TYPE_MAX; c++)
@@ -793,6 +1056,8 @@ void manager_free(Manager *m) {
                 close_nointr_nofail(m->time_change_fd);
         if (m->kdbus_fd >= 0)
                 close_nointr_nofail(m->kdbus_fd);
+
+        manager_close_ask_password(m);
 
         manager_close_idle_pipe(m);
 
@@ -839,7 +1104,7 @@ int manager_enumerate(Manager *m) {
 }
 
 static int manager_coldplug(Manager *m) {
-        int r = 0, q;
+        int r = 0;
         Iterator i;
         Unit *u;
         char *k;
@@ -848,12 +1113,14 @@ static int manager_coldplug(Manager *m) {
 
         /* Then, let's set up their initial state. */
         HASHMAP_FOREACH_KEY(u, k, m->units, i) {
+                int q;
 
                 /* ignore aliases */
                 if (u->id != k)
                         continue;
 
-                if ((q = unit_coldplug(u)) < 0)
+                q = unit_coldplug(u);
+                if (q < 0)
                         r = q;
         }
 
@@ -862,7 +1129,7 @@ static int manager_coldplug(Manager *m) {
 
 static void manager_build_unit_path_cache(Manager *m) {
         char **i;
-        _cleanup_free_ DIR *d = NULL;
+        _cleanup_closedir_ DIR *d = NULL;
         int r;
 
         assert(m);
@@ -972,11 +1239,8 @@ int manager_startup(Manager *m, FILE *serialization, FDSet *fds) {
         dual_timestamp_get(&m->units_load_finish_timestamp);
 
         /* Second, deserialize if there is something to deserialize */
-        if (serialization) {
-                q = manager_deserialize(m, serialization, fds);
-                if (q < 0)
-                        r = q;
-        }
+        if (serialization)
+                r = manager_deserialize(m, serialization, fds);
 
         /* Any fds left? Find some unit which wants them. This is
          * useful to allow container managers to pass some file
@@ -984,22 +1248,25 @@ int manager_startup(Manager *m, FILE *serialization, FDSet *fds) {
          * socket-based activation of entire containers. */
         if (fdset_size(fds) > 0) {
                 q = manager_distribute_fds(m, fds);
-                if (q < 0)
+                if (q < 0 && r == 0)
                         r = q;
         }
 
         /* We might have deserialized the notify fd, but if we didn't
          * then let's create the bus now */
-        manager_setup_notify(m);
+        q = manager_setup_notify(m);
+        if (q < 0 && r == 0)
+                r = q;
 
         /* We might have deserialized the kdbus control fd, but if we
          * didn't, then let's create the bus now. */
         manager_setup_kdbus(m);
         manager_connect_bus(m, !!serialization);
+        bus_track_coldplug(m, &m->subscribed, &m->deserialized_subscribed);
 
         /* Third, fire things up! */
         q = manager_coldplug(m);
-        if (q < 0)
+        if (q < 0 && r == 0)
                 r = q;
 
         if (serialization) {
@@ -1618,6 +1885,11 @@ static int manager_dispatch_signal_fd(sd_event_source *source, int fd, uint32_t 
                                 break;
                         }
 
+                        if (fflush(f)) {
+                                log_warning("Failed to flush status stream");
+                                break;
+                        }
+
                         log_dump(LOG_INFO, dump);
                         break;
                 }
@@ -1775,7 +2047,8 @@ static int manager_dispatch_jobs_in_progress(sd_event_source *source, usec_t use
         assert(m);
         assert(source);
 
-        manager_print_jobs_in_progress(m);
+        if (m->n_running_jobs > 0)
+                manager_print_jobs_in_progress(m);
 
         next = now(CLOCK_MONOTONIC) + JOBS_IN_PROGRESS_PERIOD_USEC;
         r = sd_event_source_set_time(source, next);
@@ -2102,15 +2375,12 @@ int manager_serialize(Manager *m, FILE *f, FDSet *fds, bool switching_root) {
                 fprintf(f, "kdbus-fd=%i\n", copy);
         }
 
-        bus_serialize(m, f);
+        bus_track_serialize(m->subscribed, f);
 
         fputc('\n', f);
 
         HASHMAP_FOREACH_KEY(u, t, m->units, i) {
                 if (u->id != t)
-                        continue;
-
-                if (!unit_can_serialize(u))
                         continue;
 
                 /* Start marker */
@@ -2279,8 +2549,15 @@ int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
                                 m->kdbus_fd = fdset_remove(fds, fd);
                         }
 
-                } else if (bus_deserialize_item(m, l) == 0)
-                        log_debug("Unknown serialization item '%s'", l);
+                } else {
+                        int k;
+
+                        k = bus_track_deserialize_item(&m->deserialized_subscribed, l);
+                        if (k < 0)
+                                log_debug("Failed to deserialize bus tracker object: %s", strerror(-k));
+                        else if (k == 0)
+                                log_debug("Unknown serialization item '%s'", l);
+                }
         }
 
         for (;;) {
@@ -2454,6 +2731,9 @@ void manager_check_finished(Manager *m) {
         if (m->n_running_jobs == 0)
                 m->jobs_in_progress_event_source = sd_event_source_unref(m->jobs_in_progress_event_source);
 
+        if (m->n_reloading > 0)
+                return;
+
         if (hashmap_size(m->jobs) > 0) {
                 if (m->jobs_in_progress_event_source) {
                         uint64_t next = now(CLOCK_MONOTONIC) + JOBS_IN_PROGRESS_WAIT_USEC;
@@ -2470,6 +2750,9 @@ void manager_check_finished(Manager *m) {
 
         /* Turn off confirm spawn now */
         m->confirm_spawn = false;
+
+        /* No need to update ask password status when we're going non-interactive */
+        manager_close_ask_password(m);
 
         if (dual_timestamp_is_set(&m->finish_timestamp))
                 return;
@@ -2624,6 +2907,9 @@ void manager_run_generators(Manager *m) {
 
         assert(m);
 
+        if (m->test_run)
+                return;
+
         generator_path = m->running_as == SYSTEMD_SYSTEM ? SYSTEM_GENERATOR_PATH : USER_GENERATOR_PATH;
         d = opendir(generator_path);
         if (!d) {
@@ -2700,8 +2986,10 @@ int manager_environment_add(Manager *m, char **minus, char **plus) {
 
         if (!strv_isempty(plus)) {
                 b = strv_env_merge(2, l, plus);
-                if (!b)
+                if (!b) {
+                        strv_free(a);
                         return -ENOMEM;
+                }
 
                 l = b;
         }
@@ -2786,12 +3074,15 @@ static bool manager_get_show_status(Manager *m) {
         if (m->no_console_output)
                 return false;
 
+        /* If we cannot find out the status properly, just proceed. */
+        if (manager_check_ask_password(m) > 0)
+                return false;
+
         if (m->show_status > 0)
                 return true;
 
         /* If Plymouth is running make sure we show the status, so
          * that there's something nice to see when people press Esc */
-
         return plymouth_running();
 }
 

@@ -293,6 +293,9 @@ int bus_match_run(
                         r = bus_maybe_reply_error(m, r, &error_buffer);
                         if (r != 0)
                                 return r;
+
+                        if (bus && bus->match_callbacks_modified)
+                                return 0;
                 }
 
                 return bus_match_run(bus, node->next, m);
@@ -518,7 +521,7 @@ static int bus_match_find_compare_value(
         else if (BUS_MATCH_CAN_HASH(t))
                 n = hashmap_get(c->compare.children, value_str);
         else {
-                for (n = c->child; !value_node_same(n, t, value_u8, value_str); n = n->next)
+                for (n = c->child; n && !value_node_same(n, t, value_u8, value_str); n = n->next)
                         ;
         }
 

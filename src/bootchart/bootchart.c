@@ -345,8 +345,8 @@ int main(int argc, char *argv[]) {
 
                 sampledata = new0(struct list_sample_data, 1);
                 if (sampledata == NULL) {
-                        log_error("Failed to allocate memory for a node: %m");
-                        return -1;
+                        log_oom();
+                        return EXIT_FAILURE;
                 }
 
                 sampledata->sampletime = gettime_ns();
@@ -354,7 +354,9 @@ int main(int argc, char *argv[]) {
 
                 if (!of && (access(arg_output_path, R_OK|W_OK|X_OK) == 0)) {
                         t = time(NULL);
-                        strftime(datestr, sizeof(datestr), "%Y%m%d-%H%M", localtime(&t));
+                        r = strftime(datestr, sizeof(datestr), "%Y%m%d-%H%M", localtime(&t));
+                        assert_se(r > 0);
+
                         snprintf(output_file, PATH_MAX, "%s/bootchart-%s.svg", arg_output_path, datestr);
                         of = fopen(output_file, "we");
                 }
@@ -422,7 +424,9 @@ int main(int argc, char *argv[]) {
 
         if (!of) {
                 t = time(NULL);
-                strftime(datestr, sizeof(datestr), "%Y%m%d-%H%M", localtime(&t));
+                r = strftime(datestr, sizeof(datestr), "%Y%m%d-%H%M", localtime(&t));
+                assert_se(r > 0);
+
                 snprintf(output_file, PATH_MAX, "%s/bootchart-%s.svg", arg_output_path, datestr);
                 of = fopen(output_file, "we");
         }
@@ -432,7 +436,7 @@ int main(int argc, char *argv[]) {
                 exit (EXIT_FAILURE);
         }
 
-        svg_do(build);
+        svg_do(strna(build));
 
         fprintf(stderr, "systemd-bootchart wrote %s\n", output_file);
 

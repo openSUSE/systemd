@@ -21,6 +21,7 @@
 
 #include <sys/signalfd.h>
 #include <sys/ioctl.h>
+#include <linux/fs.h>
 #include <linux/sockios.h>
 #include <sys/statvfs.h>
 #include <sys/mman.h>
@@ -67,6 +68,7 @@
 #define DEFAULT_SYNC_INTERVAL_USEC (5*USEC_PER_MINUTE)
 #define DEFAULT_RATE_LIMIT_INTERVAL (30*USEC_PER_SEC)
 #define DEFAULT_RATE_LIMIT_BURST 1000
+#define DEFAULT_MAX_FILE_USEC USEC_PER_MONTH
 
 #define RECHECK_AVAILABLE_SPACE_USEC (30*USEC_PER_SEC)
 
@@ -925,7 +927,7 @@ finish:
 
 
 static int system_journal_open(Server *s) {
-        int r;
+        int r, fd;
         char *fn;
         sd_id128_t machine;
         char ids[33];
@@ -952,7 +954,31 @@ static int system_journal_open(Server *s) {
                         (void) mkdir("/var/log/journal/", 0755);
 
                 fn = strappenda("/var/log/journal/", ids);
-                (void) mkdir(fn, 0755);
+                (void)mkdir(fn, 0755);
+
+                /*
+                 * On journaling and/or compressing file systems avoid doubling the
+                 * efforts for the system, that is set NOCOW and NOCOMP inode flags.
+                 * Check for every single flag as otherwise some of the file systems
+                 * may return EOPNOTSUPP on one unkown flag (like BtrFS does).
+                 */
+                if ((fd = open(fn, O_DIRECTORY)) >= 0) {
+                        long flags;
+                        if (ioctl(fd, FS_IOC_GETFLAGS, &flags) == 0) {
+                                int old = flags;
+                                if (!(flags&FS_NOATIME_FL) && ioctl(fd, FS_IOC_SETFLAGS, flags|FS_NOATIME_FL) == 0)
+                                        flags |= FS_NOATIME_FL;
+                                if (!(flags&FS_NOCOW_FL) && ioctl(fd, FS_IOC_SETFLAGS, flags|FS_NOCOW_FL) == 0)
+                                        flags |= FS_NOCOW_FL;
+                                if (!(flags&FS_NOCOMP_FL) && s->compress) {
+                                        flags &= ~FS_COMPR_FL;
+                                        flags |= FS_NOCOMP_FL;
+                                }
+                                if (old != flags)
+                                        ioctl(fd, FS_IOC_SETFLAGS, flags);
+                        }
+                        close(fd);
+                }
 
                 fn = strappenda(fn, "/system.journal");
                 r = journal_file_open_reliably(fn, O_RDWR|O_CREAT, 0640, s->compress, s->seal, &s->system_metrics, s->mmap, NULL, &s->system_journal);
@@ -1230,6 +1256,7 @@ static int dispatch_sigusr1(sd_event_source *es, const struct signalfd_siginfo *
         touch("/run/systemd/journal/flushed");
         server_flush_to_var(s);
         server_sync(s);
+        server_vacuum(s);
 
         return 0;
 }
@@ -1471,6 +1498,8 @@ int server_init(Server *s) {
 
         s->forward_to_syslog = true;
 
+        s->max_file_usec = DEFAULT_MAX_FILE_USEC;
+
         s->max_level_store = LOG_DEBUG;
         s->max_level_syslog = LOG_DEBUG;
         s->max_level_kmsg = LOG_NOTICE;
@@ -1481,6 +1510,11 @@ int server_init(Server *s) {
 
         server_parse_config_file(s);
         server_parse_proc_cmdline(s);
+        default_tty_path(s);
+
+        if (s->tty_path)
+                klogconsole(s);
+
         if (!!s->rate_limit_interval ^ !!s->rate_limit_burst) {
                 log_debug("Setting both rate limit interval and burst from %llu,%u to 0,0",
                           (long long unsigned) s->rate_limit_interval,
@@ -1668,6 +1702,7 @@ void server_done(Server *s) {
         free(s->buffer);
         free(s->tty_path);
         free(s->cgroup_root);
+        free(s->hostname_field);
 
         if (s->mmap)
                 mmap_cache_unref(s->mmap);

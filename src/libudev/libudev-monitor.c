@@ -108,17 +108,18 @@ static struct udev_monitor *udev_monitor_new(struct udev *udev)
 
 /* we consider udev running when /dev is on devtmpfs */
 static bool udev_has_devtmpfs(struct udev *udev) {
-        struct file_handle *h;
+        union file_handle_union h = { .handle.handle_bytes = MAX_HANDLE_SZ, };
         int mount_id;
         _cleanup_fclose_ FILE *f = NULL;
         char line[LINE_MAX], *e;
         int r;
 
-        h = alloca(MAX_HANDLE_SZ);
-        h->handle_bytes = MAX_HANDLE_SZ;
-        r = name_to_handle_at(AT_FDCWD, "/dev", h, &mount_id, 0);
-        if (r < 0)
+        r = name_to_handle_at(AT_FDCWD, "/dev", &h.handle, &mount_id, 0);
+        if (r < 0) {
+                if (errno != EOPNOTSUPP)
+                        udev_err(udev, "name_to_handle_at on /dev: %m\n");
                 return false;
+        }
 
 
         f = fopen("/proc/self/mountinfo", "re");
@@ -423,7 +424,10 @@ _public_ int udev_monitor_enable_receiving(struct udev_monitor *udev_monitor)
         }
 
         /* enable receiving of sender credentials */
-        setsockopt(udev_monitor->sock, SOL_SOCKET, SO_PASSCRED, &on, sizeof(on));
+        err = setsockopt(udev_monitor->sock, SOL_SOCKET, SO_PASSCRED, &on, sizeof(on));
+        if (err < 0)
+                udev_err(udev_monitor->udev, "setting SO_PASSCRED failed: %m\n");
+
         return 0;
 }
 

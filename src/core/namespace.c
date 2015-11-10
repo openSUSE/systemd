@@ -68,6 +68,7 @@ static int append_mounts(BindMount **p, char **strv, MountMode mode) {
         STRV_FOREACH(i, strv) {
 
                 (*p)->ignore = false;
+                (*p)->done = false;
 
                 if ((mode == INACCESSIBLE || mode == READONLY) && (*i)[0] == '-') {
                         (*p)->ignore = true;
@@ -122,8 +123,7 @@ static void drop_duplicates(BindMount *m, unsigned *n) {
                 if (previous && path_equal(f->path, previous->path))
                         continue;
 
-                t->path = f->path;
-                t->mode = f->mode;
+                *t = *f;
 
                 previous = t;
 
@@ -220,6 +220,12 @@ static int apply_mount(
                 return mount_dev(m);
 
         case INACCESSIBLE:
+
+                /* First, get rid of everything that is below if there
+                 * is anything... Then, overmount it with an
+                 * inaccessible directory. */
+                umount_recursive(m->path, 0);
+
                 what = "/run/systemd/inaccessible";
                 break;
 
@@ -256,14 +262,17 @@ static int make_read_only(BindMount *m) {
 
         assert(m);
 
-        if (m->mode != INACCESSIBLE && m->mode != READONLY)
-                return 0;
+        if (IN_SET(m->mode, INACCESSIBLE, READONLY))
+                r = mount(NULL, m->path, NULL, MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
+        else if (IN_SET(m->mode, READWRITE, PRIVATE_TMP, PRIVATE_VAR_TMP, PRIVATE_DEV))
+                r = mount(NULL, m->path, NULL, MS_BIND|MS_REMOUNT|MS_REC, NULL);
+        else
+                r = 0;
 
-        r = mount(NULL, m->path, NULL, MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, NULL);
         if (r < 0 && !(m->ignore && errno == ENOENT))
                 return -errno;
 
-        return 0;
+        return r;
 }
 
 int setup_namespace(
@@ -292,7 +301,7 @@ int setup_namespace(
                 private_dev;
 
         if (n > 0) {
-                m = mounts = (BindMount *) alloca(n * sizeof(BindMount));
+                m = mounts = (BindMount *) alloca0(n * sizeof(BindMount));
                 r = append_mounts(&m, read_write_dirs, READWRITE);
                 if (r < 0)
                         return r;

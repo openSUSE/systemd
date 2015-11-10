@@ -47,6 +47,7 @@
 #include "conf-parser.h"
 #include "missing.h"
 #include "label.h"
+#include "pager.h"
 #include "build.h"
 #include "strv.h"
 #include "def.h"
@@ -91,6 +92,7 @@ static int arg_crash_chvt = -1;
 static bool arg_confirm_spawn = false;
 static ShowStatus arg_show_status = _SHOW_STATUS_UNSET;
 static bool arg_switched_root = false;
+static int arg_no_pager = -1;
 static char ***arg_join_controllers = NULL;
 static ExecOutput arg_default_std_output = EXEC_OUTPUT_JOURNAL;
 static ExecOutput arg_default_std_error = EXEC_OUTPUT_INHERIT;
@@ -109,6 +111,14 @@ static Set* arg_syscall_archs = NULL;
 static FILE* arg_serialization = NULL;
 
 static void nop_handler(int sig) {}
+
+static void pager_open_if_enabled(void) {
+
+        if (arg_no_pager <= 0)
+                return;
+
+        pager_open(false);
+}
 
 noreturn static void crash(int sig) {
 
@@ -258,6 +268,7 @@ static int parse_proc_cmdline_word(const char *word) {
         static const char * const rlmap[] = {
                 "emergency", SPECIAL_EMERGENCY_TARGET,
                 "-b",        SPECIAL_EMERGENCY_TARGET,
+                "rescue",    SPECIAL_RESCUE_TARGET,
                 "single",    SPECIAL_RESCUE_TARGET,
                 "-s",        SPECIAL_RESCUE_TARGET,
                 "s",         SPECIAL_RESCUE_TARGET,
@@ -412,12 +423,8 @@ static int parse_proc_cmdline_word(const char *word) {
                 if (arg_show_status == _SHOW_STATUS_UNSET)
                         arg_show_status = SHOW_STATUS_AUTO;
         } else if (streq(word, "debug")) {
-                /* Log to kmsg, the journal socket will fill up before the
-                 * journal is started and tools running during that time
-                 * will block with every log message for for 60 seconds,
-                 * before they give up. */
-                log_set_max_level(LOG_DEBUG);
-                log_set_target(detect_container(NULL) > 0 ? LOG_TARGET_CONSOLE : LOG_TARGET_KMSG);
+                if (detect_container(NULL) > 0)
+                        log_set_target(LOG_TARGET_CONSOLE);
         } else if (!in_initrd()) {
                 unsigned i;
 
@@ -697,6 +704,22 @@ static int parse_config_file(void) {
         return 0;
 }
 
+static void manager_set_defaults(Manager *m) {
+
+        assert(m);
+
+        m->default_std_output = arg_default_std_output;
+        m->default_std_error = arg_default_std_error;
+        m->default_timeout_start_usec = arg_default_timeout_start_usec;
+        m->default_timeout_stop_usec = arg_default_timeout_stop_usec;
+        m->default_restart_usec = arg_default_restart_usec;
+        m->default_start_limit_interval = arg_default_start_limit_interval;
+        m->default_start_limit_burst = arg_default_start_limit_burst;
+
+        manager_set_default_rlimits(m, arg_default_rlimit);
+        manager_environment_add(m, NULL, arg_default_environment);
+}
+
 static int parse_argv(int argc, char *argv[]) {
 
         enum {
@@ -708,6 +731,7 @@ static int parse_argv(int argc, char *argv[]) {
                 ARG_SYSTEM,
                 ARG_USER,
                 ARG_TEST,
+                ARG_NO_PAGER,
                 ARG_VERSION,
                 ARG_DUMP_CONFIGURATION_ITEMS,
                 ARG_DUMP_CORE,
@@ -729,6 +753,7 @@ static int parse_argv(int argc, char *argv[]) {
                 { "system",                   no_argument,       NULL, ARG_SYSTEM                   },
                 { "user",                     no_argument,       NULL, ARG_USER                     },
                 { "test",                     no_argument,       NULL, ARG_TEST                     },
+                { "no-pager",                 no_argument,       NULL, ARG_NO_PAGER                 },
                 { "help",                     no_argument,       NULL, 'h'                          },
                 { "version",                  no_argument,       NULL, ARG_VERSION                  },
                 { "dump-configuration-items", no_argument,       NULL, ARG_DUMP_CONFIGURATION_ITEMS },
@@ -836,6 +861,12 @@ static int parse_argv(int argc, char *argv[]) {
 
                 case ARG_TEST:
                         arg_action = ACTION_TEST;
+                        if (arg_no_pager < 0)
+                                arg_no_pager = true;
+                        break;
+
+                case ARG_NO_PAGER:
+                        arg_no_pager = true;
                         break;
 
                 case ARG_VERSION:
@@ -916,6 +947,8 @@ static int parse_argv(int argc, char *argv[]) {
 
                 case 'h':
                         arg_action = ACTION_HELP;
+                        if (arg_no_pager < 0)
+                                arg_no_pager = true;
                         break;
 
                 case 'D':
@@ -977,6 +1010,7 @@ static int help(void) {
                "Starts up and maintains the system or user services.\n\n"
                "  -h --help                      Show this help\n"
                "     --test                      Determine startup sequence, dump it and exit\n"
+               "     --no-pager                  Do not pipe output into a pager\n"
                "     --dump-configuration-items  Dump understood unit configuration items\n"
                "     --unit=UNIT                 Set default unit\n"
                "     --system                    Run a system instance, even if PID != 1\n"
@@ -1228,6 +1262,16 @@ static int status_welcome(void) {
                              isempty(pretty_name) ? "Linux" : pretty_name);
 }
 
+static int write_container_id(void) {
+        const char *c;
+
+        c = getenv("container");
+        if (isempty(c))
+                return 0;
+
+        return write_string_file("/run/systemd/container", c);
+}
+
 int main(int argc, char *argv[]) {
         Manager *m = NULL;
         int r, retval = EXIT_FAILURE;
@@ -1322,7 +1366,14 @@ int main(int argc, char *argv[]) {
                         if (hwclock_is_localtime() > 0) {
                                 int min;
 
-                                /* The first-time call to settimeofday() does a time warp in the kernel */
+                                /*
+                                 * The very first call of settimeofday() also does a time warp in the kernel.
+                                 *
+                                 * In the rtc-in-local time mode, we set the kernel's timezone, and rely on
+                                 * external tools to take care of maintaining the RTC and do all adjustments.
+                                 * This matches the behavior of Windows, which leaves the RTC alone if the
+                                 * registry tells that the RTC runs in UTC.
+                                 */
                                 r = hwclock_set_timezone(&min);
                                 if (r < 0)
                                         log_error("Failed to apply local time delta, ignoring: %s", strerror(-r));
@@ -1330,19 +1381,19 @@ int main(int argc, char *argv[]) {
                                         log_info("RTC configured in localtime, applying delta of %i minutes to system time.", min);
                         } else if (!in_initrd()) {
                                 /*
-                                 * Do dummy first-time call to seal the kernel's time warp magic
+                                 * Do a dummy very first call to seal the kernel's time warp magic.
                                  *
                                  * Do not call this this from inside the initrd. The initrd might not
                                  * carry /etc/adjtime with LOCAL, but the real system could be set up
                                  * that way. In such case, we need to delay the time-warp or the sealing
                                  * until we reach the real system.
+                                 *
+                                 * Do no set the kernel's timezone. The concept of local time cannot
+                                 * be supported reliably, the time will jump or be incorrect at every daylight
+                                 * saving time change. All kernel local time concepts will be treated
+                                 * as UTC that way.
                                  */
-                                hwclock_reset_timezone();
-
-                                /* Tell the kernel our timezone */
-                                r = hwclock_set_timezone(NULL);
-                                if (r < 0)
-                                        log_error("Failed to set the kernel's timezone, ignoring: %s", strerror(-r));
+                                hwclock_reset_timewarp();
                         }
                 }
 
@@ -1437,6 +1488,11 @@ int main(int argc, char *argv[]) {
                 goto finish;
         }
 
+        if (arg_action == ACTION_TEST)
+                skip_setup = true;
+
+        pager_open_if_enabled();
+
         if (arg_action == ACTION_HELP) {
                 retval = help();
                 goto finish;
@@ -1505,11 +1561,14 @@ int main(int argc, char *argv[]) {
         if (arg_running_as == SYSTEMD_SYSTEM) {
                 const char *virtualization = NULL;
 
-                log_info(PACKAGE_STRING " running in system mode. (" SYSTEMD_FEATURES ")");
+                log_info(PACKAGE_STRING " running in %ssystem mode. (" SYSTEMD_FEATURES ")",
+                         arg_action == ACTION_TEST ? "test " : "" );
 
                 detect_virtualization(&virtualization);
                 if (virtualization)
                         log_info("Detected virtualization '%s'.", virtualization);
+
+                write_container_id();
 
                 log_info("Detected architecture '%s'.", architecture_to_string(uname_architecture()));
 
@@ -1517,9 +1576,11 @@ int main(int argc, char *argv[]) {
                         log_info("Running in initial RAM disk.");
 
         } else {
-                _cleanup_free_ char *t = uid_to_name(getuid());
-                log_debug(PACKAGE_STRING " running in user mode for user "PID_FMT"/%s. (" SYSTEMD_FEATURES ")",
-                          getuid(), t);
+                _cleanup_free_ char *t;
+
+                t = uid_to_name(getuid());
+                log_debug(PACKAGE_STRING " running in %suser mode for user "UID_FMT"/%s. (" SYSTEMD_FEATURES ")",
+                          arg_action == ACTION_TEST ? " test" : "", getuid(), t);
         }
 
         if (arg_running_as == SYSTEMD_SYSTEM && !skip_setup) {
@@ -1577,20 +1638,13 @@ int main(int argc, char *argv[]) {
         if (arg_running_as == SYSTEMD_SYSTEM)
                 bump_rlimit_nofile(&saved_rlimit_nofile);
 
-        r = manager_new(arg_running_as, &m);
+        r = manager_new(arg_running_as, arg_action == ACTION_TEST, &m);
         if (r < 0) {
                 log_error("Failed to allocate manager object: %s", strerror(-r));
                 goto finish;
         }
 
         m->confirm_spawn = arg_confirm_spawn;
-        m->default_std_output = arg_default_std_output;
-        m->default_std_error = arg_default_std_error;
-        m->default_restart_usec = arg_default_restart_usec;
-        m->default_timeout_start_usec = arg_default_timeout_start_usec;
-        m->default_timeout_stop_usec = arg_default_timeout_stop_usec;
-        m->default_start_limit_interval = arg_default_start_limit_interval;
-        m->default_start_limit_burst = arg_default_start_limit_burst;
         m->runtime_watchdog = arg_runtime_watchdog;
         m->shutdown_watchdog = arg_shutdown_watchdog;
         m->userspace_timestamp = userspace_timestamp;
@@ -1599,8 +1653,7 @@ int main(int argc, char *argv[]) {
         m->security_start_timestamp = security_start_timestamp;
         m->security_finish_timestamp = security_finish_timestamp;
 
-        manager_set_default_rlimits(m, arg_default_rlimit);
-        manager_environment_add(m, NULL, arg_default_environment);
+        manager_set_defaults(m);
         manager_set_show_status(m, arg_show_status);
 
         /* Remember whether we should queue the default job */
@@ -1705,6 +1758,13 @@ int main(int argc, char *argv[]) {
 
                 case MANAGER_RELOAD:
                         log_info("Reloading.");
+
+                        r = parse_config_file();
+                        if (r < 0)
+                                log_error("Failed to parse config file.");
+
+                        manager_set_defaults(m);
+
                         r = manager_reload(m);
                         if (r < 0)
                                 log_error("Failed to reload: %s", strerror(-r));
@@ -1757,6 +1817,8 @@ int main(int argc, char *argv[]) {
         }
 
 finish:
+        pager_close();
+
         if (m) {
                 manager_free(m);
                 m = NULL;
@@ -1783,6 +1845,7 @@ finish:
         if (reexecute) {
                 const char **args;
                 unsigned i, args_size;
+                sigset_t ss;
 
                 /* Close and disarm the watchdog, so that the new
                  * instance can reinitialize it, but doesn't get
@@ -1805,7 +1868,7 @@ finish:
                         /* And switch root */
                         r = switch_root(switch_root_dir);
                         if (r < 0)
-                                log_error("Failed to switch root, ignoring: %s", strerror(-r));
+                                log_error("Failed to switch root, trying to continue: %s", strerror(-r));
                 }
 
                 args_size = MAX(6, argc+1);
@@ -1865,6 +1928,13 @@ finish:
                         args[i++] = argv[j];
                 args[i++] = NULL;
                 assert(i <= args_size);
+
+                /* reenable any blocked signals, especially important
+                 * if we switch from initial ramdisk to init=... */
+                reset_all_signal_handlers();
+
+                assert_se(sigemptyset(&ss) == 0);
+                assert_se(sigprocmask(SIG_SETMASK, &ss, NULL) == 0);
 
                 if (switch_root_init) {
                         args[0] = switch_root_init;
@@ -1940,7 +2010,7 @@ finish:
                 if (log_get_show_location())
                         command_line[pos++] = "--log-location";
 
-                assert(pos + 1 < ELEMENTSOF(command_line));
+                assert(pos < ELEMENTSOF(command_line));
 
                 if (arm_reboot_watchdog && arg_shutdown_watchdog > 0) {
                         char *e;

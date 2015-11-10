@@ -36,7 +36,6 @@
 
 #include "sd-event.h"
 
-#define EPOLL_QUEUE_MAX 512U
 #define DEFAULT_ACCURACY_USEC (250 * USEC_PER_MSEC)
 
 typedef enum EventSourceType {
@@ -648,13 +647,31 @@ _public_ int sd_event_add_io(
         return 0;
 }
 
+static void initialize_perturb(sd_event *e) {
+        sd_id128_t bootid = {};
+
+        /* When we sleep for longer, we try to realign the wakeup to
+           the same time wihtin each minute/second/250ms, so that
+           events all across the system can be coalesced into a single
+           CPU wakeup. However, let's take some system-specific
+           randomness for this value, so that in a network of systems
+           with synced clocks timer events are distributed a
+           bit. Here, we calculate a perturbation usec offset from the
+           boot ID. */
+
+        if (_likely_(e->perturb != (usec_t) -1))
+                return;
+
+        if (sd_id128_get_boot(&bootid) >= 0)
+                e->perturb = (bootid.qwords[0] ^ bootid.qwords[1]) % USEC_PER_MINUTE;
+}
+
 static int event_setup_timer_fd(
                 sd_event *e,
                 EventSourceType type,
                 int *timer_fd,
                 clockid_t id) {
 
-        sd_id128_t bootid = {};
         struct epoll_event ev = {};
         int r, fd;
 
@@ -676,18 +693,6 @@ static int event_setup_timer_fd(
                 close_nointr_nofail(fd);
                 return -errno;
         }
-
-        /* When we sleep for longer, we try to realign the wakeup to
-           the same time wihtin each minute/second/250ms, so that
-           events all across the system can be coalesced into a single
-           CPU wakeup. However, let's take some system-specific
-           randomness for this value, so that in a network of systems
-           with synced clocks timer events are distributed a
-           bit. Here, we calculate a perturbation usec offset from the
-           boot ID. */
-
-        if (sd_id128_get_boot(&bootid) >= 0)
-                e->perturb = (bootid.qwords[0] ^ bootid.qwords[1]) % USEC_PER_MINUTE;
 
         *timer_fd = fd;
         return 0;
@@ -833,7 +838,6 @@ _public_ int sd_event_add_signal(
         assert_return(sig > 0, -EINVAL);
         assert_return(sig < _NSIG, -EINVAL);
         assert_return(callback, -EINVAL);
-        assert_return(ret, -EINVAL);
         assert_return(e->state != SD_EVENT_FINISHED, -ESTALE);
         assert_return(!event_pid_changed(e), -ECHILD);
 
@@ -871,7 +875,9 @@ _public_ int sd_event_add_signal(
                 }
         }
 
-        *ret = s;
+        if (ret)
+                *ret = s;
+
         return 0;
 }
 
@@ -1160,7 +1166,8 @@ _public_ int sd_event_source_set_io_events(sd_event_source *s, uint32_t events) 
         assert_return(s->event->state != SD_EVENT_FINISHED, -ESTALE);
         assert_return(!event_pid_changed(s->event), -ECHILD);
 
-        if (s->io.events == events)
+        /* edge-triggered updates are never skipped, so we can reset edges */
+        if (s->io.events == events && !(events & EPOLLET))
                 return 0;
 
         if (s->enabled != SD_EVENT_OFF) {
@@ -1506,6 +1513,8 @@ static usec_t sleep_between(sd_event *e, usec_t a, usec_t b) {
         if (b <= a + 1)
                 return a;
 
+        initialize_perturb(e);
+
         /*
           Find a good time to wake up again between times a and b. We
           have two goals here:
@@ -1776,38 +1785,42 @@ static int process_signal(sd_event *e, uint32_t events) {
         int r;
 
         assert(e);
-        assert(e->signal_sources);
 
         assert_return(events == EPOLLIN, -EIO);
 
         for (;;) {
                 struct signalfd_siginfo si;
-                ssize_t ss;
-                sd_event_source *s;
+                ssize_t n;
+                sd_event_source *s = NULL;
 
-                ss = read(e->signal_fd, &si, sizeof(si));
-                if (ss < 0) {
+                n = read(e->signal_fd, &si, sizeof(si));
+                if (n < 0) {
                         if (errno == EAGAIN || errno == EINTR)
                                 return read_one;
 
                         return -errno;
                 }
 
-                if (_unlikely_(ss != sizeof(si)))
+                if (_unlikely_(n != sizeof(si)))
                         return -EIO;
+
+                assert(si.ssi_signo < _NSIG);
 
                 read_one = true;
 
-                s = e->signal_sources[si.ssi_signo];
                 if (si.ssi_signo == SIGCHLD) {
                         r = process_child(e);
                         if (r < 0)
                                 return r;
-                        if (r > 0 || !s)
+                        if (r > 0)
                                 continue;
-                } else
-                        if (!s)
-                                return -EIO;
+                }
+
+                if (e->signal_sources)
+                        s = e->signal_sources[si.ssi_signo];
+
+                if (!s)
+                        continue;
 
                 s->signal.siginfo = si;
                 r = source_set_pending(s, true);
@@ -2006,6 +2019,11 @@ static int arm_watchdog(sd_event *e) {
 
         timespec_store(&its.it_value, t);
 
+        /* Make sure we never set the watchdog to 0, which tells the
+         * kernel to disable it. */
+        if (its.it_value.tv_sec == 0 && its.it_value.tv_nsec == 0)
+                its.it_value.tv_nsec = 1;
+
         r = timerfd_settime(e->watchdog_fd, TFD_TIMER_ABSTIME, &its, NULL);
         if (r < 0)
                 return -errno;
@@ -2034,6 +2052,7 @@ _public_ int sd_event_run(sd_event *e, uint64_t timeout) {
         unsigned ev_queue_max;
         sd_event_source *p;
         int r, i, m;
+        bool timedout;
 
         assert_return(e, -EINVAL);
         assert_return(!event_pid_changed(e), -ECHILD);
@@ -2061,7 +2080,7 @@ _public_ int sd_event_run(sd_event *e, uint64_t timeout) {
 
         if (event_next_pending(e) || e->need_process_child)
                 timeout = 0;
-        ev_queue_max = CLAMP(e->n_sources, 1U, EPOLL_QUEUE_MAX);
+        ev_queue_max = MAX(e->n_sources, 1u);
         ev_queue = newa(struct epoll_event, ev_queue_max);
 
         m = epoll_wait(e->epoll_fd, ev_queue, ev_queue_max,
@@ -2070,6 +2089,8 @@ _public_ int sd_event_run(sd_event *e, uint64_t timeout) {
                 r = errno == EAGAIN || errno == EINTR ? 1 : -errno;
                 goto finish;
         }
+
+        timedout = m == 0;
 
         dual_timestamp_get(&e->timestamp);
 
@@ -2110,7 +2131,7 @@ _public_ int sd_event_run(sd_event *e, uint64_t timeout) {
 
         p = event_next_pending(e);
         if (!p) {
-                r = 1;
+                r = !timedout;
                 goto finish;
         }
 
@@ -2178,8 +2199,11 @@ _public_ int sd_event_exit(sd_event *e, int code) {
 _public_ int sd_event_get_now_realtime(sd_event *e, uint64_t *usec) {
         assert_return(e, -EINVAL);
         assert_return(usec, -EINVAL);
-        assert_return(dual_timestamp_is_set(&e->timestamp), -ENODATA);
         assert_return(!event_pid_changed(e), -ECHILD);
+
+        /* If we haven't run yet, just get the actual time */
+        if (!dual_timestamp_is_set(&e->timestamp))
+                return -ENODATA;
 
         *usec = e->timestamp.realtime;
         return 0;
@@ -2188,8 +2212,11 @@ _public_ int sd_event_get_now_realtime(sd_event *e, uint64_t *usec) {
 _public_ int sd_event_get_now_monotonic(sd_event *e, uint64_t *usec) {
         assert_return(e, -EINVAL);
         assert_return(usec, -EINVAL);
-        assert_return(dual_timestamp_is_set(&e->timestamp), -ENODATA);
         assert_return(!event_pid_changed(e), -ECHILD);
+
+        /* If we haven't run yet, just get the actual time */
+        if (!dual_timestamp_is_set(&e->timestamp))
+                return -ENODATA;
 
         *usec = e->timestamp.monotonic;
         return 0;

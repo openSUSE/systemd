@@ -741,6 +741,15 @@ static int setup_resolv_conf(const char *dest) {
         return 0;
 }
 
+static char* id128_format_as_uuid(sd_id128_t id, char s[37]) {
+
+        snprintf(s, 37,
+                 "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+                 SD_ID128_FORMAT_VAL(id));
+
+        return s;
+}
+
 static int setup_boot_id(const char *dest) {
         _cleanup_free_ char *from = NULL, *to = NULL;
         sd_id128_t rnd = {};
@@ -766,10 +775,7 @@ static int setup_boot_id(const char *dest) {
                 return r;
         }
 
-        snprintf(as_uuid, sizeof(as_uuid),
-                 "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-                 SD_ID128_FORMAT_VAL(rnd));
-        char_array_0(as_uuid);
+        id128_format_as_uuid(rnd, as_uuid);
 
         r = write_string_file(from, as_uuid);
         if (r < 0) {
@@ -980,7 +986,7 @@ static int setup_hostname(void) {
         if (arg_share_system)
                 return 0;
 
-        if (sethostname(arg_machine, strlen(arg_machine)) < 0)
+        if (sethostname_idempotent(arg_machine) < 0)
                 return -errno;
 
         return 0;
@@ -1114,10 +1120,8 @@ static int setup_journal(const char *directory) {
         } else if (access(p, F_OK) < 0)
                 return 0;
 
-        if (dir_is_empty(q) == 0) {
-                log_error("%s not empty.", q);
-                return -ENOTEMPTY;
-        }
+        if (dir_is_empty(q) == 0)
+                log_warning("%s is not empty, proceeding anyway.", q);
 
         r = mkdir_p(q, 0755);
         if (r < 0) {
@@ -1159,7 +1163,7 @@ static int drop_capabilities(void) {
 
 static int register_machine(pid_t pid) {
         _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         if (!arg_register)
@@ -1281,7 +1285,7 @@ static int register_machine(pid_t pid) {
 static int terminate_machine(pid_t pid) {
         _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
         _cleanup_bus_message_unref_ sd_bus_message *reply = NULL;
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         const char *path;
         int r;
 
@@ -1341,7 +1345,7 @@ static int reset_audit_loginuid(void) {
                 return 0;
 
         r = read_one_line_file("/proc/self/loginuid", &p);
-        if (r == -EEXIST)
+        if (r == -ENOENT)
                 return 0;
         if (r < 0) {
                 log_error("Failed to read /proc/self/loginuid: %s", strerror(-r));
@@ -1379,12 +1383,8 @@ static int setup_veth(pid_t pid, char iface_name[IFNAMSIZ]) {
 
         /* Use two different interface name prefixes depending whether
          * we are in bridge mode or not. */
-        if (arg_network_bridge)
-                memcpy(iface_name, "vb-", 3);
-        else
-                memcpy(iface_name, "ve-", 3);
-
-        strncpy(iface_name+3, arg_machine, IFNAMSIZ - 3);
+        snprintf(iface_name, IFNAMSIZ - 1, "%s-%s",
+                arg_network_bridge ? "vb" : "ve", arg_machine);
 
         r = sd_rtnl_open(&rtnl, 0);
         if (r < 0) {
@@ -1568,7 +1568,7 @@ static int move_network_interfaces(pid_t pid) {
                         return -EBUSY;
                 }
 
-                r = sd_rtnl_message_new_link(rtnl, &m, RTM_NEWLINK, ifi);
+                r = sd_rtnl_message_new_link(rtnl, &m, RTM_SETLINK, ifi);
                 if (r < 0) {
                         log_error("Failed to allocate netlink message: %s", strerror(-r));
                         return r;
@@ -1590,21 +1590,24 @@ static int move_network_interfaces(pid_t pid) {
         return 0;
 }
 
-static int audit_still_doesnt_work_in_containers(void) {
+static int setup_seccomp(void) {
 
 #ifdef HAVE_SECCOMP
+        static const int blacklist[] = {
+                SCMP_SYS(kexec_load),
+                SCMP_SYS(open_by_handle_at),
+                SCMP_SYS(init_module),
+                SCMP_SYS(finit_module),
+                SCMP_SYS(delete_module),
+                SCMP_SYS(iopl),
+                SCMP_SYS(ioperm),
+                SCMP_SYS(swapon),
+                SCMP_SYS(swapoff),
+        };
+
         scmp_filter_ctx seccomp;
+        unsigned i;
         int r;
-
-        /*
-           Audit is broken in containers, much of the userspace audit
-           hookup will fail if running inside a container. We don't
-           care and just turn off creation of audit sockets.
-
-           This will make socket(AF_NETLINK, *, NETLINK_AUDIT) fail
-           with EAFNOSUPPORT which audit userspace uses as indication
-           that audit is disabled in the kernel.
-         */
 
         seccomp = seccomp_init(SCMP_ACT_ALLOW);
         if (!seccomp)
@@ -1615,6 +1618,26 @@ static int audit_still_doesnt_work_in_containers(void) {
                 log_error("Failed to add secondary archs to seccomp filter: %s", strerror(-r));
                 goto finish;
         }
+
+        for (i = 0; i < ELEMENTSOF(blacklist); i++) {
+                r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), blacklist[i], 0);
+                if (r == -EFAULT)
+                        continue; /* unknown syscall */
+                if (r < 0) {
+                        log_error("Failed to block syscall: %s", strerror(-r));
+                        goto finish;
+                }
+        }
+
+        /*
+           Audit is broken in containers, much of the userspace audit
+           hookup will fail if running inside a container. We don't
+           care and just turn off creation of audit sockets.
+
+           This will make socket(AF_NETLINK, *, NETLINK_AUDIT) fail
+           with EAFNOSUPPORT which audit userspace uses as indication
+           that audit is disabled in the kernel.
+         */
 
         r = seccomp_rule_add(
                         seccomp,
@@ -1919,7 +1942,7 @@ int main(int argc, char *argv[]) {
 
                         dev_setup(arg_directory);
 
-                        if (audit_still_doesnt_work_in_containers() < 0)
+                        if (setup_seccomp() < 0)
                                 goto child_fail;
 
                         if (setup_dev_console(arg_directory, console) < 0)
@@ -2046,7 +2069,9 @@ int main(int argc, char *argv[]) {
                         }
 
                         if (!sd_id128_equal(arg_uuid, SD_ID128_NULL)) {
-                                if (asprintf((char**)(envp + n_env++), "container_uuid=" SD_ID128_FORMAT_STR, SD_ID128_FORMAT_VAL(arg_uuid)) < 0) {
+                                char as_uuid[37];
+
+                                if (asprintf((char**)(envp + n_env++), "container_uuid=%s", id128_format_as_uuid(arg_uuid, as_uuid)) < 0) {
                                         log_oom();
                                         goto child_fail;
                                 }

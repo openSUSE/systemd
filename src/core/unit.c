@@ -328,7 +328,8 @@ void unit_add_to_dbus_queue(Unit *u) {
                 return;
 
         /* Shortcut things if nobody cares */
-        if (set_isempty(u->manager->subscribed)) {
+        if (sd_bus_track_count(u->manager->subscribed) <= 0 &&
+            set_isempty(u->manager->private_buses)) {
                 u->sent_dbus_new_signal = true;
                 return;
         }
@@ -1376,9 +1377,41 @@ static void unit_check_unneeded(Unit *u) {
                 if (unit_active_or_pending(other))
                         return;
 
-        log_info_unit(u->id, "Service %s is not needed anymore. Stopping.", u->id);
+        log_info_unit(u->id, "Unit %s is not needed anymore. Stopping.", u->id);
 
         /* Ok, nobody needs us anymore. Sniff. Then let's commit suicide */
+        manager_add_job(u->manager, JOB_STOP, u, JOB_FAIL, true, NULL, NULL);
+}
+
+static void unit_check_binds_to(Unit *u) {
+        bool stop = false;
+        Unit *other;
+        Iterator i;
+
+        assert(u);
+
+        if (u->job)
+                return;
+
+        if (unit_active_state(u) != UNIT_ACTIVE)
+                return;
+
+        SET_FOREACH(other, u->dependencies[UNIT_BINDS_TO], i) {
+                if (other->job)
+                        continue;
+
+                if (!UNIT_IS_INACTIVE_OR_FAILED(unit_active_state(other)))
+                        continue;
+
+                stop = true;
+        }
+
+        if (!stop)
+                return;
+
+        log_info_unit(u->id, "Unit %s is bound to inactive service. Stopping, too.", u->id);
+
+        /* A unit we need to run is gone. Sniff. Let's stop this. */
         manager_add_job(u->manager, JOB_STOP, u, JOB_FAIL, true, NULL, NULL);
 }
 
@@ -1526,7 +1559,7 @@ void unit_notify(Unit *u, UnitActiveState os, UnitActiveState ns, bool reload_su
                 unit_destroy_cgroup(u);
 
         /* Note that this doesn't apply to RemainAfterExit services exiting
-         * sucessfully, since there's no change of state in that case. Which is
+         * successfully, since there's no change of state in that case. Which is
          * why it is handled in service_set_state() */
         if (UNIT_IS_INACTIVE_OR_FAILED(os) != UNIT_IS_INACTIVE_OR_FAILED(ns)) {
                 ExecContext *ec;
@@ -1685,10 +1718,18 @@ void unit_notify(Unit *u, UnitActiveState os, UnitActiveState ns, bool reload_su
         manager_recheck_journal(m);
         unit_trigger_notify(u);
 
-        /* Maybe we finished startup and are now ready for being
-         * stopped because unneeded? */
-        if (u->manager->n_reloading <= 0)
+        if (u->manager->n_reloading <= 0) {
+                /* Maybe we finished startup and are now ready for
+                 * being stopped because unneeded? */
                 unit_check_unneeded(u);
+
+                /* Maybe we finished startup, but something we needed
+                 * has vanished? Let's die then. (This happens when
+                 * something BindsTo= to a Type=oneshot unit, as these
+                 * units go directly from starting to inactive,
+                 * without ever entering started.) */
+                unit_check_binds_to(u);
+        }
 
         unit_add_to_dbus_queue(u);
         unit_add_to_gc_queue(u);
@@ -1703,11 +1744,11 @@ int unit_watch_pid(Unit *u, pid_t pid) {
         /* Watch a specific PID. We only support one or two units
          * watching each PID for now, not more. */
 
-        r = hashmap_ensure_allocated(&u->manager->watch_pids1, trivial_hash_func, trivial_compare_func);
+        r = set_ensure_allocated(&u->pids, trivial_hash_func, trivial_compare_func);
         if (r < 0)
                 return r;
 
-        r = set_ensure_allocated(&u->pids, trivial_hash_func, trivial_compare_func);
+        r = hashmap_ensure_allocated(&u->manager->watch_pids1, trivial_hash_func, trivial_compare_func);
         if (r < 0)
                 return r;
 
@@ -1736,7 +1777,17 @@ void unit_unwatch_pid(Unit *u, pid_t pid) {
         set_remove(u->pids, LONG_TO_PTR(pid));
 }
 
-static int watch_pids_in_path(Unit *u, const char *path) {
+void unit_unwatch_all_pids(Unit *u) {
+        assert(u);
+
+        while (!set_isempty(u->pids))
+                unit_unwatch_pid(u, PTR_TO_LONG(set_first(u->pids)));
+
+        set_free(u->pids);
+        u->pids = NULL;
+}
+
+static int unit_watch_pids_in_path(Unit *u, const char *path) {
         _cleanup_closedir_ DIR *d = NULL;
         _cleanup_fclose_ FILE *f = NULL;
         int ret = 0, r;
@@ -1774,7 +1825,7 @@ static int watch_pids_in_path(Unit *u, const char *path) {
                         if (!p)
                                 return -ENOMEM;
 
-                        r = watch_pids_in_path(u, p);
+                        r = unit_watch_pids_in_path(u, p);
                         if (r < 0 && ret >= 0)
                                 ret = r;
                 }
@@ -1787,31 +1838,15 @@ static int watch_pids_in_path(Unit *u, const char *path) {
         return ret;
 }
 
-
 int unit_watch_all_pids(Unit *u) {
         assert(u);
+
+        /* Adds all PIDs from our cgroup to the set of PIDs we watch */
 
         if (!u->cgroup_path)
                 return -ENOENT;
 
-        /* Adds all PIDs from our cgroup to the set of PIDs we watch */
-
-        return watch_pids_in_path(u, u->cgroup_path);
-}
-
-void unit_unwatch_all_pids(Unit *u) {
-        Iterator i;
-        void *e;
-
-        assert(u);
-
-        SET_FOREACH(e, u->pids, i) {
-                hashmap_remove_value(u->manager->watch_pids1, e, u);
-                hashmap_remove_value(u->manager->watch_pids2, e, u);
-        }
-
-        set_free(u->pids);
-        u->pids = NULL;
+        return unit_watch_pids_in_path(u, u->cgroup_path);
 }
 
 void unit_tidy_watch_pids(Unit *u, pid_t except1, pid_t except2) {
@@ -1829,7 +1864,7 @@ void unit_tidy_watch_pids(Unit *u, pid_t except1, pid_t except2) {
                         continue;
 
                 if (!pid_is_unwaited(pid))
-                        set_remove(u->pids, e);
+                        unit_unwatch_pid(u, pid);
         }
 }
 
@@ -2237,25 +2272,25 @@ bool unit_can_serialize(Unit *u) {
 }
 
 int unit_serialize(Unit *u, FILE *f, FDSet *fds, bool serialize_jobs) {
-        ExecRuntime *rt;
         int r;
 
         assert(u);
         assert(f);
         assert(fds);
 
-        if (!unit_can_serialize(u))
-                return 0;
+        if (unit_can_serialize(u)) {
+                ExecRuntime *rt;
 
-        r = UNIT_VTABLE(u)->serialize(u, f, fds);
-        if (r < 0)
-                return r;
-
-        rt = unit_get_exec_runtime(u);
-        if (rt) {
-                r = exec_runtime_serialize(rt, u, f, fds);
+                r = UNIT_VTABLE(u)->serialize(u, f, fds);
                 if (r < 0)
                         return r;
+
+                rt = unit_get_exec_runtime(u);
+                if (rt) {
+                        r = exec_runtime_serialize(rt, u, f, fds);
+                        if (r < 0)
+                                return r;
+                }
         }
 
         dual_timestamp_serialize(f, "inactive-exit-timestamp", &u->inactive_exit_timestamp);
@@ -2271,6 +2306,7 @@ int unit_serialize(Unit *u, FILE *f, FDSet *fds, bool serialize_jobs) {
 
         if (u->cgroup_path)
                 unit_serialize_item(u, f, "cgroup", u->cgroup_path);
+        unit_serialize_item(u, f, "cgroup-realized", yes_no(u->cgroup_realized));
 
         if (serialize_jobs) {
                 if (u->job) {
@@ -2316,17 +2352,48 @@ void unit_serialize_item(Unit *u, FILE *f, const char *key, const char *value) {
         fprintf(f, "%s=%s\n", key, value);
 }
 
+static int unit_set_cgroup_path(Unit *u, const char *path) {
+        _cleanup_free_ char *p = NULL;
+        int r;
+
+        assert(u);
+
+        if (path) {
+                p = strdup(path);
+                if (!p)
+                        return -ENOMEM;
+        } else
+                p = NULL;
+
+        if (streq_ptr(u->cgroup_path, p))
+                return 0;
+
+        if (p) {
+                r = hashmap_put(u->manager->cgroup_unit, p, u);
+                if (r < 0)
+                        return r;
+        }
+
+        if (u->cgroup_path) {
+                log_debug_unit(u->id, "%s: Changing cgroup path from %s to %s.", u->id, u->cgroup_path, strna(p));
+                hashmap_remove(u->manager->cgroup_unit, u->cgroup_path);
+                free(u->cgroup_path);
+        }
+
+        u->cgroup_path = p;
+        p = NULL;
+
+        return 0;
+}
+
 int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
-        size_t offset;
         ExecRuntime **rt = NULL;
+        size_t offset;
         int r;
 
         assert(u);
         assert(f);
         assert(fds);
-
-        if (!unit_can_serialize(u))
-                return 0;
 
         offset = UNIT_VTABLE(u)->exec_runtime_offset;
         if (offset > 0)
@@ -2346,7 +2413,7 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
                 l = strstrip(line);
 
                 /* End marker */
-                if (l[0] == 0)
+                if (isempty(l))
                         return 0;
 
                 k = strcspn(l, "=");
@@ -2362,7 +2429,7 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
                                 /* new-style serialized job */
                                 Job *j = job_new_raw(u);
                                 if (!j)
-                                        return -ENOMEM;
+                                        return log_oom();
 
                                 r = job_deserialize(j, f, fds);
                                 if (r < 0) {
@@ -2431,30 +2498,41 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
 
                         continue;
                 } else if (streq(l, "cgroup")) {
-                        char *s;
 
-                        s = strdup(v);
-                        if (!s)
-                                return -ENOMEM;
+                        r = unit_set_cgroup_path(u, v);
+                        if (r < 0)
+                                log_debug("Failed to set cgroup path %s: %s", v, strerror(-r));
 
-                        free(u->cgroup_path);
-                        u->cgroup_path = s;
+                        continue;
+                } else if (streq(l, "cgroup-realized")) {
+                        int b;
 
-                        assert(hashmap_put(u->manager->cgroup_unit, s, u) == 1);
+                        b = parse_boolean(v);
+                        if (b < 0)
+                                log_debug("Failed to parse cgroup-realized bool %s", v);
+                        else
+                                u->cgroup_realized = b;
+
                         continue;
                 }
 
-                if (rt) {
-                        r = exec_runtime_deserialize_item(rt, u, l, v, fds);
-                        if (r < 0)
-                                return r;
-                        if (r > 0)
-                                continue;
-                }
+                if (unit_can_serialize(u)) {
+                        if (rt) {
+                                r = exec_runtime_deserialize_item(rt, u, l, v, fds);
+                                if (r < 0) {
+                                        log_warning_unit(u->id, "Failed to deserialize runtime parameter '%s', ignoring.", l);
+                                        continue;
+                                }
 
-                r = UNIT_VTABLE(u)->deserialize_item(u, l, v, fds);
-                if (r < 0)
-                        return r;
+                                /* Returns positive if key was handled by the call */
+                                if (r > 0)
+                                        continue;
+                        }
+
+                        r = UNIT_VTABLE(u)->deserialize_item(u, l, v, fds);
+                        if (r < 0)
+                                log_warning_unit(u->id, "Failed to deserialize unit parameter '%s', ignoring.", l);
+                }
         }
 }
 
@@ -2478,7 +2556,6 @@ int unit_add_node_link(Unit *u, const char *what, bool wants) {
                 return -ENOMEM;
 
         r = manager_load_unit(u->manager, e, NULL, NULL, &device);
-
         if (r < 0)
                 return r;
 
@@ -3098,14 +3175,18 @@ int unit_kill_context(
                 } else if (r > 0) {
 
                         /* FIXME: For now, we will not wait for the
-                         * cgroup members to die, simply because
-                         * cgroup notification is unreliable. It
-                         * doesn't work at all in containers, and
-                         * outside of containers it can be confused
-                         * easily by leaving directories in the
-                         * cgroup. */
+                         * cgroup members to die if we are running in
+                         * a container or if this is a delegation
+                         * unit, simply because cgroup notification is
+                         * unreliable in these cases. It doesn't work
+                         * at all in containers, and outside of
+                         * containers it can be confused easily by
+                         * left-over directories in the cgroup --
+                         * which however should not exist in
+                         * non-delegated units. */
 
-                        /* wait_for_exit = true; */
+                        if  (detect_container(NULL) == 0)
+                                wait_for_exit = true;
 
                         if (c->send_sighup && !sigkill) {
                                 set_free(pid_set);

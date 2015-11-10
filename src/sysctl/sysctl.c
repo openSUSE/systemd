@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <limits.h>
 #include <getopt.h>
+#include <sys/utsname.h>
 
 #include "log.h"
 #include "strv.h"
@@ -48,12 +49,26 @@ static const char conf_file_dirs[] =
 #endif
         ;
 
-static char *normalize_sysctl(char *s) {
+static char* normalize_sysctl(char *s) {
         char *n;
 
-        for (n = s; *n; n++)
+        n = strpbrk(s, "/.");
+        /* If the first separator is a slash, the path is
+         * assumed to be normalized and slashes remain slashes
+         * and dots remains dots. */
+        if (!n || *n == '/')
+                return s;
+
+        /* Otherwise, dots become slashes and slashes become
+         * dots. Fun. */
+        while (n) {
                 if (*n == '.')
                         *n = '/';
+                else
+                        *n = '.';
+
+                n = strpbrk(n + 1, "/.");
+        }
 
         return s;
 }
@@ -300,6 +315,13 @@ int main(int argc, char *argv[]) {
         } else {
                 _cleanup_strv_free_ char **files = NULL;
                 char **f;
+                char kernel_sysctl[PATH_MAX];
+                struct utsname uts;
+
+                assert_se(uname(&uts) >= 0);
+
+                snprintf(kernel_sysctl, sizeof(kernel_sysctl), "/boot/sysctl.conf-%s", uts.release);
+                r = parse_file(sysctl_options, kernel_sysctl, true);
 
                 r = conf_files_list_nulstr(&files, ".conf", NULL, conf_file_dirs);
                 if (r < 0) {

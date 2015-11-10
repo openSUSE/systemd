@@ -93,6 +93,7 @@ static bool arg_no_pager = false;
 static bool arg_no_wtmp = false;
 static bool arg_no_wall = false;
 static bool arg_no_reload = false;
+static bool arg_no_sync = false;
 static bool arg_show_types = false;
 static bool arg_ignore_inhibitors = false;
 static bool arg_dry = false;
@@ -304,27 +305,37 @@ static int compare_unit_info(const void *a, const void *b) {
 }
 
 static bool output_show_unit(const UnitInfo *u, char **patterns) {
-        const char *dot;
-
-        if (!strv_isempty(arg_states))
-                return
-                        strv_contains(arg_states, u->load_state) ||
-                        strv_contains(arg_states, u->sub_state) ||
-                        strv_contains(arg_states, u->active_state);
-
         if (!strv_isempty(patterns)) {
                 char **pattern;
 
                 STRV_FOREACH(pattern, patterns)
                         if (fnmatch(*pattern, u->id, FNM_NOESCAPE) == 0)
-                                return true;
+                                goto next;
                 return false;
         }
 
-        return (!arg_types || ((dot = strrchr(u->id, '.')) &&
-                               strv_find(arg_types, dot+1))) &&
-                (arg_all || !(streq(u->active_state, "inactive")
-                              || u->following[0]) || u->job_id > 0);
+next:
+        if (arg_types) {
+                const char *dot;
+
+                dot = strrchr(u->id, '.');
+                if (!dot)
+                        return false;
+
+                if (!strv_find(arg_types, dot+1))
+                        return false;
+        }
+
+        if (arg_all)
+                return true;
+
+        if (u->job_id > 0)
+                return true;
+
+        if (streq(u->active_state, "inactive") || u->following[0])
+                return false;
+
+        return true;
 }
 
 static void output_units_list(const UnitInfo *unit_infos, unsigned c) {
@@ -465,6 +476,7 @@ static int get_unit_list(
                 UnitInfo **_unit_infos,
                 char **patterns) {
 
+        _cleanup_bus_message_unref_ sd_bus_message *m = NULL;
         _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
         _cleanup_bus_message_unref_ sd_bus_message *reply = NULL;
         _cleanup_free_ UnitInfo *unit_infos = NULL;
@@ -476,15 +488,22 @@ static int get_unit_list(
         assert(_reply);
         assert(_unit_infos);
 
-        r = sd_bus_call_method(
+        r = sd_bus_message_new_method_call(
                         bus,
+                        &m,
                         "org.freedesktop.systemd1",
                         "/org/freedesktop/systemd1",
                         "org.freedesktop.systemd1.Manager",
-                        "ListUnits",
-                        &error,
-                        &reply,
-                        NULL);
+                        "ListUnitsFiltered");
+
+        if (r < 0)
+                return bus_log_create_error(r);
+
+        r = sd_bus_message_append_strv(m, arg_states);
+        if (r < 0)
+                return bus_log_create_error(r);
+
+        r = sd_bus_call(bus, m, 0, &error, &reply);
         if (r < 0) {
                 log_error("Failed to list units: %s", bus_error_message(&error, r));
                 return r;
@@ -1016,18 +1035,33 @@ static int compare_unit_file_list(const void *a, const void *b) {
 }
 
 static bool output_show_unit_file(const UnitFileList *u, char **patterns) {
-        const char *dot;
-
         if (!strv_isempty(patterns)) {
                 char **pattern;
 
                 STRV_FOREACH(pattern, patterns)
                         if (fnmatch(*pattern, basename(u->path), FNM_NOESCAPE) == 0)
-                                return true;
+                                goto next;
                 return false;
         }
 
-        return !arg_types || ((dot = strrchr(u->path, '.')) && strv_find(arg_types, dot+1));
+next:
+        if (!strv_isempty(arg_types)) {
+                const char *dot;
+
+                dot = strrchr(u->path, '.');
+                if (!dot)
+                        return false;
+
+                if (!strv_find(arg_types, dot+1))
+                        return false;
+        }
+
+        if (!strv_isempty(arg_states)) {
+                if (!strv_find(arg_states, unit_file_state_to_string(u->state)))
+                        return false;
+        }
+
+        return true;
 }
 
 static void output_unit_file_list(const UnitFileList *units, unsigned c) {
@@ -1235,11 +1269,13 @@ static int list_dependencies_get_dependencies(sd_bus *bus, const char *name, cha
                                        "RequiresOverridable\0"
                                        "Requisite\0"
                                        "RequisiteOverridable\0"
-                                       "Wants\0",
+                                       "Wants\0"
+                                       "BindsTo\0",
                 [DEPENDENCY_REVERSE] = "RequiredBy\0"
                                        "RequiredByOverridable\0"
                                        "WantedBy\0"
-                                       "PartOf\0",
+                                       "PartOf\0"
+                                       "BoundBy\0",
                 [DEPENDENCY_AFTER]   = "After\0",
                 [DEPENDENCY_BEFORE]  = "Before\0",
         };
@@ -1505,7 +1541,7 @@ static int set_default(sd_bus *bus, char **args) {
                 return log_oom();
 
         if (!bus || avoid_bus()) {
-                r = unit_file_set_default(arg_scope, arg_root, unit, arg_force, &changes, &n_changes);
+                r = unit_file_set_default(arg_scope, arg_root, unit, true, &changes, &n_changes);
                 if (r < 0) {
                         log_error("Failed to set default target: %s", strerror(-r));
                         return r;
@@ -1527,7 +1563,7 @@ static int set_default(sd_bus *bus, char **args) {
                                 "SetDefaultTarget",
                                 &error,
                                 &reply,
-                                "sb", unit, arg_force);
+                                "sb", unit, true);
                 if (r < 0) {
                         log_error("Failed to set default target: %s", bus_error_message(&error, -r));
                         return r;
@@ -1883,8 +1919,18 @@ static int check_wait_response(WaitData *d) {
                         log_error("Job for %s canceled.", strna(d->name));
                 else if (streq(d->result, "dependency"))
                         log_error("A dependency job for %s failed. See 'journalctl -xn' for details.", strna(d->name));
-                else if (!streq(d->result, "done") && !streq(d->result, "skipped"))
-                        log_error("Job for %s failed. See 'systemctl status %s' and 'journalctl -xn' for details.", strna(d->name), strna(d->name));
+                else if (!streq(d->result, "done") && !streq(d->result, "skipped")) {
+                        if (d->name) {
+                                bool quotes;
+
+                                quotes = chars_intersect(d->name, SHELL_NEED_QUOTES);
+
+                                log_error("Job for %s failed. See \"systemctl status %s%s%s\" and \"journalctl -xn\" for details.",
+                                          d->name,
+                                          quotes ? "'" : "", d->name, quotes ? "'" : "");
+                        } else
+                                log_error("Job failed. See \"journalctl -xn\" for details.");
+                }
         }
 
         if (streq(d->result, "timeout"))
@@ -1913,7 +1959,7 @@ static int wait_for_jobs(sd_bus *bus, Set *s) {
         while (!set_isempty(s)) {
                 q = bus_process_wait(bus);
                 if (q < 0) {
-                        log_error("Failed to wait for response: %s", strerror(-r));
+                        log_error("Failed to wait for response: %s", strerror(-q));
                         return q;
                 }
 
@@ -2230,7 +2276,7 @@ static enum action verb_to_action(const char *verb) {
 static int start_unit(sd_bus *bus, char **args) {
         _cleanup_set_free_free_ Set *s = NULL;
         _cleanup_strv_free_ char **names = NULL;
-        const char *method, *mode, *one_name;
+        const char *method, *mode, *one_name, *suffix = NULL;
         char **name;
         int r = 0;
 
@@ -2243,8 +2289,11 @@ static int start_unit(sd_bus *bus, char **args) {
                 method = verb_to_method(args[0]);
                 action = verb_to_action(args[0]);
 
-                mode = streq(args[0], "isolate") ? "isolate" :
-                       action_table[action].mode ?: arg_job_mode;
+                if (streq(args[0], "isolate")) {
+                        mode = "isolate";
+                        suffix = ".target";
+                } else
+                        mode = action_table[action].mode ?: arg_job_mode;
 
                 one_name = action_table[action].target;
         } else {
@@ -2260,7 +2309,7 @@ static int start_unit(sd_bus *bus, char **args) {
         if (one_name)
                 names = strv_new(one_name, NULL);
         else {
-                r = expand_names(bus, args + 1, NULL, &names);
+                r = expand_names(bus, args + 1, suffix, &names);
                 if (r < 0)
                         log_error("Failed to expand names: %s", strerror(-r));
         }
@@ -2584,7 +2633,7 @@ static int kill_unit(sd_bus *bus, char **args) {
                                 "ssi", *names, arg_kill_who, arg_signal);
                 if (q < 0) {
                         log_error("Failed to kill unit %s: %s",
-                                  *names, bus_error_message(&error, r));
+                                  *names, bus_error_message(&error, q));
                         if (r == 0)
                                 r = q;
                 }
@@ -2706,6 +2755,7 @@ typedef struct UnitStatusInfo {
         const char *status_text;
         const char *pid_file;
         bool running:1;
+        int status_errno;
 
         usec_t start_timestamp;
         usec_t exit_timestamp;
@@ -2978,6 +3028,8 @@ static void print_status_info(
 
         if (i->status_text)
                 printf("   Status: \"%s\"\n", i->status_text);
+        if (i->status_errno > 0)
+                printf("    Error: %i (%s)\n", i->status_errno, strerror(i->status_errno));
 
         if (i->control_group &&
             (i->main_pid > 0 || i->control_pid > 0 || cg_is_empty_recursive(SYSTEMD_CGROUP_CONTROLLER, i->control_group, false) == 0)) {
@@ -3199,6 +3251,8 @@ static int status_property(const char *name, sd_bus_message *m, UnitStatusInfo *
                         i->exit_code = (int) j;
                 else if (streq(name, "ExecMainStatus"))
                         i->exit_status = (int) j;
+                else if (streq(name, "StatusErrno"))
+                        i->status_errno = (int) j;
 
                 break;
         }
@@ -3758,8 +3812,8 @@ static int show_one(
             streq(verb, "status")) {
                 /* According to LSB: "program not running" */
                 /* 0: program is running or service is OK
-                 * 1: program is dead and /var/run pid file exists
-                 * 2: program is dead and /var/lock lock file exists
+                 * 1: program is dead and /run PID file exists
+                 * 2: program is dead and /run/lock lock file exists
                  * 3: program is not running
                  * 4: program or service status is unknown
                  */
@@ -3824,7 +3878,7 @@ static int show_all(
         _cleanup_free_ UnitInfo *unit_infos = NULL;
         const UnitInfo *u;
         unsigned c;
-        int r;
+        int r, ret = 0;
 
         r = get_unit_list(bus, &reply, &unit_infos, NULL);
         if (r < 0)
@@ -3846,13 +3900,14 @@ static int show_all(
                 r = show_one(verb, bus, p, show_properties, new_line, ellipsized);
                 if (r != 0)
                         return r;
+                else if (r > 0 && ret == 0)
+                        ret = r;
         }
 
-        return 0;
+        return ret;
 }
 
 static int cat(sd_bus *bus, char **args) {
-        _cleanup_free_ char *unit = NULL;
         _cleanup_strv_free_ char **names = NULL;
         char **name;
         bool first = true;
@@ -3871,6 +3926,8 @@ static int cat(sd_bus *bus, char **args) {
                 _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
                 _cleanup_strv_free_ char **dropin_paths = NULL;
                 _cleanup_free_ char *fragment_path = NULL;
+                _cleanup_free_ char *unit = NULL;
+
                 char **path;
 
                 unit = unit_dbus_path_from_name(*name);
@@ -3993,7 +4050,12 @@ static int show(sd_bus *bus, char **args) {
                                 }
                         }
 
-                        show_one(args[0], bus, unit, show_properties, &new_line, &ellipsized);
+                        r = show_one(args[0], bus, unit, show_properties,
+                                     &new_line, &ellipsized);
+                        if (r < 0)
+                                return r;
+                        else if (r > 0 && ret == 0)
+                                ret = r;
                 }
 
                 if (!strv_isempty(patterns)) {
@@ -4010,7 +4072,12 @@ static int show(sd_bus *bus, char **args) {
                                 if (!unit)
                                         return log_oom();
 
-                                show_one(args[0], bus, unit, show_properties, &new_line, &ellipsized);
+                                r = show_one(args[0], bus, unit, show_properties,
+                                             &new_line, &ellipsized);
+                                if (r < 0)
+                                        return r;
+                                else if (r > 0 && ret == 0)
+                                        ret = r;
                         }
                 }
         }
@@ -4630,11 +4697,11 @@ static int enable_sysv_units(const char *verb, char **args) {
 
                 STRV_FOREACH(k, paths.unit_path) {
                         if (!isempty(arg_root))
-                                asprintf(&p, "%s/%s/%s", arg_root, *k, name);
+                                j = asprintf(&p, "%s/%s/%s", arg_root, *k, name);
                         else
-                                asprintf(&p, "%s/%s", *k, name);
+                                j = asprintf(&p, "%s/%s", *k, name);
 
-                        if (!p) {
+                        if (j < 0) {
                                 r = log_oom();
                                 goto finish;
                         }
@@ -4651,10 +4718,10 @@ static int enable_sysv_units(const char *verb, char **args) {
                         continue;
 
                 if (!isempty(arg_root))
-                        asprintf(&p, "%s/" SYSTEM_SYSVINIT_PATH "/%s", arg_root, name);
+                        j = asprintf(&p, "%s/" SYSTEM_SYSVINIT_PATH "/%s", arg_root, name);
                 else
-                        asprintf(&p, SYSTEM_SYSVINIT_PATH "/%s", name);
-                if (!p) {
+                        j = asprintf(&p, SYSTEM_SYSVINIT_PATH "/%s", name);
+                if (j < 0) {
                         r = log_oom();
                         goto finish;
                 }
@@ -4662,8 +4729,28 @@ static int enable_sysv_units(const char *verb, char **args) {
                 p[strlen(p) - sizeof(".service") + 1] = 0;
                 found_sysv = access(p, F_OK) >= 0;
 
-                if (!found_sysv)
+                if (!found_sysv) {
+#ifdef HAVE_SYSV_COMPAT
+                        free(p);
+                        p = NULL;
+                        if (!isempty(arg_root))
+                                j = asprintf(&p, "%s/" SYSTEM_SYSVINIT_PATH "/boot.%s", arg_root, name);
+                        else
+                                j = asprintf(&p, SYSTEM_SYSVINIT_PATH "/boot.%s", name);
+                        if (j < 0) {
+                                r = log_oom();
+                                goto finish;
+                        }
+                        p[strlen(p) - sizeof(".service") + 1] = 0;
+                        found_sysv = access(p, F_OK) >= 0;
+
+                        if (!found_sysv) {
+                                continue;
+                        }
+#else
                         continue;
+#endif
+                }
 
                 /* Mark this entry, so that we don't try enabling it as native unit */
                 args[f] = (char*) "";
@@ -5059,15 +5146,15 @@ static int systemctl_help(void) {
                "                                  otherwise restart if active\n"
                "  isolate NAME                    Start one unit and stop all others\n"
                "  kill NAME...                    Send signal to processes of a unit\n"
-               "  is-active NAME...               Check whether units are active\n"
-               "  is-failed NAME...               Check whether units are failed\n"
-               "  status [NAME...|PID...]         Show runtime status of one or more units\n"
-               "  show [NAME...|JOB...]           Show properties of one or more\n"
+               "  is-active PATTERN...            Check whether units are active\n"
+               "  is-failed PATTERN...            Check whether units are failed\n"
+               "  status [PATTERN...|PID...]      Show runtime status of one or more units\n"
+               "  show [PATTERN...|JOB...]        Show properties of one or more\n"
                "                                  units/jobs or the manager\n"
-               "  cat NAME...                     Show files and drop-ins of one or more units\n"
+               "  cat PATTERN...                  Show files and drop-ins of one or more units\n"
                "  set-property NAME ASSIGNMENT... Sets one or more properties of a unit\n"
-               "  help NAME...|PID...             Show manual for one or more units\n"
-               "  reset-failed [NAME...]          Reset failed state for all, one, or more\n"
+               "  help PATTERN...|PID...          Show manual for one or more units\n"
+               "  reset-failed [PATTERN...]       Reset failed state for all, one, or more\n"
                "                                  units\n"
                "  list-dependencies [NAME]        Recursively show units which are required\n"
                "                                  or wanted by this unit or by which this\n"
@@ -5558,6 +5645,7 @@ static int halt_parse_argv(int argc, char *argv[]) {
                 { "reboot",    no_argument,       NULL, ARG_REBOOT  },
                 { "force",     no_argument,       NULL, 'f'         },
                 { "wtmp-only", no_argument,       NULL, 'w'         },
+                { "no-sync",   no_argument,       NULL, 'n'         },
                 { "no-wtmp",   no_argument,       NULL, 'd'         },
                 { "no-wall",   no_argument,       NULL, ARG_NO_WALL },
                 {}
@@ -5609,8 +5697,11 @@ static int halt_parse_argv(int argc, char *argv[]) {
 
                 case 'i':
                 case 'h':
-                case 'n':
                         /* Compatibility nops */
+                        break;
+
+                case 'n':
+                        arg_no_sync = true;
                         break;
 
                 case '?':
@@ -6254,22 +6345,26 @@ done:
 
 static int halt_now(enum action a) {
 
-/* Make sure C-A-D is handled by the kernel from this
+        if (!arg_no_sync)
+                sync();
+
+        /* Make sure C-A-D is handled by the kernel from this
          * point on... */
         reboot(RB_ENABLE_CAD);
 
         switch (a) {
+
+        case ACTION_POWEROFF:
+                log_info("Powering off.");
+                reboot(RB_POWER_OFF);
+                /* Fall through */
 
         case ACTION_HALT:
                 log_info("Halting.");
                 reboot(RB_HALT_SYSTEM);
                 return -errno;
 
-        case ACTION_POWEROFF:
-                log_info("Powering off.");
-                reboot(RB_POWER_OFF);
-                return -errno;
-
+        case ACTION_KEXEC:
         case ACTION_REBOOT: {
                 _cleanup_free_ char *param = NULL;
 
@@ -6381,7 +6476,7 @@ static int runlevel_main(void) {
 }
 
 int main(int argc, char*argv[]) {
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         setlocale(LC_ALL, "");
@@ -6392,6 +6487,28 @@ int main(int argc, char*argv[]) {
          * This becomes relevant for piping output which might be
          * ellipsized. */
         original_stdout_is_tty = isatty(STDOUT_FILENO);
+
+        if (secure_getenv("SYSTEMCTL_OPTIONS") &&
+                        (!program_invocation_short_name ||
+                        (program_invocation_short_name && strstr(program_invocation_short_name, "systemctl")))) {
+                char **parsed_systemctl_options = strv_split_quoted(getenv("SYSTEMCTL_OPTIONS"));
+
+                if (*parsed_systemctl_options && **parsed_systemctl_options) {
+                        char **k,**a;
+                        char **new_argv = new(char*, strv_length(argv) + strv_length(parsed_systemctl_options) + 1);
+                        new_argv[0] = strdup(argv[0]);
+                        for (k = new_argv+1, a = parsed_systemctl_options; *a; k++, a++) {
+                                *k = strdup(*a);
+                        }
+                        for (a = argv+1; *a; k++, a++) {
+                                *k = strdup(*a);
+                        }
+                        *k = NULL;
+                        argv = new_argv;
+                        argc = strv_length(new_argv);
+                        strv_free (parsed_systemctl_options);
+                }
+        }
 
         r = parse_argv(argc, argv);
         if (r <= 0)

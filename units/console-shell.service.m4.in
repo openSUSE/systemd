@@ -17,7 +17,9 @@ Before=getty.target
 [Service]
 Environment=HOME=/root
 WorkingDirectory=/root
-ExecStart=-/sbin/sulogin
+ExecStartPre=-/usr/bin/plymouth quit
+ExecStartPre=-/usr/bin/plymouth --wait
+ExecStart=-/usr/sbin/sulogin
 ExecStopPost=-@SYSTEMCTL@ poweroff
 Type=idle
 StandardInput=tty-force
@@ -26,6 +28,3 @@ StandardError=inherit
 KillMode=process
 IgnoreSIGPIPE=no
 SendSIGHUP=yes
-
-[Install]
-WantedBy=getty.target

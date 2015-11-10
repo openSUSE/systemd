@@ -12,3 +12,4 @@
 Description=RPC Port Mapper
 Documentation=man:systemd.special(7)
 RefuseManualStart=yes
+Wants=rpcbind.socket

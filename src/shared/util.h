@@ -22,6 +22,7 @@
 ***/
 
 #include <alloca.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <time.h>
 #include <sys/time.h>
@@ -67,6 +68,12 @@
 #define QUOTES     "\"\'"
 #define COMMENTS   "#;"
 #define GLOB_CHARS "*?["
+
+/* What characters are special in the shell? */
+/* must be escaped outside and inside double-quotes */
+#define SHELL_NEED_ESCAPE "\"\\`$"
+/* can be escaped or double-quoted */
+#define SHELL_NEED_QUOTES SHELL_NEED_ESCAPE GLOB_CHARS "'()<>|&;"
 
 #define FORMAT_BYTES_MAX 8
 
@@ -141,6 +148,7 @@ char *endswith(const char *s, const char *postfix) _pure_;
 bool first_word(const char *s, const char *word) _pure_;
 
 int close_nointr(int fd);
+int safe_close(int fd);
 void close_nointr_nofail(int fd);
 void close_many(const int fds[], unsigned n_fd);
 
@@ -159,7 +167,7 @@ int safe_atolli(const char *s, long long int *ret_i);
 
 int safe_atod(const char *s, double *ret_d);
 
-#if __WORDSIZE == 32
+#if LONG_MAX == INT_MAX
 static inline int safe_atolu(const char *s, unsigned long *ret_u) {
         assert_cc(sizeof(unsigned long) == sizeof(unsigned));
         return safe_atou(s, (unsigned*) ret_u);
@@ -383,6 +391,7 @@ char* dirname_malloc(const char *path);
 void rename_process(const char name[8]);
 
 void sigset_add_many(sigset_t *ss, ...);
+int sigprocmask_many(int how, ...);
 
 bool hostname_is_set(void);
 
@@ -418,6 +427,7 @@ unsigned lines(void);
 void columns_lines_cache_reset(int _unused_ signum);
 
 bool on_tty(void);
+bool ansi_console(int fd);
 
 static inline const char *ansi_highlight(void) {
         return on_tty() ? ANSI_HIGHLIGHT_ON : "";
@@ -650,7 +660,7 @@ _alloc_(2, 3) static inline void *memdup_multiply(const void *p, size_t a, size_
 bool filename_is_safe(const char *p) _pure_;
 bool path_is_safe(const char *p) _pure_;
 bool string_is_safe(const char *p) _pure_;
-bool string_has_cc(const char *p) _pure_;
+bool string_has_cc(const char *p, const char *ok) _pure_;
 
 /**
  * Check if a string contains any glob patterns.
@@ -722,6 +732,15 @@ void* greedy_realloc0(void **p, size_t *allocated, size_t need);
         greedy_realloc((void**) &(array), &(allocated), sizeof((array)[0]) * (need))
 #define GREEDY_REALLOC0(array, allocated, need) \
         greedy_realloc0((void**) &(array), &(allocated), sizeof((array)[0]) * (need))
+
+#define GREEDY_REALLOC0_T(array, count, need)                           \
+        ({                                                              \
+                size_t _size = (count) * sizeof((array)[0]);            \
+                void *_ptr = GREEDY_REALLOC0((array), _size, (need));   \
+                if (_ptr)                                               \
+                        (count) = _size / sizeof((array)[0]);           \
+                _ptr;                                                   \
+        })
 
 static inline void _reset_errno_(int *saved_errno) {
         errno = *saved_errno;
@@ -874,3 +893,15 @@ int fd_warn_permissions(const char *path, int fd);
 
 unsigned long personality_from_string(const char *p);
 const char *personality_to_string(unsigned long);
+
+union file_handle_union {
+  struct file_handle handle;
+  char padding[sizeof(struct file_handle) + MAX_HANDLE_SZ];
+};
+
+int umount_recursive(const char *target, int flags);
+
+int sethostname_idempotent(const char *s);
+
+int chattr_fd(int fd, bool b, int mask);
+int chattr_path(const char *p, bool b, int mask);

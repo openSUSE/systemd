@@ -213,7 +213,7 @@ _public_ PAM_EXTERN int pam_sm_open_session(
                 *seat = NULL,
                 *type = NULL, *class = NULL,
                 *class_pam = NULL, *type_pam = NULL, *cvtnr = NULL, *desktop = NULL;
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int session_fd = -1, existing, r;
         bool debug = false, remote;
         struct passwd *pw;
@@ -447,6 +447,25 @@ _public_ PAM_EXTERN int pam_sm_open_session(
                 r = export_legacy_dbus_address(handle, pw->pw_uid, runtime_path);
                 if (r != PAM_SUCCESS)
                         return r;
+        } else if (getenv("XDG_RUNTIME_DIR")) {
+                _cleanup_free_ char *p = NULL;
+                
+                /* Make sure that after running YaST2 or the xdg-su scripts
+                 * the runtime directory is not clobbered. Even a normal su
+                 * command without -l or with -m may clobber. */
+
+                if ((r = asprintf(&p, "/run/user/%lu", (unsigned long)pw->pw_uid)) < 0)
+                        return PAM_BUF_ERR;
+
+                r = pam_misc_setenv(handle, "XDG_RUNTIME_DIR", p, 0);
+                if (r != PAM_SUCCESS) {
+                        pam_syslog(handle, LOG_ERR, "Failed to set runtime dir.");
+                        return r;
+                }
+
+                r = export_legacy_dbus_address(handle, pw->pw_uid, p);
+                if (r != PAM_SUCCESS)
+                        return r;
         }
 
         if (!isempty(seat)) {
@@ -475,7 +494,7 @@ _public_ PAM_EXTERN int pam_sm_open_session(
         }
 
         if (session_fd >= 0) {
-                session_fd = dup(session_fd);
+                session_fd = fcntl(session_fd, F_DUPFD_CLOEXEC, 3);
                 if (session_fd < 0) {
                         pam_syslog(handle, LOG_ERR, "Failed to dup session fd: %m");
                         return PAM_SESSION_ERR;
@@ -484,7 +503,11 @@ _public_ PAM_EXTERN int pam_sm_open_session(
                 r = pam_set_data(handle, "systemd.session-fd", INT_TO_PTR(session_fd+1), NULL);
                 if (r != PAM_SUCCESS) {
                         pam_syslog(handle, LOG_ERR, "Failed to install session fd.");
-                        close_nointr_nofail(session_fd);
+                        if (session_fd >= 0) {
+                                PROTECT_ERRNO;
+                                if (_unlikely_(!(close_nointr(session_fd) != -EBADF)))
+                                         pam_syslog(handle, LOG_ERR, "Unexpected error code on closing session fd: %m");
+                        }
                         return r;
                 }
         }
@@ -498,7 +521,7 @@ _public_ PAM_EXTERN int pam_sm_close_session(
                 int argc, const char **argv) {
 
         _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         const void *existing = NULL;
         const char *id;
         int r;

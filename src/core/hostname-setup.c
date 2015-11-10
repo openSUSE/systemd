@@ -32,7 +32,7 @@
 #include "fileio.h"
 
 static int read_and_strip_hostname(const char *path, char **hn) {
-        char *s;
+        char *s, *domain;
         int r;
 
         assert(path);
@@ -49,6 +49,11 @@ static int read_and_strip_hostname(const char *path, char **hn) {
                 return -ENOENT;
         }
 
+        /* strip any leftover of a domain name */
+        if ((domain = strchr(s, '.'))) {
+                *domain = '\0';
+        }
+
         *hn = s;
         return 0;
 }
@@ -61,12 +66,24 @@ int hostname_setup(void) {
 
         r = read_and_strip_hostname("/etc/hostname", &b);
         if (r < 0) {
-                if (r == -ENOENT)
-                        enoent = true;
-                else
-                        log_warning("Failed to read configured hostname: %s", strerror(-r));
+                if (r == -ENOENT) {
+                        /* use SUSE fallback */
+                        r = read_and_strip_hostname("/etc/HOSTNAME", &b);
+                        if (r < 0) {
+                                if (r == -ENOENT)
+                                        enoent = true;
+                                else
+                                        log_warning("Failed to read configured hostname: %s", strerror(-r));
+                                hn = NULL;
+                        }
+                        else
+                                hn = b;
 
-                hn = NULL;
+                }
+                else {
+                        log_warning("Failed to read configured hostname: %s", strerror(-r));
+                        hn = NULL;
+                }
         } else
                 hn = b;
 
@@ -82,7 +99,7 @@ int hostname_setup(void) {
                 hn = "localhost";
         }
 
-        if (sethostname(hn, strlen(hn)) < 0) {
+        if (sethostname_idempotent(hn) < 0) {
                 log_warning("Failed to set hostname to <%s>: %m", hn);
                 return -errno;
         }

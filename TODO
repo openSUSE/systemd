@@ -1,4 +1,6 @@
 Bugfixes:
+* Should systemctl status \* work on all unit types, not just .service?
+
 * enabling an instance unit creates a pointless link, and
   the unit will be started with getty@getty.service:
     $ systemctl enable getty@.service
@@ -717,6 +719,8 @@ External:
 * neither pkexec nor sudo initialize environ[] from the PAM environment?
 
 * fedora: update policy to declare access mode and ownership of unit files to root:root 0644, and add an rpmlint check for it
+
+* register catalog database signature as file magic
 
 Regularly:
 

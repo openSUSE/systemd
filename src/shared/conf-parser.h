@@ -124,6 +124,12 @@ int log_syntax_internal(const char *unit, int level,
                             config_file, config_line,                   \
                             error, __VA_ARGS__)
 
+#define log_invalid_utf8(unit, level, config_file, config_line, error, rvalue) { \
+        _cleanup_free_ char *__p = utf8_escape_invalid(rvalue);                  \
+        log_syntax(unit, level, config_file, config_line, error,                 \
+                   "String is not UTF-8 clean, ignoring assignment: %s", __p);   \
+        }
+
 #define DEFINE_CONFIG_PARSE_ENUM(function,name,type,msg)                \
         int function(const char *unit,                                  \
                      const char *filename,                              \
@@ -165,7 +171,8 @@ int log_syntax_internal(const char *unit, int level,
                      void *data,                                               \
                      void *userdata) {                                         \
                                                                                \
-                type **enums = data, *xs, x, *ys;                              \
+                type **enums = data, x, *ys;                                   \
+                _cleanup_free_ type *xs = NULL;                                \
                 char *w, *state;                                               \
                 size_t l, i = 0;                                               \
                                                                                \
@@ -175,10 +182,13 @@ int log_syntax_internal(const char *unit, int level,
                 assert(data);                                                  \
                                                                                \
                 xs = new0(type, 1);                                            \
+                if(!xs)                                                        \
+                        return -ENOMEM;                                        \
                 *xs = invalid;                                                 \
                                                                                \
                 FOREACH_WORD(w, l, rvalue, state) {                            \
                         _cleanup_free_ char *en = NULL;                        \
+                        type *new_xs;                                          \
                                                                                \
                         en = strndup(w, l);                                    \
                         if (!en)                                               \
@@ -204,13 +214,18 @@ int log_syntax_internal(const char *unit, int level,
                                 continue;                                      \
                                                                                \
                         *(xs + i) = x;                                         \
-                        xs = realloc(xs, (++i + 1) * sizeof(type));            \
-                        if (!xs)                                               \
+                        new_xs = realloc(xs, (++i + 1) * sizeof(type));        \
+                        if (new_xs)                                            \
+                                xs = new_xs;                                   \
+                        else                                                   \
                                 return -ENOMEM;                                \
+                                                                               \
                         *(xs + i) = invalid;                                   \
                 }                                                              \
                                                                                \
                 free(*enums);                                                  \
                 *enums = xs;                                                   \
+                xs = NULL;                                                     \
+                                                                               \
                 return 0;                                                      \
         }

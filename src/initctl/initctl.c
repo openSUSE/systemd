@@ -32,8 +32,11 @@
 #include <sys/un.h>
 #include <fcntl.h>
 #include <ctype.h>
+#include <sys/reboot.h>
+#include <linux/reboot.h>
 
 #include "sd-daemon.h"
+#include "sd-shutdown.h"
 #include "sd-bus.h"
 
 #include "util.h"
@@ -44,6 +47,7 @@
 #include "bus-util.h"
 #include "bus-error.h"
 #include "def.h"
+#include "socket-util.h"
 
 #define SERVER_FD_MAX 16
 #define TIMEOUT_MSEC ((int) (DEFAULT_EXIT_USEC/USEC_PER_MSEC))
@@ -141,7 +145,53 @@ static void change_runlevel(Server *s, int runlevel) {
         }
 }
 
+static int send_shutdownd(unsigned delay, char mode, const char *message) {
+        usec_t t = now(CLOCK_REALTIME) + delay * USEC_PER_MINUTE;
+        struct sd_shutdown_command c = {
+                .usec = t,
+                .mode = mode,
+                .dry_run = false,
+                .warn_wall = true,
+        };
+
+        union sockaddr_union sockaddr = {
+                .un.sun_family = AF_UNIX,
+                .un.sun_path = "/run/systemd/shutdownd",
+        };
+
+        struct iovec iovec[2] = {{
+                 .iov_base = (char*) &c,
+                 .iov_len = offsetof(struct sd_shutdown_command, wall_message),
+        }};
+
+        struct msghdr msghdr = {
+                .msg_name = &sockaddr,
+                .msg_namelen = offsetof(struct sockaddr_un, sun_path)
+                               + sizeof("/run/systemd/shutdownd") - 1,
+                .msg_iov = iovec,
+                .msg_iovlen = 1,
+        };
+
+        _cleanup_close_ int fd;
+
+        fd = socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0);
+        if (fd < 0)
+                return -errno;
+
+        if (!isempty(message)) {
+                iovec[1].iov_base = (char*) message;
+                iovec[1].iov_len = strlen(message);
+                msghdr.msg_iovlen++;
+        }
+
+        if (sendmsg(fd, &msghdr, MSG_NOSIGNAL) < 0)
+                return -errno;
+
+        return 0;
+}
+
 static void request_process(Server *s, const struct init_request *req) {
+        int r;
         assert(s);
         assert(req);
 
@@ -184,9 +234,28 @@ static void request_process(Server *s, const struct init_request *req) {
                 return;
 
         case INIT_CMD_POWERFAIL:
+                r = send_shutdownd(2, SD_SHUTDOWN_POWEROFF,
+                                   "THE POWER IS FAILED! SYSTEM GOING DOWN! PLEASE LOG OFF NOW!");
+                if (r < 0) {
+                        log_warning("Failed to talk to shutdownd, shutdown cancelled: %s", strerror(-r));
+                }
+                return;
         case INIT_CMD_POWERFAILNOW:
+                r = send_shutdownd(0, SD_SHUTDOWN_POWEROFF,
+                                   "THE POWER IS FAILED! LOW BATTERY - EMERGENCY SYSTEM SHUTDOWN!");
+                if (r < 0) {
+                        log_warning("Failed to talk to shutdownd, proceeding with immediate shutdown: %s", strerror(-r));
+                        reboot(RB_ENABLE_CAD);
+                        reboot(RB_POWER_OFF);
+                }
+                return;
+
         case INIT_CMD_POWEROK:
-                log_warning("Received UPS/power initctl request. This is not implemented in systemd. Upgrade your UPS daemon!");
+                r = send_shutdownd(0, SD_SHUTDOWN_NONE,
+                                   "THE POWER IS BACK");
+                if (r < 0) {
+                        log_warning("Failed to talk to shutdownd, proceeding with shutdown: %s", strerror(-r));
+                }
                 return;
 
         case INIT_CMD_CHANGECONS:

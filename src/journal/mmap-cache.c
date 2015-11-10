@@ -439,12 +439,21 @@ static int add_mmap(
                 struct stat *st,
                 void **ret) {
 
+        static const struct {
+                const int index;
+                int vise;
+        } ad[] = {
+                {0, MADV_WILLNEED},
+                {1, MADV_SEQUENTIAL},
+                {2, MADV_DONTDUMP},
+                {3, MADV_DONTFORK}
+        };
         uint64_t woffset, wsize;
         Context *c;
         FileDescriptor *f;
         Window *w;
         void *d;
-        int r;
+        int n, r;
 
         assert(m);
         assert(m->n_ref > 0);
@@ -481,7 +490,7 @@ static int add_mmap(
         }
 
         for (;;) {
-                d = mmap(NULL, wsize, prot, MAP_SHARED, fd, woffset);
+                d = mmap(NULL, wsize, prot, MAP_SHARED|MAP_POPULATE|MAP_NONBLOCK, fd, woffset);
                 if (d != MAP_FAILED)
                         break;
                 if (errno != ENOMEM)
@@ -494,17 +503,28 @@ static int add_mmap(
                         return -ENOMEM;
         }
 
+        for (n=0; n < sizeof(ad)/sizeof(ad[0]); n++) {
+                if (ad[n].vise == MADV_DONTFORK) {
+                        int flags = fcntl(fd, F_GETFD);
+                        if (flags < 0 || !(flags & FD_CLOEXEC))
+                                continue;
+                }
+                r = madvise(d, wsize, ad[n].vise);
+                if (r < 0)
+                        log_warning("Failed to give advice about use of memory: %m");
+        }
+
         c = context_add(m, context);
         if (!c)
-                return -ENOMEM;
+                goto outofmem;
 
         f = fd_add(m, fd);
         if (!f)
-                return -ENOMEM;
+                goto outofmem;
 
         w = window_add(m);
         if (!w)
-                return -ENOMEM;
+                goto outofmem;
 
         w->keep_always = keep_always;
         w->ptr = d;
@@ -522,6 +542,10 @@ static int add_mmap(
         if (ret)
                 *ret = (uint8_t*) w->ptr + (offset - w->offset);
         return 1;
+
+outofmem:
+        munmap(d, wsize);
+        return -ENOMEM;
 }
 
 int mmap_cache_get(

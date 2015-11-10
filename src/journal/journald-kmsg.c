@@ -152,7 +152,7 @@ static void dev_kmsg_record(Server *s, char *p, size_t l) {
                 /* Did we lose any? */
                 if (serial > *s->kernel_seqnum)
                         server_driver_message(s, SD_MESSAGE_JOURNAL_MISSED, "Missed %"PRIu64" kernel messages",
-                                              serial - *s->kernel_seqnum - 1);
+                                              serial - *s->kernel_seqnum);
 
                 /* Make sure we never read this one again. Note that
                  * we always store the next message serial we expect
@@ -274,6 +274,9 @@ static void dev_kmsg_record(Server *s, char *p, size_t l) {
         if (asprintf(&syslog_priority, "PRIORITY=%i", priority & LOG_PRIMASK) >= 0)
                 IOVEC_SET_STRING(iovec[n++], syslog_priority);
 
+        if (asprintf(&syslog_facility, "SYSLOG_FACILITY=%i", LOG_FAC(priority)) >= 0)
+                IOVEC_SET_STRING(iovec[n++], syslog_facility);
+
         if ((priority & LOG_FACMASK) == LOG_KERN)
                 IOVEC_SET_STRING(iovec[n++], "SYSLOG_IDENTIFIER=kernel");
         else {
@@ -295,9 +298,6 @@ static void dev_kmsg_record(Server *s, char *p, size_t l) {
                         if (syslog_pid)
                                 IOVEC_SET_STRING(iovec[n++], syslog_pid);
                 }
-
-                if (asprintf(&syslog_facility, "SYSLOG_FACILITY=%i", LOG_FAC(priority)) >= 0)
-                        IOVEC_SET_STRING(iovec[n++], syslog_facility);
         }
 
         message = cunescape_length_with_prefix(p, pl, "MESSAGE=");
@@ -391,12 +391,24 @@ static int dispatch_dev_kmsg(sd_event_source *es, int fd, uint32_t revents, void
         return server_read_dev_kmsg(s);
 }
 
+static int parse_proc_cmdline_word(const char *word) {
+        if (streq(word, "systemd.log_target=null"))
+                return -115;
+
+        return 0;
+}
+
 int server_open_dev_kmsg(Server *s) {
         int r;
 
         assert(s);
 
-        s->dev_kmsg_fd = open("/dev/kmsg", O_RDWR|O_CLOEXEC|O_NONBLOCK|O_NOCTTY);
+        if (parse_proc_cmdline(parse_proc_cmdline_word) == -115) {
+                s->dev_kmsg_fd = open("/dev/null", O_RDWR|O_CLOEXEC|O_NONBLOCK|O_NOCTTY);
+        } else {
+                s->dev_kmsg_fd = open("/dev/kmsg", O_RDWR|O_CLOEXEC|O_NONBLOCK|O_NOCTTY);
+        }
+
         if (s->dev_kmsg_fd < 0) {
                 log_full(errno == ENOENT ? LOG_DEBUG : LOG_WARNING,
                          "Failed to open /dev/kmsg, ignoring: %m");
@@ -461,7 +473,7 @@ int server_open_kernel_seqnum(Server *s) {
                 return 0;
         }
 
-        p = mmap(NULL, sizeof(uint64_t), PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+        p = mmap(NULL, sizeof(uint64_t), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_STACK, fd, 0);
         if (p == MAP_FAILED) {
                 log_error("Failed to map sequential number file, ignoring: %m");
                 close_nointr_nofail(fd);

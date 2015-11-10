@@ -374,11 +374,11 @@ static int transaction_verify_order_one(Transaction *tr, Job *j, Job *from, unsi
                 for (k = from; k; k = ((k->generation == generation && k->marker != k) ? k->marker : NULL)) {
 
                         /* logging for j not k here here to provide consistent narrative */
-                        log_info_unit(j->unit->id,
-                                      "Found dependency on %s/%s",
-                                      k->unit->id, job_type_to_string(k->type));
+                        log_warning_unit(j->unit->id,
+                                         "Found dependency on %s/%s",
+                                         k->unit->id, job_type_to_string(k->type));
 
-                        if (!delete &&
+                        if (!delete && hashmap_get(tr->jobs, k->unit) &&
                             !unit_matters_to_anchor(k->unit, k)) {
                                 /* Ok, we can drop this one, so let's
                                  * do so. */
@@ -510,7 +510,7 @@ static int transaction_is_destructive(Transaction *tr, JobMode mode, sd_bus_erro
                 assert(!j->transaction_next);
 
                 if (j->unit->job && (mode == JOB_FAIL || j->unit->job->irreversible) &&
-                    !job_type_is_superset(j->type, j->unit->job->type)) {
+                    job_type_is_conflicting(j->unit->job->type, j->type)) {
 
                         sd_bus_error_setf(e, BUS_ERROR_TRANSACTION_IS_DESTRUCTIVE, "Transaction is destructive.");
                         return -EEXIST;
@@ -865,12 +865,18 @@ int transaction_add_job_and_dependencies(
         }
 
         if (type != JOB_STOP && unit->load_state == UNIT_ERROR) {
-                sd_bus_error_setf(e, BUS_ERROR_LOAD_FAILED,
-                               "Unit %s failed to load: %s. "
-                               "See system logs and 'systemctl status %s' for details.",
-                               unit->id,
-                               strerror(-unit->load_error),
-                               unit->id);
+                if (unit->load_error == -ENOENT)
+                        sd_bus_error_setf(e, BUS_ERROR_LOAD_FAILED,
+                                          "Unit %s failed to load: %s.",
+                                          unit->id,
+                                          strerror(-unit->load_error));
+                else
+                        sd_bus_error_setf(e, BUS_ERROR_LOAD_FAILED,
+                                          "Unit %s failed to load: %s. "
+                                          "See system logs and 'systemctl status %s' for details.",
+                                          unit->id,
+                                          strerror(-unit->load_error),
+                                          unit->id);
                 return -EINVAL;
         }
 

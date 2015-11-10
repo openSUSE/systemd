@@ -26,11 +26,10 @@
 #include <sys/statvfs.h>
 #include <fcntl.h>
 #include <stddef.h>
+#include <linux/fs.h>
+#include <sys/xattr.h>
 
-#ifdef HAVE_XATTR
-#include <attr/xattr.h>
-#endif
-
+#include "btrfs-util.h"
 #include "journal-def.h"
 #include "journal-file.h"
 #include "journal-authenticate.h"
@@ -127,6 +126,18 @@ void journal_file_close(JournalFile *f) {
         /* Sync everything to disk, before we mark the file offline */
         if (f->mmap && f->fd >= 0)
                 mmap_cache_close_fd(f->mmap, f->fd);
+
+        if (f->fd >= 0 && f->defrag_on_close) {
+
+                /* Be friendly to btrfs: turn COW back on again now,
+                 * and defragment the file. We won't write to the file
+                 * ever again, hence remove all fragmentation, and
+                 * reenable all the good bits COW usually provides
+                 * (such as data checksumming). */
+
+                (void) chattr_fd(f->fd, false, FS_NOCOW_FL);
+                (void) btrfs_defrag_fd(f->fd);
+        }
 
         journal_file_set_offline(f);
 
@@ -1359,7 +1370,7 @@ int journal_file_append_entry(JournalFile *f, const dual_timestamp *ts, const st
 }
 
 typedef struct ChainCacheItem {
-        uint64_t first; /* the array at the begin of the chain */
+        uint64_t first; /* the array at the beginning of the chain */
         uint64_t array; /* the cached array */
         uint64_t begin; /* the first item in the cached array */
         uint64_t total; /* the total number of items in all arrays before this one in the chain */
@@ -1945,7 +1956,7 @@ int journal_file_next_entry(
                 direction_t direction,
                 Object **ret, uint64_t *offset) {
 
-        uint64_t i, n;
+        uint64_t i, n, ofs;
         int r;
 
         assert(f);
@@ -1986,10 +1997,24 @@ int journal_file_next_entry(
         }
 
         /* And jump to it */
-        return generic_array_get(f,
-                                 le64toh(f->header->entry_array_offset),
-                                 i,
-                                 ret, offset);
+        r = generic_array_get(f,
+                              le64toh(f->header->entry_array_offset),
+                              i,
+                              ret, &ofs);
+        if (r <= 0)
+                return r;
+
+        if (p > 0 &&
+            (direction == DIRECTION_DOWN ? ofs <= p : ofs >= p)) {
+                log_debug("%s: entry array corrupted at entry %"PRIu64,
+                          f->path, i);
+                return -EBADMSG;
+        }
+
+        if (offset)
+                *offset = ofs;
+
+        return 1;
 }
 
 int journal_file_skip_entry(
@@ -2501,8 +2526,18 @@ int journal_file_open(
         }
 
         if (f->last_stat.st_size == 0 && f->writable) {
-#ifdef HAVE_XATTR
                 uint64_t crtime;
+
+                /* Before we write anything, turn off COW logic. Given
+                 * our write pattern that is quite unfriendly to COW
+                 * file systems this should greatly improve
+                 * performance on COW file systems, such as btrfs, at
+                 * the expense of data integrity features (which
+                 * shouldn't be too bad, given that we do our own
+                 * checksumming). */
+                r = chattr_fd(f->fd, true, FS_NOCOW_FL);
+                if (r < 0 && r != -ENOTTY)
+                        log_warning("Failed to set file attributes: %m");
 
                 /* Let's attach the creation time to the journal file,
                  * so that the vacuuming code knows the age of this
@@ -2516,7 +2551,6 @@ int journal_file_open(
 
                 crtime = htole64((uint64_t) now(CLOCK_REALTIME));
                 fsetxattr(f->fd, "user.crtime_usec", &crtime, sizeof(crtime), XATTR_CREATE);
-#endif
 
 #ifdef HAVE_GCRYPT
                 /* Try to load the FSPRG state, and if we can't, then
@@ -2545,7 +2579,7 @@ int journal_file_open(
                 goto fail;
         }
 
-        f->header = mmap(NULL, PAGE_ALIGN(sizeof(Header)), prot_from_flags(flags), MAP_SHARED, f->fd, 0);
+        f->header = mmap(NULL, PAGE_ALIGN(sizeof(Header)), prot_from_flags(flags), MAP_SHARED|MAP_STACK, f->fd, 0);
         if (f->header == MAP_FAILED) {
                 f->header = NULL;
                 r = -errno;
@@ -2649,6 +2683,11 @@ int journal_file_rotate(JournalFile **f, bool compress, bool seal) {
 
         old_file->header->state = STATE_ARCHIVED;
 
+        /* Currently, btrfs is not very good with out write patterns
+         * and fragments heavily. Let's defrag our journal files when
+         * we archive them */
+        old_file->defrag_on_close = true;
+
         r = journal_file_open(old_file->path, old_file->flags, old_file->mode, compress, seal, NULL, old_file->mmap, old_file, &new_file);
         journal_file_close(old_file);
 
@@ -2702,6 +2741,11 @@ int journal_file_open_reliably(
         r = rename(fname, p);
         if (r < 0)
                 return -errno;
+
+        /* btrfs doesn't cope well with our write pattern and
+         * fragments heavily. Let's defrag all files we rotate */
+        (void) chattr_path(p, false, FS_NOCOW_FL);
+        (void) btrfs_defrag(p);
 
         log_warning("File %s corrupted or uncleanly shut down, renaming and replacing.", fname);
 

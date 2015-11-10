@@ -30,6 +30,10 @@ _timedatectl() {
         local OPTS='-h --help --version --adjust-system-clock --no-pager
                     --no-ask-password -H --host'
 
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
+
         if __contains_word "$prev" $OPTS; then
                 case $prev in
                         --host|-H)
@@ -73,4 +77,4 @@ _timedatectl() {
         return 0
 }
 
-complete -F _timedatectl timedatectl
+complete -o default -o bashdefault -F _timedatectl timedatectl

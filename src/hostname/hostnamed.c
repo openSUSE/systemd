@@ -89,11 +89,16 @@ static int context_read_data(Context *c) {
         if (r < 0 && r != -ENOENT)
                 return r;
 
+        r = read_one_line_file("/etc/HOSTNAME", &c->data[PROP_STATIC_HOSTNAME]);
+        if (r < 0 && r != -ENOENT)
+                return r;
+
         return 0;
 }
 
 static bool check_nss(void) {
         void *dl;
+        return true;
 
         dl = dlopen("libnss_myhostname.so.2", RTLD_LAZY);
         if (dl) {
@@ -115,7 +120,8 @@ static bool valid_chassis(const char *chassis) {
                         "laptop\0"
                         "server\0"
                         "tablet\0"
-                        "handset\0",
+                        "handset\0"
+                        "watch\0",
                         chassis);
 }
 
@@ -238,13 +244,14 @@ static int context_write_data_hostname(Context *c) {
         else
                 hn = c->data[PROP_HOSTNAME];
 
-        if (sethostname(hn, strlen(hn)) < 0)
+        if (sethostname_idempotent(hn) < 0)
                 return -errno;
 
         return 0;
 }
 
 static int context_write_data_static_hostname(Context *c) {
+        int r;
 
         assert(c);
 
@@ -255,7 +262,12 @@ static int context_write_data_static_hostname(Context *c) {
 
                 return 0;
         }
-        return write_string_file_atomic_label("/etc/hostname", c->data[PROP_STATIC_HOSTNAME]);
+
+        r = write_string_file_atomic_label("/etc/hostname", c->data[PROP_STATIC_HOSTNAME]);
+        if (!r) {
+                r = symlink_atomic("/etc/hostname", "/etc/HOSTNAME");
+        }
+        return r;
 }
 
 static int context_write_data_other(Context *c) {
@@ -496,8 +508,7 @@ static int set_machine_info(Context *c, sd_bus *bus, sd_bus_message *m, int prop
 
                 if (prop == PROP_ICON_NAME && !filename_is_safe(name))
                         return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid icon name '%s'", name);
-                if (prop == PROP_PRETTY_HOSTNAME &&
-                    (string_has_cc(name) || chars_intersect(name, "\t")))
+                if (prop == PROP_PRETTY_HOSTNAME && string_has_cc(name, NULL))
                         return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid pretty host name '%s'", name);
                 if (prop == PROP_CHASSIS && !valid_chassis(name))
                         return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid chassis '%s'", name);
@@ -555,7 +566,7 @@ static const sd_bus_vtable hostname_vtable[] = {
 };
 
 static int connect_bus(Context *c, sd_event *event, sd_bus **_bus) {
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         assert(c);
@@ -596,7 +607,7 @@ int main(int argc, char *argv[]) {
         Context context = {};
 
         _cleanup_event_unref_ sd_event *event = NULL;
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         log_set_target(LOG_TARGET_AUTO);

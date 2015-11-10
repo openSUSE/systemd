@@ -9,6 +9,7 @@
 Description=Getty on %I
 Documentation=man:agetty(8) man:systemd-getty-generator(8)
 Documentation=http://0pointer.de/blog/projects/serial-console.html
+Conflicts=rescue.service
 After=systemd-user-sessions.service plymouth-quit-wait.service
 m4_ifdef(`HAVE_SYSV_COMPAT',
 After=rc-local.service
@@ -28,6 +29,7 @@ ConditionPathExists=/dev/tty0
 [Service]
 # the VT is cleared by TTYVTDisallocate
 ExecStart=-/sbin/agetty --noclear %I $TERM
+ExecStopPost=-/sbin/vhangup /dev/%I
 Type=idle
 Restart=always
 RestartSec=0

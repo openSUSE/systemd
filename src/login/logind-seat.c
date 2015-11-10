@@ -277,8 +277,13 @@ int seat_switch_to(Seat *s, unsigned int num) {
         if (!num)
                 return -EINVAL;
 
-        if (num >= s->position_count || !s->positions[num])
+        if (num >= s->position_count || !s->positions[num]) {
+                /* allow switching to unused VTs to trigger auto-activate */
+                if (seat_has_vts(s) && num < 64)
+                        return chvt(num);
+
                 return -EINVAL;
+        }
 
         return session_activate(s->positions[num]);
 }
@@ -459,6 +464,7 @@ int seat_stop_sessions(Seat *s, bool force) {
 }
 
 void seat_evict_position(Seat *s, Session *session) {
+        Session *iter;
         unsigned int pos = session->pos;
 
         session->pos = 0;
@@ -466,8 +472,19 @@ void seat_evict_position(Seat *s, Session *session) {
         if (!pos)
                 return;
 
-        if (pos < s->position_count && s->positions[pos] == session)
+        if (pos < s->position_count && s->positions[pos] == session) {
                 s->positions[pos] = NULL;
+
+                /* There might be another session claiming the same
+                 * position (eg., during gdm->session transition), so lets look
+                 * for it and set it on the free slot. */
+                LIST_FOREACH(sessions_by_seat, iter, s->sessions) {
+                        if (iter->pos == pos) {
+                                s->positions[pos] = iter;
+                                break;
+                        }
+                }
+        }
 }
 
 void seat_claim_position(Seat *s, Session *session, unsigned int pos) {
@@ -475,7 +492,7 @@ void seat_claim_position(Seat *s, Session *session, unsigned int pos) {
         if (seat_has_vts(s))
                 pos = session->vtnr;
 
-        if (!GREEDY_REALLOC0(s->positions, s->position_count, pos + 1))
+        if (!GREEDY_REALLOC0_T(s->positions, s->position_count, pos + 1))
                 return;
 
         seat_evict_position(s, session);

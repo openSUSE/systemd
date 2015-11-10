@@ -33,6 +33,8 @@
  *   ww -- wwan
  *
  * Type of names:
+ *   b<number>                             -- BCMA bus core number
+ *   ccw<name>                             -- CCW bus group name
  *   o<index>                              -- on-board device index number
  *   s<slot>[f<function>][d<dev_id>]       -- hotplug slot index number
  *   x<MAC>                                -- MAC address
@@ -119,12 +121,8 @@ struct netnames {
         const char *pci_onboard_label;
 
         char usb_ports[IFNAMSIZ];
-
         char bcma_core[IFNAMSIZ];
-
-        char virtio_core[IFNAMSIZ];
-
-        char ccw_core[IFNAMSIZ];
+        char ccw_group[IFNAMSIZ];
 };
 
 /* retrieve on-board index number and label from firmware */
@@ -351,25 +349,6 @@ static int names_bcma(struct udev_device *dev, struct netnames *names) {
         return 0;
 }
 
-static int names_virtio(struct udev_device *dev, struct netnames *names) {
-        struct udev_device *virtdev;
-        unsigned int core;
-
-        virtdev = udev_device_get_parent_with_subsystem_devtype(dev, "virtio", NULL);
-        if (!virtdev)
-                return -ENOENT;
-
-        /* core num */
-        if (sscanf(udev_device_get_sysname(virtdev), "virtio%u", &core) != 1)
-                return -EINVAL;
-        /* suppress the common core == 0 */
-        if (core > 0)
-                snprintf(names->virtio_core, sizeof(names->virtio_core), "v%u", core);
-
-        names->type = NET_VIRTIO;
-        return 0;
-}
-
 static int names_ccw(struct  udev_device *dev, struct netnames *names) {
         struct udev_device *cdev;
         const char *bus_id;
@@ -402,8 +381,8 @@ static int names_ccw(struct  udev_device *dev, struct netnames *names) {
                 return -EINVAL;
 
         /* Store the CCW bus-ID for use as network device name */
-        rc = snprintf(names->ccw_core, sizeof(names->ccw_core), "ccw%s", bus_id);
-        if (rc >= 0 && rc < (int)sizeof(names->ccw_core))
+        rc = snprintf(names->ccw_group, sizeof(names->ccw_group), "ccw%s", bus_id);
+        if (rc >= 0 && rc < (int)sizeof(names->ccw_group))
                 names->type = NET_CCWGROUP;
         return 0;
 }
@@ -517,7 +496,7 @@ static int builtin_net_id(struct udev_device *dev, int argc, char *argv[], bool 
         if (err >= 0 && names.type == NET_CCWGROUP) {
                 char str[IFNAMSIZ];
 
-                if (snprintf(str, sizeof(str), "%s%s", prefix, names.ccw_core) < (int)sizeof(str))
+                if (snprintf(str, sizeof(str), "%s%s", prefix, names.ccw_group) < (int)sizeof(str))
                         udev_builtin_add_property(dev, test, "ID_NET_NAME_PATH", str);
                 goto out;
         }
@@ -578,22 +557,6 @@ static int builtin_net_id(struct udev_device *dev, int argc, char *argv[], bool 
                                 udev_builtin_add_property(dev, test, "ID_NET_NAME_SLOT", str);
                 goto out;
         }
-
-        /* virtio bus */
-        err = names_virtio(dev, &names);
-        if (err >= 0 && names.type == NET_VIRTIO) {
-                char str[IFNAMSIZ];
-
-                if (names.pci_path[0])
-                        if (snprintf(str, sizeof(str), "%s%s%s", prefix, names.pci_path, names.virtio_core) < (int)sizeof(str))
-                                udev_builtin_add_property(dev, test, "ID_NET_NAME_PATH", str);
-
-                if (names.pci_slot[0])
-                        if (snprintf(str, sizeof(str), "%s%s%s", prefix, names.pci_slot, names.virtio_core) < (int)sizeof(str))
-                                udev_builtin_add_property(dev, test, "ID_NET_NAME_SLOT", str);
-                goto out;
-        }
-
 out:
         return EXIT_SUCCESS;
 }

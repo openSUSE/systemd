@@ -416,6 +416,13 @@ uint64_t util_string_bloom64(const char *str)
         return bits;
 }
 
+static int parse_proc_cmdline_word(const char *word) {
+        if (streq(word, "systemd.log_target=null"))
+                return -115;
+
+        return 0;
+}
+
 ssize_t print_kmsg(const char *fmt, ...)
 {
         _cleanup_close_ int fd = -1;
@@ -424,7 +431,12 @@ ssize_t print_kmsg(const char *fmt, ...)
         ssize_t len;
         ssize_t ret;
 
-        fd = open("/dev/kmsg", O_WRONLY|O_NOCTTY|O_CLOEXEC);
+        if (parse_proc_cmdline(parse_proc_cmdline_word) == -115) {
+                fd = open("/dev/null", O_WRONLY|O_NOCTTY|O_CLOEXEC);
+        } else {
+                fd = open("/dev/kmsg", O_WRONLY|O_NOCTTY|O_CLOEXEC);
+        }
+
         if (fd < 0)
                 return -errno;
 

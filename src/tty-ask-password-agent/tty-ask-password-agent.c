@@ -28,8 +28,12 @@
 #include <sys/poll.h>
 #include <sys/inotify.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 #include <getopt.h>
+#include <signal.h>
+#include <sys/wait.h>
 #include <sys/signalfd.h>
+#include <sys/mman.h>
 #include <fcntl.h>
 
 #include "util.h"
@@ -41,6 +45,9 @@
 #include "ask-password-api.h"
 #include "strv.h"
 #include "build.h"
+#include "fileio.h"
+#include "macro.h"
+#include "list.h"
 
 static enum {
         ACTION_LIST,
@@ -48,6 +55,21 @@ static enum {
         ACTION_WATCH,
         ACTION_WALL
 } arg_action = ACTION_QUERY;
+
+struct console {
+        LIST_FIELDS(struct console, handle);
+        char *tty;
+        pid_t pid;
+        int id;
+};
+
+static volatile uint32_t *usemask;
+static volatile sig_atomic_t sigchild;
+static void chld_handler(int sig)
+{
+        (void)sig;
+        sigchild++;
+}
 
 static bool arg_plymouth = false;
 static bool arg_console = false;
@@ -102,8 +124,9 @@ static int ask_password_plymouth(
         if (accept_cached) {
                 packet = strdup("c");
                 n = 1;
-        } else
-                asprintf(&packet, "*\002%c%s%n", (int) (strlen(message) + 1), message, &n);
+        } else if (asprintf(&packet, "*\002%c%s%n", (int) (strlen(message) + 1),
+                            message, &n) < 0)
+                packet = NULL;
 
         if (!packet) {
                 r = -ENOMEM;
@@ -142,7 +165,7 @@ static int ask_password_plymouth(
                                 goto finish;
                         }
 
-                if ((j = poll(pollfd, notify > 0 ? 2 : 1, sleep_for)) < 0) {
+                if ((j = __poll_alias(pollfd, notify > 0 ? 2 : 1, sleep_for)) < 0) {
 
                         if (errno == EINTR)
                                 continue;
@@ -245,12 +268,77 @@ finish:
         return r;
 }
 
+static const char *current_dev = "/dev/console";
+static LIST_HEAD(struct console, consoles);
+static int collect_consoles(void) {
+        _cleanup_free_ char *active = NULL;
+        char *w, *state;
+        struct console *c;
+        size_t l;
+        int id;
+        int r;
+
+        r = read_one_line_file("/sys/class/tty/console/active", &active);
+        if (r < 0)
+                return r;
+
+        id = 0;
+        FOREACH_WORD(w, l, active, state) {
+                _cleanup_free_ char *tty = NULL;
+
+                if (strneq(w, "tty0", l)) {
+                        if (read_one_line_file("/sys/class/tty/tty0/active", &tty) >= 0) {
+                                w = tty;
+                                l = strlen(tty);
+                        }
+                }
+
+                c = malloc0(sizeof(struct console)+5+l+1);
+                if (!c) {
+                        log_oom();
+                        continue;
+                }
+
+                c->tty = ((char*)c)+sizeof(struct console);
+                stpncpy(stpcpy(c->tty, "/dev/"),w,l);
+                c->id = id++;
+
+                LIST_PREPEND(handle, consoles, c);
+        }
+
+        if (!consoles) {
+
+                c = malloc0(sizeof(struct console));
+                if (!c) {
+                        log_oom();
+                        return -ENOMEM;
+                }
+
+                c->tty = (char *)current_dev;
+                c->id = id++;
+
+                LIST_PREPEND(handle, consoles, c);
+        }
+
+        return 0;
+}
+
+static void free_consoles(void) {
+        struct console *c;
+        LIST_FOREACH(handle, c, consoles) {
+                LIST_REMOVE(handle, consoles, c);
+                free(c);
+        }
+        LIST_HEAD_INIT(consoles);
+}
+
 static int parse_password(const char *filename, char **wall) {
         char *socket_name = NULL, *message = NULL, *packet = NULL;
         uint64_t not_after = 0;
         unsigned pid = 0;
         int socket_fd = -1;
         bool accept_cached = false;
+        size_t packet_length = 0;
 
         const ConfigTableItem items[] = {
                 { "Ask", "Socket",       config_parse_string,   0, &socket_name   },
@@ -322,7 +410,6 @@ static int parse_password(const char *filename, char **wall) {
                         struct sockaddr sa;
                         struct sockaddr_un un;
                 } sa = {};
-                size_t packet_length = 0;
 
                 assert(arg_action == ACTION_QUERY ||
                        arg_action == ACTION_WATCH);
@@ -364,7 +451,7 @@ static int parse_password(const char *filename, char **wall) {
                         char *password = NULL;
 
                         if (arg_console)
-                                if ((tty_fd = acquire_terminal("/dev/console", false, false, false, (usec_t) -1)) < 0) {
+                                if ((tty_fd = acquire_terminal(current_dev, false, false, true, (usec_t) -1)) < 0) {
                                         r = tty_fd;
                                         goto finish;
                                 }
@@ -385,6 +472,7 @@ static int parse_password(const char *filename, char **wall) {
                                         strcpy(packet+1, password);
                                 }
 
+                                memset(password, 0, strlen(password));
                                 free(password);
                         }
                 }
@@ -422,6 +510,7 @@ finish:
         if (socket_fd >= 0)
                 close_nointr_nofail(socket_fd);
 
+        memset(packet, 0, packet_length);
         free(packet);
         free(socket_name);
         free(message);
@@ -436,7 +525,7 @@ static int wall_tty_block(void) {
 
         r = get_ctty_devnr(0, &devnr);
         if (r < 0)
-                return -r;
+                return r;
 
         if (asprintf(&p, "/run/systemd/ask-password-block/%u:%u", major(devnr), minor(devnr)) < 0)
                 return -ENOMEM;
@@ -505,7 +594,7 @@ static int show_passwords(void) {
                 if (errno == ENOENT)
                         return 0;
 
-                log_error("opendir(): %m");
+                log_error("opendir(/run/systemd/ask-password): %m");
                 return -errno;
         }
 
@@ -595,7 +684,7 @@ static int watch_passwords(void) {
                 if ((r = show_passwords()) < 0)
                         log_error("Failed to show password: %s", strerror(-r));
 
-                if (poll(pollfd, _FD_MAX, -1) < 0) {
+                if (__poll_alias(pollfd, _FD_MAX, -1) < 0) {
 
                         if (errno == EINTR)
                                 continue;
@@ -725,8 +814,10 @@ static int parse_argv(int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
+        int id = 0;
         int r;
 
+        LIST_HEAD_INIT(consoles);
         log_set_target(LOG_TARGET_AUTO);
         log_parse_environment();
         log_open();
@@ -736,11 +827,99 @@ int main(int argc, char *argv[]) {
         if ((r = parse_argv(argc, argv)) <= 0)
                 goto finish;
 
-        if (arg_console) {
-                setsid();
-                release_terminal();
-        }
+        usemask = (uint32_t*) mmap(NULL, sizeof(uint32_t), PROT_READ|PROT_WRITE,
+                                   MAP_ANONYMOUS|MAP_SHARED, -1, 0);
 
+        if (arg_console) {
+                if (!arg_plymouth && arg_action != ACTION_WALL &&
+                    arg_action != ACTION_LIST) {
+                        struct console *c;
+                        struct sigaction sig = {
+                                .sa_handler = chld_handler,
+                                .sa_flags = SA_NOCLDSTOP|SA_RESTART,
+                        };
+                        struct sigaction oldsig;
+                        sigset_t set, oldset;
+                        int status = 0;
+                        pid_t job;
+
+                        collect_consoles();
+
+                        if (!consoles->handle_next) {
+                                consoles->pid = 0;
+                                c = consoles;
+                                goto nofork;
+                        }
+
+                        assert_se(sigemptyset(&set) == 0);
+                        assert_se(sigaddset(&set, SIGHUP) == 0);
+                        assert_se(sigaddset(&set, SIGCHLD) == 0);
+                        assert_se(sigemptyset(&sig.sa_mask) == 0);
+
+                        assert_se(sigprocmask(SIG_UNBLOCK, &set, &oldset) == 0);
+                        assert_se(sigaction(SIGCHLD, &sig, &oldsig) == 0);
+                        sig.sa_handler = SIG_DFL;
+                        assert_se(sigaction(SIGHUP, &sig, NULL) == 0);
+                        LIST_FOREACH(handle, c, consoles) {
+
+                                switch ((c->pid = fork())) {
+                                case 0:
+                                        if (prctl(PR_SET_PDEATHSIG, SIGHUP) < 0)
+                                                _exit(EXIT_FAILURE);
+                                        zero(sig);
+                                        assert_se(sigprocmask(SIG_UNBLOCK, &oldset, NULL) == 0);
+                                        assert_se(sigaction(SIGCHLD, &oldsig, NULL) == 0);
+                                        /* fall through */
+                                nofork:
+                                        setsid();
+                                        release_terminal();
+                                        id = c->id;
+                                        *usemask |= (1<<id);
+                                        current_dev = c->tty;
+                                        goto forked;                        /* child */
+                                case -1:
+                                        log_error("Failed to query password: %s", strerror(errno));
+                                        return EXIT_FAILURE;
+                                default:
+                                        break;
+                                }
+                        }
+
+                        r = 0;
+                        while ((job = wait(&status))) {
+                                if (job < 0) {
+                                        if (errno != EINTR)
+                                                break;
+                                        continue;
+                                }
+                                LIST_FOREACH(handle, c, consoles) {
+                                        if (c->pid == job) {
+                                                *usemask &= ~(1<<c->id);
+                                                continue;
+                                        }
+                                        if (kill(c->pid, 0) < 0) {
+                                                *usemask &= ~(1<<c->id);
+                                                continue;
+                                        }
+                                        if (*usemask & (1<<c->id))
+                                                continue;
+                                        kill(c->pid, SIGHUP);
+                                        usleep(50000);
+                                        kill(c->pid, SIGKILL);
+                                }
+                
+                                if (WIFEXITED(status) && !r)
+                                        r = WEXITSTATUS(status);
+                        }
+                        free_consoles();
+                        return r != 0 ? EXIT_FAILURE : EXIT_SUCCESS;        /* parent */
+
+                } else {
+                        setsid();
+                        release_terminal();
+                }
+        }
+forked:
         if (arg_action == ACTION_WATCH ||
             arg_action == ACTION_WALL)
                 r = watch_passwords();
@@ -750,6 +929,8 @@ int main(int argc, char *argv[]) {
         if (r < 0)
                 log_error("Error: %s", strerror(-r));
 
+        free_consoles();
+        *usemask &= ~(1<<id);
 finish:
         return r < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
 }

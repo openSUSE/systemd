@@ -157,6 +157,11 @@ struct Manager {
         FILE *proc_self_mountinfo;
         sd_event_source *mount_event_source;
 
+        /* Watch out any change of /etc/resolv.conf */
+        int resolv_conf_inotify_fd;
+        sd_event_source *resolv_conf_event_source;
+        bool resolv_conf_noent;
+
         /* Data specific to the swap filesystem */
         FILE *proc_swaps;
         sd_event_source *swap_event_source;
@@ -167,7 +172,13 @@ struct Manager {
         Set *private_buses;
         int private_listen_fd;
         sd_event_source *private_listen_event_source;
-        Set *subscribed;
+
+        /* Contains all the clients that are subscribed to signals via
+        the API bus. Note that private bus connections are always
+        considered subscribes, since they last for very short only,
+        and it is much simpler that way. */
+        sd_bus_track *subscribed;
+        char **deserialized_subscribed;
 
         sd_bus_message *queued_message; /* This is used during reloading:
                                       * before the reload we queue the
@@ -206,6 +217,8 @@ struct Manager {
 
         bool taint_usr:1;
 
+        bool test_run:1;
+
         ShowStatus show_status;
         bool confirm_spawn;
         bool no_console_output;
@@ -231,6 +244,11 @@ struct Manager {
         unsigned n_on_console;
         unsigned jobs_in_progress_iteration;
 
+        /* Do we have any outstanding password prompts? */
+        int have_ask_password;
+        int ask_password_inotify_fd;
+        sd_event_source *ask_password_event_source;
+
         /* Type=idle pipes */
         int idle_pipe[4];
         sd_event_source *idle_pipe_event_source;
@@ -247,7 +265,7 @@ struct Manager {
         int kdbus_fd;
 };
 
-int manager_new(SystemdRunningAs running_as, Manager **m);
+int manager_new(SystemdRunningAs running_as, bool test_run, Manager **m);
 void manager_free(Manager *m);
 
 int manager_enumerate(Manager *m);

@@ -11,6 +11,7 @@ Documentation=man:systemd-sysctl.service(8) man:sysctl.d(5)
 DefaultDependencies=no
 Conflicts=shutdown.target
 After=systemd-readahead-collect.service systemd-readahead-replay.service
+After=systemd-modules-load.service
 Before=sysinit.target shutdown.target
 ConditionPathIsReadWrite=/proc/sys/
 ConditionDirectoryNotEmpty=|/lib/sysctl.d
@@ -18,6 +19,8 @@ ConditionDirectoryNotEmpty=|/usr/lib/sysctl.d
 ConditionDirectoryNotEmpty=|/usr/local/lib/sysctl.d
 ConditionDirectoryNotEmpty=|/etc/sysctl.d
 ConditionDirectoryNotEmpty=|/run/sysctl.d
+ConditionPathExistsGlob=|/boot/sysctl.conf-%v
+RequiresMountsFor=/boot
 
 [Service]
 Type=oneshot

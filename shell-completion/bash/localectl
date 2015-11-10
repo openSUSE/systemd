@@ -36,6 +36,10 @@ _localectl() {
         local OPTS='-h --help --version --no-convert --no-pager --no-ask-password
                     -H --host'
 
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
+
         if __contains_word "$prev" $OPTS; then
                 case $prev in
                         --host|-H)
@@ -89,4 +93,4 @@ _localectl() {
         return 0
 }
 
-complete -F _localectl localectl
+complete -o default -o bashdefault -F _localectl localectl

@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <sys/reboot.h>
 
+#include "async.h"
 #include "manager.h"
 #include "unit.h"
 #include "service.h"
@@ -52,7 +53,8 @@
 
 typedef enum RunlevelType {
         RUNLEVEL_UP,
-        RUNLEVEL_DOWN
+        RUNLEVEL_DOWN,
+        RUNLEVEL_SYSINIT
 } RunlevelType;
 
 static const struct {
@@ -67,6 +69,16 @@ static const struct {
         { "rc4.d",  SPECIAL_RUNLEVEL4_TARGET, RUNLEVEL_UP },
         { "rc5.d",  SPECIAL_RUNLEVEL5_TARGET, RUNLEVEL_UP },
 
+#ifdef HAVE_SYSV_COMPAT
+        /* SUSE style boot.d */
+        { "boot.d", SPECIAL_SYSINIT_TARGET,   RUNLEVEL_SYSINIT },
+#endif
+
+#if defined(TARGET_DEBIAN) || defined(TARGET_UBUNTU) || defined(TARGET_ANGSTROM)
+        /* Debian style rcS.d */
+        { "rcS.d",  SPECIAL_SYSINIT_TARGET,   RUNLEVEL_SYSINIT },
+#endif
+
         /* Standard SysV runlevels for shutdown */
         { "rc0.d",  SPECIAL_POWEROFF_TARGET,  RUNLEVEL_DOWN },
         { "rc6.d",  SPECIAL_REBOOT_TARGET,    RUNLEVEL_DOWN }
@@ -75,10 +87,12 @@ static const struct {
            directories in this order, and we want to make sure that
            sysv_start_priority is known when we first load the
            unit. And that value we only know from S links. Hence
-           UP must be read before DOWN */
+           UP/SYSINIT must be read before DOWN */
 };
 
 #define RUNLEVELS_UP "12345"
+/* #define RUNLEVELS_DOWN "06" */
+#define RUNLEVELS_BOOT "bBsS"
 #endif
 
 static const UnitActiveState state_translation_table[_SERVICE_STATE_MAX] = {
@@ -139,6 +153,7 @@ static void service_init(Unit *u) {
 #ifdef HAVE_SYSV_COMPAT
         s->sysv_start_priority = -1;
         s->sysv_start_priority_from_rcnd = -1;
+        s->sysv_remain_after_exit_heuristic = true;
 #endif
         s->socket_fd = -1;
         s->guess_main_pid = true;
@@ -226,7 +241,7 @@ static void service_close_socket_fd(Service *s) {
         if (s->socket_fd < 0)
                 return;
 
-        close_nointr_nofail(s->socket_fd);
+        asynchronous_close(s->socket_fd);
         s->socket_fd = -1;
 }
 
@@ -368,6 +383,9 @@ static char *sysv_translate_name(const char *name) {
         if (endswith(name, ".sh"))
                 /* Drop .sh suffix */
                 strcpy(stpcpy(r, name) - 3, ".service");
+        if (startswith(name, "boot."))
+                /* Drop SuSE-style boot. prefix */
+                strcpy(stpcpy(r, name + 5), ".service");
         else
                 /* Normal init script name */
                 strcpy(stpcpy(r, name), ".service");
@@ -386,12 +404,14 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
         static const char * const table[] = {
                 /* LSB defined facilities */
                 "local_fs",             NULL,
-                "network",              SPECIAL_NETWORK_TARGET,
+                "network",              SPECIAL_NETWORK_ONLINE_TARGET,
                 "named",                SPECIAL_NSS_LOOKUP_TARGET,
                 "portmap",              SPECIAL_RPCBIND_TARGET,
                 "remote_fs",            SPECIAL_REMOTE_FS_TARGET,
                 "syslog",               NULL,
                 "time",                 SPECIAL_TIME_SYNC_TARGET,
+                "all",                  SPECIAL_DEFAULT_TARGET,
+                "null",                 NULL,
         };
 
         unsigned i;
@@ -401,7 +421,7 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
         assert(name);
         assert(_r);
 
-        n = *name == '$' ? name + 1 : name;
+        n = (*name == '$' || *name == '+') ? name + 1 : name;
 
         for (i = 0; i < ELEMENTSOF(table); i += 2) {
 
@@ -800,7 +820,7 @@ static int service_load_sysv_path(Service *s, const char *path) {
 
                                         if (unit_name_to_type(m) == UNIT_SERVICE)
                                                 r = unit_merge_by_name(u, m);
-                                        else
+                                        else {
                                                 /* NB: SysV targets
                                                  * which are provided
                                                  * by a service are
@@ -815,6 +835,9 @@ static int service_load_sysv_path(Service *s, const char *path) {
                                                  * in the SysV
                                                  * services! */
                                                 r = unit_add_two_dependencies_by_name(u, UNIT_BEFORE, UNIT_WANTS, m, NULL, true);
+                                                if (r >= 0 && streq(m, SPECIAL_NETWORK_ONLINE_TARGET))
+                                                        r = unit_add_dependency_by_name(u, UNIT_BEFORE, SPECIAL_NETWORK_TARGET, NULL, true);
+                                        }
 
                                         if (r < 0)
                                                 log_error_unit(u->id,
@@ -828,10 +851,13 @@ static int service_load_sysv_path(Service *s, const char *path) {
                                    startswith_no_case(t, "Should-Start:") ||
                                    startswith_no_case(t, "X-Start-Before:") ||
                                    startswith_no_case(t, "X-Start-After:")) {
+                                UnitDependency d, e;
                                 char *i, *w;
                                 size_t z;
 
                                 state = LSB;
+                                d = startswith_no_case(t, "X-Start-Before:") ? UNIT_BEFORE : UNIT_AFTER;
+                                e = startswith_no_case(t, "Required-Start:") ? UNIT_REQUIRES_OVERRIDABLE : _UNIT_DEPENDENCY_INVALID;
 
                                 FOREACH_WORD_QUOTED(w, z, strchr(t, ':')+1, i) {
                                         char *n, *m;
@@ -850,12 +876,21 @@ static int service_load_sysv_path(Service *s, const char *path) {
                                                 continue;
                                         }
 
+                                        if (*n == '+')
+                                                e = UNIT_WANTS;
+
                                         free(n);
 
                                         if (r == 0)
                                                 continue;
 
-                                        r = unit_add_dependency_by_name(u, startswith_no_case(t, "X-Start-Before:") ? UNIT_BEFORE : UNIT_AFTER, m, NULL, true);
+                                        if (streq(m, SPECIAL_NETWORK_ONLINE_TARGET) && d == UNIT_AFTER && e == _UNIT_DEPENDENCY_INVALID)
+                                                e = UNIT_WANTS;
+
+                                        if (e != _UNIT_DEPENDENCY_INVALID)
+                                                r = unit_add_two_dependencies_by_name(u, d, e, m, NULL, true);
+                                        else
+                                                r = unit_add_dependency_by_name(u, d, m, NULL, true);
 
                                         if (r < 0)
                                                 log_error_unit(u->id, "[%s:%u] Failed to add dependency on %s, ignoring: %s",
@@ -912,6 +947,34 @@ static int service_load_sysv_path(Service *s, const char *path) {
                                 free(short_description);
                                 short_description = d;
 
+                        } else if (startswith_no_case(t, "PIDFile:")) {
+                                char *fn;
+
+                                state = LSB;
+
+                                fn = strstrip(t+8);
+                                if (!path_is_absolute(fn)) {
+                                        log_warning("[%s:%u] PID file not absolute. Ignoring.", path, line);
+                                        continue;
+                                }
+
+                                if (!(fn = strdup(fn))) {
+                                        r = -ENOMEM;
+                                        goto finish;
+                                }
+
+                                free(s->pid_file);
+                                s->pid_file = fn;
+                                s->sysv_remain_after_exit_heuristic = false;
+                                s->remain_after_exit = false;
+                        } else if (startswith_no_case(t, "X-Systemd-RemainAfterExit:")) {
+                                char *j;
+
+                                state = LSB;
+                                if ((j = strstrip(t+26)) && *j) {
+                                        s->remain_after_exit = parse_boolean(j);
+                                        s->sysv_remain_after_exit_heuristic = false;
+                                }
                         } else if (state == LSB_DESCRIPTION) {
 
                                 if (startswith(l, "#\t") || startswith(l, "#  ")) {
@@ -942,6 +1005,13 @@ static int service_load_sysv_path(Service *s, const char *path) {
 
         if ((r = sysv_exec_commands(s, supports_reload)) < 0)
                 goto finish;
+        if (s->sysv_runlevels &&
+            chars_intersect(RUNLEVELS_BOOT, s->sysv_runlevels) &&
+            chars_intersect(RUNLEVELS_UP, s->sysv_runlevels)) {
+                /* Service has both boot and "up" runlevels
+                   configured.  Kill the "up" ones. */
+                delete_chars(s->sysv_runlevels, RUNLEVELS_UP);
+        }
 
         if (s->sysv_runlevels && !chars_intersect(RUNLEVELS_UP, s->sysv_runlevels)) {
                 /* If there a runlevels configured for this service
@@ -962,7 +1032,8 @@ static int service_load_sysv_path(Service *s, const char *path) {
 
         /* Special setting for all SysV services */
         s->type = SERVICE_FORKING;
-        s->remain_after_exit = !s->pid_file;
+        if (s->sysv_remain_after_exit_heuristic)
+                s->remain_after_exit = !s->pid_file;
         s->guess_main_pid = false;
         s->restart = SERVICE_RESTART_NO;
         s->exec_context.ignore_sigpipe = false;
@@ -1022,6 +1093,9 @@ static int service_load_sysv_name(Service *s, const char *name) {
         if (endswith(name, ".sh.service"))
                 return -ENOENT;
 
+        if (startswith(name, "boot."))
+                return -ENOENT;
+
         STRV_FOREACH(p, UNIT(s)->manager->lookup_paths.sysvinit_path) {
                 char *path;
                 int r;
@@ -1042,6 +1116,18 @@ static int service_load_sysv_name(Service *s, const char *name) {
                 }
                 free(path);
 
+                if (r >= 0 && UNIT(s)->load_state == UNIT_STUB) {
+                        /* Try SUSE style boot.* init scripts */
+
+                        path = strjoin(*p, "/boot.", name, NULL);
+                        if (!path)
+                                return -ENOMEM;
+
+                        /* Drop .service suffix */
+                        path[strlen(path)-8] = 0;
+                        r = service_load_sysv_path(s, path);
+                        free(path);
+                }
                 if (r < 0)
                         return r;
 
@@ -1669,7 +1755,7 @@ fail:
 static int service_spawn(
                 Service *s,
                 ExecCommand *c,
-                bool timeout,
+                usec_t timeout,
                 bool pass_fds,
                 bool apply_permissions,
                 bool apply_chroot,
@@ -1714,8 +1800,8 @@ static int service_spawn(
                 }
         }
 
-        if (timeout && s->timeout_start_usec > 0) {
-                r = service_arm_timer(s, s->timeout_start_usec);
+        if (timeout > 0) {
+                r = service_arm_timer(s, timeout);
                 if (r < 0)
                         goto fail;
         } else
@@ -1725,7 +1811,7 @@ static int service_spawn(
         if (r < 0)
                 goto fail;
 
-        our_env = new0(char*, 4);
+        our_env = new0(char*, 5);
         if (!our_env) {
                 r = -ENOMEM;
                 goto fail;
@@ -1749,6 +1835,14 @@ static int service_spawn(
                         goto fail;
                 }
 
+#ifdef HAVE_SYSV_COMPAT
+        if (s->is_sysv)
+                if (asprintf(our_env + n_env++, "XDG_SESSION_CLASS=service") < 0) {
+                        r = -ENOMEM;
+                        goto fail;
+                }
+#endif
+
         final_env = strv_env_merge(2, UNIT(s)->manager->environment, our_env, NULL);
         if (!final_env) {
                 r = -ENOMEM;
@@ -1770,6 +1864,7 @@ static int service_spawn(
                        apply_chroot,
                        apply_tty_stdin,
                        UNIT(s)->manager->confirm_spawn,
+                       s->socket_fd_selinux_context_net,
                        UNIT(s)->manager->cgroup_supported,
                        path,
                        UNIT(s)->id,
@@ -1908,7 +2003,7 @@ static void service_enter_stop_post(Service *s, ServiceResult f) {
 
                 r = service_spawn(s,
                                   s->control_command,
-                                  true,
+                                  s->timeout_stop_usec,
                                   false,
                                   !s->permissions_start_only,
                                   !s->root_directory_start_only,
@@ -1999,7 +2094,7 @@ static void service_enter_stop(Service *s, ServiceResult f) {
 
                 r = service_spawn(s,
                                   s->control_command,
-                                  true,
+                                  s->timeout_stop_usec,
                                   false,
                                   !s->permissions_start_only,
                                   !s->root_directory_start_only,
@@ -2022,19 +2117,39 @@ fail:
         service_enter_signal(s, SERVICE_STOP_SIGTERM, SERVICE_FAILURE_RESOURCES);
 }
 
+static bool service_good(Service *s) {
+        int main_pid_ok;
+        assert(s);
+
+        if (s->type == SERVICE_DBUS && !s->bus_name_good)
+                return false;
+
+        main_pid_ok = main_pid_good(s);
+        if (main_pid_ok > 0) /* It's alive */
+                return true;
+        if (main_pid_ok == 0) /* It's dead */
+                return false;
+
+        /* OK, we don't know anything about the main PID, maybe
+         * because there is none. Let's check the control group
+         * instead. */
+
+        return cgroup_good(s) != 0;
+}
+
 static void service_enter_running(Service *s, ServiceResult f) {
-        int main_pid_ok, cgroup_ok;
         assert(s);
 
         if (f != SERVICE_SUCCESS)
                 s->result = f;
 
-        main_pid_ok = main_pid_good(s);
-        cgroup_ok = cgroup_good(s);
-
-        if ((main_pid_ok > 0 || (main_pid_ok < 0 && cgroup_ok != 0)) &&
-            (s->bus_name_good || s->type != SERVICE_DBUS))
+        if (service_good(s)) {
+#ifdef HAVE_SYSV_COMPAT
+                if (s->sysv_enabled && !s->pid_file && s->sysv_remain_after_exit_heuristic)
+                        s->remain_after_exit = false;
+#endif
                 service_set_state(s, SERVICE_RUNNING);
+        }
         else if (s->remain_after_exit)
                 service_set_state(s, SERVICE_EXITED);
         else
@@ -2054,7 +2169,7 @@ static void service_enter_start_post(Service *s) {
 
                 r = service_spawn(s,
                                   s->control_command,
-                                  true,
+                                  s->timeout_start_usec,
                                   false,
                                   !s->permissions_start_only,
                                   !s->root_directory_start_only,
@@ -2119,8 +2234,7 @@ static void service_enter_start(Service *s) {
 
         r = service_spawn(s,
                           c,
-                          s->type == SERVICE_FORKING || s->type == SERVICE_DBUS ||
-                            s->type == SERVICE_NOTIFY || s->type == SERVICE_ONESHOT,
+                          IN_SET(s->type, SERVICE_FORKING, SERVICE_DBUS, SERVICE_NOTIFY, SERVICE_ONESHOT) ? s->timeout_start_usec : 0,
                           true,
                           true,
                           true,
@@ -2187,7 +2301,7 @@ static void service_enter_start_pre(Service *s) {
 
                 r = service_spawn(s,
                                   s->control_command,
-                                  true,
+                                  s->timeout_start_usec,
                                   false,
                                   !s->permissions_start_only,
                                   !s->root_directory_start_only,
@@ -2264,7 +2378,7 @@ static void service_enter_reload(Service *s) {
 
                 r = service_spawn(s,
                                   s->control_command,
-                                  true,
+                                  s->timeout_start_usec,
                                   false,
                                   !s->permissions_start_only,
                                   !s->root_directory_start_only,
@@ -2303,7 +2417,7 @@ static void service_run_next_control(Service *s) {
 
         r = service_spawn(s,
                           s->control_command,
-                          true,
+                          IN_SET(s->state, SERVICE_START_PRE, SERVICE_START, SERVICE_START_POST, SERVICE_RUNNING, SERVICE_RELOAD) ? s->timeout_start_usec : s->timeout_stop_usec,
                           false,
                           !s->permissions_start_only,
                           !s->root_directory_start_only,
@@ -2349,7 +2463,7 @@ static void service_run_next_main(Service *s) {
 
         r = service_spawn(s,
                           s->main_command,
-                          true,
+                          s->timeout_start_usec,
                           true,
                           true,
                           true,
@@ -2470,6 +2584,10 @@ static int service_start(Unit *u) {
         s->main_pid_alien = false;
         s->forbid_restart = false;
 
+        free(s->status_text);
+        s->status_text = NULL;
+        s->status_errno = 0;
+
         service_enter_start_pre(s);
         return 0;
 }
@@ -2552,6 +2670,7 @@ static int service_serialize(Unit *u, FILE *f, FDSet *fds) {
                 unit_serialize_item_format(u, f, "main-pid", PID_FMT, s->main_pid);
 
         unit_serialize_item(u, f, "main-pid-known", yes_no(s->main_pid_known));
+        unit_serialize_item(u, f, "bus-name-good", yes_no(s->bus_name_good));
 
         if (s->status_text)
                 unit_serialize_item(u, f, "status-text", s->status_text);
@@ -2654,6 +2773,14 @@ static int service_deserialize_item(Unit *u, const char *key, const char *value,
                         log_debug_unit(u->id, "Failed to parse main-pid-known value %s", value);
                 else
                         s->main_pid_known = b;
+        } else if (streq(key, "bus-name-good")) {
+                int b;
+
+                b = parse_boolean(value);
+                if (b < 0)
+                        log_debug_unit(u->id, "Failed to parse bus-name-good value %s", value);
+                else
+                        s->bus_name_good = b;
         } else if (streq(key, "status-text")) {
                 char *t;
 
@@ -2683,7 +2810,7 @@ static int service_deserialize_item(Unit *u, const char *key, const char *value,
                 else {
 
                         if (s->socket_fd >= 0)
-                                close_nointr_nofail(s->socket_fd);
+                                asynchronous_close(s->socket_fd);
                         s->socket_fd = fdset_remove(fds, fd);
                 }
         } else if (streq(key, "main-exec-status-pid")) {
@@ -3414,7 +3541,24 @@ static void service_notify_message(Unit *u, pid_t pid, char **tags) {
                         free(t);
         }
 
-        /* Interpet WATCHDOG= */
+        /* Interpret ERRNO= */
+        e = strv_find_prefix(tags, "ERRNO=");
+        if (e) {
+                int status_errno;
+
+                if (safe_atoi(e + 6, &status_errno) < 0 || status_errno < 0)
+                        log_warning_unit(u->id, "Failed to parse ERRNO= field in notification message: %s", e);
+                else {
+                        log_debug_unit(u->id, "%s: got %s", u->id, e);
+
+                        if (s->status_errno != status_errno) {
+                                s->status_errno = status_errno;
+                                notify_dbus = true;
+                        }
+                }
+        }
+
+        /* Interpret WATCHDOG= */
         if (strv_find(tags, "WATCHDOG=1")) {
                 log_debug_unit(u->id, "%s: got WATCHDOG=1", u->id);
                 service_reset_watchdog(s);
@@ -3527,7 +3671,7 @@ static int service_enumerate(Manager *m) {
 
                                 if (de->d_name[0] == 'S')  {
 
-                                        if (rcnd_table[i].type == RUNLEVEL_UP) {
+                                        if (rcnd_table[i].type == RUNLEVEL_UP || rcnd_table[i].type == RUNLEVEL_SYSINIT) {
                                                 SERVICE(service)->sysv_start_priority_from_rcnd =
                                                         MAX(a*10 + b, SERVICE(service)->sysv_start_priority_from_rcnd);
 
@@ -3544,7 +3688,8 @@ static int service_enumerate(Manager *m) {
                                                 goto finish;
 
                                 } else if (de->d_name[0] == 'K' &&
-                                           (rcnd_table[i].type == RUNLEVEL_DOWN)) {
+                                           (rcnd_table[i].type == RUNLEVEL_DOWN ||
+                                            rcnd_table[i].type == RUNLEVEL_SYSINIT)) {
 
                                         r = set_ensure_allocated(&shutdown_services,
                                                                  trivial_hash_func, trivial_compare_func);
@@ -3584,7 +3729,9 @@ static int service_enumerate(Manager *m) {
          * runlevels we assume the stop jobs will be implicitly added
          * by the core logic. Also, we don't really distinguish here
          * between the runlevels 0 and 6 and just add them to the
-         * special shutdown target. */
+         * special shutdown target. On SUSE the boot.d/ runlevel is
+         * also used for shutdown, so we add links for that too to the
+         * shutdown target.*/
         SET_FOREACH(service, shutdown_services, j) {
                 service = unit_follow_merge(service);
 
@@ -3672,7 +3819,7 @@ static void service_bus_name_owner_change(
         }
 }
 
-int service_set_socket_fd(Service *s, int fd, Socket *sock) {
+int service_set_socket_fd(Service *s, int fd, Socket *sock, bool selinux_context_net) {
         _cleanup_free_ char *peer = NULL;
         int r;
 
@@ -3710,6 +3857,7 @@ int service_set_socket_fd(Service *s, int fd, Socket *sock) {
         }
 
         s->socket_fd = fd;
+        s->socket_fd_selinux_context_net = selinux_context_net;
 
         unit_ref_set(&s->accept_socket, UNIT(sock));
 

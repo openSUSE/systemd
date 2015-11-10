@@ -712,15 +712,16 @@ static int find_legacy_keymap(Context *c, char **new_keymap) {
                         }
                 }
 
-                if (matching > 0 &&
-                    streq_ptr(c->x11_model, a[2])) {
-                        matching++;
-
-                        if (streq_ptr(c->x11_variant, a[3])) {
+                if (matching > 0) {
+                        if (isempty(c->x11_model) || streq_ptr(c->x11_model, a[2])) {
                                 matching++;
 
-                                if (streq_ptr(c->x11_options, a[4]))
+                                if (streq_ptr(c->x11_variant, a[3])) {
                                         matching++;
+
+                                        if (streq_ptr(c->x11_options, a[4]))
+                                                matching++;
+                                }
                         }
                 }
 
@@ -1075,7 +1076,7 @@ static const sd_bus_vtable locale_vtable[] = {
 };
 
 static int connect_bus(Context *c, sd_event *event, sd_bus **_bus) {
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         assert(c);
@@ -1115,7 +1116,7 @@ static int connect_bus(Context *c, sd_event *event, sd_bus **_bus) {
 int main(int argc, char *argv[]) {
         Context context = {};
         _cleanup_event_unref_ sd_event *event = NULL;
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         log_set_target(LOG_TARGET_AUTO);

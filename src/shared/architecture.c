@@ -112,6 +112,10 @@ Architecture uname_architecture(void) {
                 { "sh",         ARCHITECTURE_SH       },
 #elif defined(__m68k__)
                 { "m68k",       ARCHITECTURE_M68K     },
+#elif defined(__tilegx__)
+                { "tilegx",     ARCHITECTURE_TILEGX   },
+#elif defined(__cris__)
+                { "crisv32",    ARCHITECTURE_CRIS     },
 #else
 #error "Please register your architecture here!"
 #endif
@@ -149,7 +153,9 @@ static const char *const architecture_table[_ARCHITECTURE_MAX] = {
         [ARCHITECTURE_SPARC] = "sparc",
         [ARCHITECTURE_SPARC64] = "sparc64",
         [ARCHITECTURE_MIPS] = "mips",
+        [ARCHITECTURE_MIPS_LE] = "mips-le",
         [ARCHITECTURE_MIPS64] = "mips64",
+        [ARCHITECTURE_MIPS64_LE] = "mips64-le",
         [ARCHITECTURE_ALPHA] = "alpha",
         [ARCHITECTURE_ARM] = "arm",
         [ARCHITECTURE_ARM_BE] = "arm-be",
@@ -158,6 +164,8 @@ static const char *const architecture_table[_ARCHITECTURE_MAX] = {
         [ARCHITECTURE_SH] = "sh",
         [ARCHITECTURE_SH64] = "sh64",
         [ARCHITECTURE_M68K] = "m68k",
+        [ARCHITECTURE_TILEGX] = "tilegx",
+        [ARCHITECTURE_CRIS] = "cris",
 };
 
 DEFINE_STRING_TABLE_LOOKUP(architecture, Architecture);

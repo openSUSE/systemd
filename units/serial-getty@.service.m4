@@ -10,6 +10,7 @@ Description=Serial Getty on %I
 Documentation=man:agetty(8) man:systemd-getty-generator(8)
 Documentation=http://0pointer.de/blog/projects/serial-console.html
 BindsTo=dev-%i.device
+Conflicts=rescue.service
 After=dev-%i.device systemd-user-sessions.service plymouth-quit-wait.service
 m4_ifdef(`HAVE_SYSV_COMPAT',
 After=rc-local.service
@@ -23,9 +24,9 @@ IgnoreOnIsolate=yes
 
 [Service]
 ExecStart=-/sbin/agetty --keep-baud %I 115200,38400,9600 $TERM
+ExecStopPost=-/sbin/vhangup /dev/%I
 Type=idle
 Restart=always
-RestartSec=0
 UtmpIdentifier=%I
 TTYPath=/dev/%I
 TTYReset=yes

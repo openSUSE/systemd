@@ -146,6 +146,13 @@ static int context_read_data(Context *c) {
                         goto have_timezone;
                 }
         }
+#ifdef HAVE_SYSV_COMPAT
+        r = parse_env_file("/etc/sysconfig/clock", NEWLINE,
+                           "TIMEZONE", &c->zone,
+                            NULL);
+        if (r < 0 && r != -ENOENT)
+                log_warning("Failed to read /etc/sysconfig/clock: %s", strerror(-r));
+#endif
 
 have_timezone:
         if (isempty(c->zone)) {
@@ -468,7 +475,7 @@ static int property_get_rtc_time(
         zero(tm);
         r = hwclock_get_time(&tm);
         if (r == -EBUSY) {
-                log_warning("/dev/rtc is busy, is somebody keeping it open continously? That's not a good idea... Returning a bogus RTC timestamp.");
+                log_warning("/dev/rtc is busy, is somebody keeping it open continuously? That's not a good idea... Returning a bogus RTC timestamp.");
                 t = 0;
         } else if (r == -ENOENT) {
                 log_debug("Not /dev/rtc found.");
@@ -772,7 +779,7 @@ static const sd_bus_vtable timedate_vtable[] = {
 };
 
 static int connect_bus(Context *c, sd_event *event, sd_bus **_bus) {
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         assert(c);
@@ -818,7 +825,7 @@ int main(int argc, char *argv[]) {
         };
 
         _cleanup_event_unref_ sd_event *event = NULL;
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         log_set_target(LOG_TARGET_AUTO);

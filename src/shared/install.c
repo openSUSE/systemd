@@ -72,13 +72,16 @@ static int get_config_path(UnitFileScope scope, bool runtime, const char *root_d
 
         case UNIT_FILE_SYSTEM:
 
-                if (root_dir && runtime)
-                        asprintf(&p, "%s/run/systemd/system", root_dir);
-                else if (runtime)
+                if (root_dir && runtime) {
+                        if (asprintf(&p, "%s/run/systemd/system", root_dir) < 0)
+                                return -ENOMEM;
+                } else if (runtime)
                         p = strdup("/run/systemd/system");
-                else if (root_dir)
-                        asprintf(&p, "%s/%s", root_dir, SYSTEM_CONFIG_UNIT_PATH);
-                else
+                else if (root_dir) {
+                        if (asprintf(&p, "%s/%s", root_dir,
+                                     SYSTEM_CONFIG_UNIT_PATH) < 0)
+                                return -ENOMEM;
+                } else
                         p = strdup(SYSTEM_CONFIG_UNIT_PATH);
 
                 break;
@@ -332,7 +335,7 @@ static int remove_marked_symlinks(
                 int q, cfd;
                 deleted = false;
 
-                cfd = dup(fd);
+                cfd = fcntl(fd, F_DUPFD_CLOEXEC, 3);
                 if (cfd < 0) {
                         r = -errno;
                         break;
@@ -562,7 +565,7 @@ int unit_file_mask(
                 unsigned *n_changes) {
 
         char **i;
-        _cleanup_free_ char *prefix;
+        _cleanup_free_ char *prefix = NULL;
         int r;
 
         assert(scope >= 0);
@@ -1525,6 +1528,17 @@ int unit_file_disable(
                 return r;
 
         STRV_FOREACH(i, files) {
+                UnitFileState state;
+
+                /* We only want to know if this unit is masked, so we ignore
+                 * errors from unit_file_get_state, deferring other checks.
+                 * This allows templated units to be enabled on the fly. */
+                state = unit_file_get_state(scope, root_dir, *i);
+                if (state == UNIT_FILE_MASKED || state == UNIT_FILE_MASKED_RUNTIME) {
+                        log_error("Failed to enable unit: Unit %s is masked", *i);
+                        return -ENOTSUP;
+                }
+
                 r = install_info_add_auto(&c, *i);
                 if (r < 0)
                         return r;
@@ -1533,7 +1547,7 @@ int unit_file_disable(
         r = install_context_mark_for_removal(&c, &paths, &remove_symlinks_to, config_path, root_dir);
 
         q = remove_marked_symlinks(remove_symlinks_to, config_path, changes, n_changes, files);
-        if (r == 0)
+        if (r >= 0)
                 r = q;
 
         return r;

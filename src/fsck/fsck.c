@@ -37,6 +37,7 @@
 #include "bus-errors.h"
 #include "fileio.h"
 #include "udev-util.h"
+#include "path-util.h"
 
 static bool arg_skip = false;
 static bool arg_force = false;
@@ -44,7 +45,7 @@ static bool arg_show_progress = false;
 
 static void start_target(const char *target) {
         _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         assert(target);
@@ -280,14 +281,28 @@ int main(int argc, char *argv[]) {
 
         type = udev_device_get_property_value(udev_device, "ID_FS_TYPE");
         if (type) {
-                const char *checker = strappenda("/sbin/fsck.", type);
-                r = access(checker, X_OK);
-                if (r < 0) {
-                        if (errno == ENOENT) {
-                                log_info("%s doesn't exist, not checking file system.", checker);
-                                return EXIT_SUCCESS;
-                        } else
-                                log_warning("%s cannot be used: %m", checker);
+                _cleanup_free_ char *p = NULL, *d = NULL;
+                const char *checker = strappenda("fsck.", type);
+                r = find_binary(checker, &p);
+                if (r == -ENOENT) {
+                        log_info("fsck.%s doesn't exist, not checking file system on %s",
+                                 type, device);
+                        return EXIT_SUCCESS;
+                } else if (r < 0) {
+                        log_warning("fsck.%s cannot be used for %s: %m",
+                                    type, device);
+                        return r;
+                }
+
+                /* An fsck that is linked to /bin/true is a non-existant fsck */
+                r = readlink_malloc(p, &d);
+                if (r >= 0 &&
+                    (path_equal(d, "/bin/true") ||
+                     path_equal(d, "/usr/bin/true") ||
+                     path_equal(d, "/dev/null"))) {
+                        log_info("fsck.%s doesn't exist, not checking file system on %s",
+                                 type, device);
+                        return EXIT_SUCCESS;
                 }
         }
 

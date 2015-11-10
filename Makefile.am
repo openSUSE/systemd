@@ -180,6 +180,7 @@ AM_CPPFLAGS = \
 	-DPOLKIT_AGENT_BINARY_PATH=\"$(bindir)/pkttyagent\" \
 	-DQUOTACHECK=\"$(QUOTACHECK)\" \
 	-DKEXEC=\"$(KEXEC)\" \
+	-DTEST_DIR=\"$(abs_top_srcdir)/test\" \
 	-I $(top_srcdir)/src \
 	-I $(top_builddir)/src/shared \
 	-I $(top_srcdir)/src/shared \
@@ -343,6 +344,7 @@ rootlibexec_PROGRAMS = \
 	systemd-socket-proxyd
 
 systemgenerator_PROGRAMS = \
+	systemd-insserv-generator \
 	systemd-getty-generator \
 	systemd-fstab-generator \
 	systemd-system-update-generator
@@ -390,6 +392,7 @@ dist_systemunit_DATA = \
 	units/remote-fs.target \
 	units/remote-fs-pre.target \
 	units/network.target \
+	units/network-pre.target \
 	units/network-online.target \
 	units/nss-lookup.target \
 	units/nss-user-lookup.target \
@@ -433,6 +436,12 @@ dist_systemunit_DATA = \
 	units/systemd-udevd-kernel.socket \
 	units/system-update.target \
 	units/initrd-switch-root.target
+
+if HAVE_SYSV_COMPAT
+dist_systemunit_DATA += \
+	units/var-run.mount \
+	units/var-lock.mount
+endif
 
 nodist_systemunit_DATA = \
 	units/getty@.service \
@@ -771,7 +780,10 @@ libsystemd_shared_la_SOURCES = \
 	src/shared/condition-util.c \
 	src/shared/condition-util.h \
 	src/shared/bus-label.c \
-	src/shared/bus-label.h
+	src/shared/bus-label.h \
+	src/shared/btrfs-util.c \
+	src/shared/btrfs-util.h
+
 
 nodist_libsystemd_shared_la_SOURCES = \
 	src/shared/errno-from-name.h \
@@ -779,7 +791,8 @@ nodist_libsystemd_shared_la_SOURCES = \
 
 libsystemd_shared_la_CFLAGS = \
 	$(AM_CFLAGS) \
-	$(SECCOMP_CFLAGS)
+	$(SECCOMP_CFLAGS) \
+	-pthread
 
 # ------------------------------------------------------------------------------
 noinst_LTLIBRARIES += \
@@ -811,7 +824,7 @@ libsystemd_label_la_SOURCES = \
 	src/shared/fileio-label.c \
 	src/shared/fileio-label.h \
 	src/shared/dev-setup.c \
-	src/shared/dev-setup.h
+	src/shared/dev-setup.h 
 
 libsystemd_label_la_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -967,8 +980,6 @@ libsystemd_core_la_SOURCES = \
 	src/core/dbus-kill.h \
 	src/core/dbus-cgroup.c \
 	src/core/dbus-cgroup.h \
-	src/core/dbus-client-track.c \
-	src/core/dbus-client-track.h \
 	src/core/cgroup.c \
 	src/core/cgroup.h \
 	src/core/selinux-access.c \
@@ -987,6 +998,8 @@ libsystemd_core_la_SOURCES = \
 	src/core/machine-id-setup.h \
 	src/core/mount-setup.c \
 	src/core/mount-setup.h \
+	src/core/mount-iface.c \
+	src/core/mount-iface.h \
 	src/core/loopback-setup.h \
 	src/core/loopback-setup.c \
 	src/core/condition.c \
@@ -1067,7 +1080,7 @@ BUILT_SOURCES += \
 
 src/shared/errno-list.txt:
 	$(AM_V_at)$(MKDIR_P) $(dir $@)
-	$(AM_V_GEN)$(CPP) $(CFLAGS) $(AM_CPPFLAGS) $(CPPFLAGS) -dM -include errno.h - < /dev/null | $(AWK) '/^#define[ \t]+E[^ _]+[ \t]+[0-9]/ { print $$2; }'  > $@
+	$(AM_V_GEN)$(CPP) $(CFLAGS) $(AM_CPPFLAGS) $(CPPFLAGS) -dM -include errno.h - < /dev/null | $(AWK) '/^#define[ \t]+E[^ _]+[ \t]+/ { print $$2; }'  > $@
 
 src/shared/errno-from-name.gperf: src/shared/errno-list.txt
 	$(AM_V_at)$(MKDIR_P) $(dir $@)
@@ -1079,7 +1092,7 @@ src/shared/errno-from-name.h: src/shared/errno-from-name.gperf
 
 src/shared/errno-to-name.h: src/shared/errno-list.txt
 	$(AM_V_at)$(MKDIR_P) $(dir $@)
-	$(AM_V_GEN)$(AWK) 'BEGIN{ print "static const char* const errno_names[] = { "} { printf "[%s] = \"%s\",\n", $$1, $$1 } END{print "};"}' < $< > $@
+	$(AM_V_GEN)$(AWK) 'BEGIN{ print "static const char* const errno_names[] = { "} !/EDEADLOCK/ && !/EWOULDBLOCK/ && !/ENOTSUP/ { printf "[%s] = \"%s\",\n", $$1, $$1 } END{print "};"}' < $< > $@
 
 # ------------------------------------------------------------------------------
 systemd_SOURCES = \
@@ -1122,7 +1135,6 @@ CLEANFILES += \
 
 # ------------------------------------------------------------------------------
 manual_tests += \
-	test-engine \
 	test-ns \
 	test-loopback \
 	test-hostname \
@@ -1133,6 +1145,7 @@ manual_tests += \
 	test-log
 
 tests += \
+	test-engine \
 	test-job-type \
 	test-env-replace \
 	test-strbuf \
@@ -1714,9 +1727,6 @@ systemd_detect_virt_SOURCES = \
 systemd_detect_virt_LDADD = \
 	libsystemd-shared.la
 
-systemd-detect-virt-install-hook:
-	-$(SETCAP) cap_dac_override,cap_sys_ptrace=ep $(DESTDIR)$(bindir)/systemd-detect-virt
-
 INSTALL_EXEC_HOOKS += \
 	systemd-detect-virt-install-hook
 
@@ -1725,6 +1735,14 @@ systemd_delta_SOURCES = \
 	src/delta/delta.c
 
 systemd_delta_LDADD = \
+	libsystemd-shared.la
+
+# ------------------------------------------------------------------------------
+systemd_insserv_generator_SOURCES = \
+	src/insserv-generator/insserv-generator.c
+
+systemd_insserv_generator_LDADD = \
+	libsystemd-label.la \
 	libsystemd-shared.la
 
 # ------------------------------------------------------------------------------
@@ -1952,7 +1970,7 @@ systemd_bus_proxyd_LDADD = \
 
 bus-proxyd-install-hook:
 	$(AM_V_at)$(MKDIR_P) $(DESTDIR)$(bindir)
-	$(AM_V_LN)$(LN_S) -f ../lib/systemd/systemd-bus-proxyd $(DESTDIR)$(bindir)/systemd-stdio-bridge
+	$(AM_V_LN)$(LN_S) -f $(rootlibexecdir)/systemd-bus-proxyd $(DESTDIR)$(bindir)/systemd-stdio-bridge
 
 bus-proxyd-uninstall-hook:
 	rm -f $(DESTDIR)$(bindir)/systemd-stdio-bridge
@@ -2028,6 +2046,8 @@ libsystemd_internal_la_SOURCES = \
 	src/libsystemd/sd-bus/bus-gvariant.c \
 	src/libsystemd/sd-bus/bus-gvariant.h \
 	src/libsystemd/sd-bus/bus-convenience.c \
+	src/libsystemd/sd-bus/bus-track.c \
+	src/libsystemd/sd-bus/bus-track.h \
 	src/libsystemd/sd-bus/bus-util.c \
 	src/libsystemd/sd-bus/bus-util.h \
 	src/libsystemd/sd-bus/bus-protocol.h \
@@ -2835,6 +2855,23 @@ dist_udevrules_DATA += \
 	rules/61-accelerometer.rules
 
 # ------------------------------------------------------------------------------
+numlock_on_SOURCES = \
+	src/login/numlock-on.c
+
+numlock_on_CFLAGS = \
+	$(AM_CFLAGS)
+
+udevlibexec_PROGRAMS += \
+	numlock-on
+
+dist_udevrules_DATA += \
+	rules/73-seat-numlock.rules
+
+# ------------------------------------------------------------------------------
+dist_udevrules_DATA += \
+	rules/80-hotplug-cpu-mem.rules
+
+# ------------------------------------------------------------------------------
 if ENABLE_GUDEV
 if ENABLE_GTK_DOC
 SUBDIRS += \
@@ -3185,11 +3222,11 @@ noinst_LTLIBRARIES += \
 	libsystemd-journal-core.la
 
 journal-install-hook:
-	-$(MKDIR_P) $(DESTDIR)/var/log/journal
-	-chown 0:0 $(DESTDIR)/var/log/journal
-	-chmod 755 $(DESTDIR)/var/log/journal
-	-setfacl -nm g:adm:rx,d:g:adm:rx $(DESTDIR)/var/log/journal/
-	-setfacl -nm g:wheel:rx,d:g:wheel:rx $(DESTDIR)/var/log/journal/
+	-$(MKDIR_P) $(DESTDIR)/var/log/journal/
+	-@echo chown 0:0 $(DESTDIR)/var/log/journal/
+	-chmod 755 $(DESTDIR)/var/log/journal/
+	-@echo setfacl -nm g:adm:rx,d:g:adm:rx $(DESTDIR)/var/log/journal/
+	-@echo setfacl -nm g:wheel:rx,d:g:wheel:rx $(DESTDIR)/var/log/journal/
 
 journal-uninstall-hook:
 	-rmdir $(DESTDIR)/var/log/journal/
@@ -3465,6 +3502,9 @@ rootlibexec_PROGRAMS += \
 
 nodist_systemunit_DATA += \
 	units/systemd-vconsole-setup.service
+
+dist_udevrules_DATA += \
+	src/vconsole/90-vconsole.rules
 
 SYSINIT_TARGET_WANTS += \
 	systemd-vconsole-setup.service
@@ -4511,12 +4551,6 @@ lib_LTLIBRARIES += \
 	libsystemd-id128.la \
 	libsystemd-daemon.la
 
-pkgconfiglib_DATA += \
-	src/compat-libs/libsystemd-journal.pc \
-	src/compat-libs/libsystemd-login.pc \
-	src/compat-libs/libsystemd-id128.pc \
-	src/compat-libs/libsystemd-daemon.pc
-
 # move lib from $(libdir) to $(rootlibdir) and update devel link, if needed
 compat-lib-install-hook:
 	libname=libsystemd-login.so && $(move-to-rootlibdir)
@@ -4533,6 +4567,12 @@ compat-lib-uninstall-hook:
 INSTALL_EXEC_HOOKS += compat-lib-install-hook
 UNINSTALL_EXEC_HOOKS += compat-lib-uninstall-hook
 endif
+
+pkgconfiglib_DATA += \
+	src/compat-libs/libsystemd-journal.pc \
+	src/compat-libs/libsystemd-login.pc \
+	src/compat-libs/libsystemd-id128.pc \
+	src/compat-libs/libsystemd-daemon.pc
 
 EXTRA_DIST += \
 	src/compat-libs/libsystemd-journal.pc.in \
@@ -4744,6 +4784,9 @@ RUNLEVEL4_TARGET_WANTS += \
 	systemd-update-utmp-runlevel.service
 RUNLEVEL5_TARGET_WANTS += \
 	systemd-update-utmp-runlevel.service
+LOCAL_FS_TARGET_WANTS += \
+	var-run.mount \
+	var-lock.mount
 endif
 SYSINIT_TARGET_WANTS += \
 	systemd-update-utmp.service

@@ -171,7 +171,7 @@ static int help(void) {
                "     --user                Show only the user journal for the current user\n"
                "  -M --machine=CONTAINER   Operate on local container\n"
                "     --since=DATE          Start showing entries on or newer than the specified date\n"
-               "     --until=DATE          Stop showing entries on or older than the specified date\n"
+               "     --until=DATE          Stop showing entries on or newer than the specified date\n"
                "  -c --cursor=CURSOR       Start showing entries from the specified cursor\n"
                "     --after-cursor=CURSOR Start showing entries from after the specified cursor\n"
                "     --show-cursor         Print the cursor after all the entries\n"
@@ -658,6 +658,11 @@ static int parse_argv(int argc, char *argv[]) {
                 return -EINVAL;
         }
 
+        if (arg_action != ACTION_SHOW && optind < argc) {
+                log_error("Extraneous arguments starting with '%s'", argv[optind]);
+                return -EINVAL;
+        }
+
         return 1;
 }
 
@@ -694,15 +699,20 @@ static int generate_new_id128(void) {
 
 static int add_matches(sd_journal *j, char **args) {
         char **i;
+        bool have_term = false;
 
         assert(j);
 
         STRV_FOREACH(i, args) {
                 int r;
 
-                if (streq(*i, "+"))
+                if (streq(*i, "+")) {
+                        if (!have_term)
+                                break;
                         r = sd_journal_add_disjunction(j);
-                else if (path_is_absolute(*i)) {
+                        have_term = false;
+
+                } else if (path_is_absolute(*i)) {
                         _cleanup_free_ char *p, *t = NULL, *t2 = NULL;
                         const char *path;
                         _cleanup_free_ char *interpreter = NULL;
@@ -736,11 +746,17 @@ static int add_matches(sd_journal *j, char **args) {
                                         }
                                 } else
                                         t = strappend("_EXE=", path);
-                        } else if (S_ISCHR(st.st_mode))
-                                asprintf(&t, "_KERNEL_DEVICE=c%u:%u", major(st.st_rdev), minor(st.st_rdev));
-                        else if (S_ISBLK(st.st_mode))
-                                asprintf(&t, "_KERNEL_DEVICE=b%u:%u", major(st.st_rdev), minor(st.st_rdev));
-                        else {
+                        } else if (S_ISCHR(st.st_mode)) {
+                                if (asprintf(&t, "_KERNEL_DEVICE=c%u:%u",
+                                             major(st.st_rdev),
+                                             minor(st.st_rdev)) < 0)
+                                        return -ENOMEM;
+                        } else if (S_ISBLK(st.st_mode)) {
+                                if (asprintf(&t, "_KERNEL_DEVICE=b%u:%u",
+                                             major(st.st_rdev),
+                                             minor(st.st_rdev)) < 0)
+                                        return -ENOMEM;
+                        } else {
                                 log_error("File is neither a device node, nor regular file, nor executable: %s", *i);
                                 return -EINVAL;
                         }
@@ -751,13 +767,22 @@ static int add_matches(sd_journal *j, char **args) {
                         r = sd_journal_add_match(j, t, 0);
                         if (t2)
                                 r = sd_journal_add_match(j, t2, 0);
-                } else
+                        have_term = true;
+
+                } else {
                         r = sd_journal_add_match(j, *i, 0);
+                        have_term = true;
+                }
 
                 if (r < 0) {
                         log_error("Failed to add match '%s': %s", *i, strerror(-r));
                         return r;
                 }
+        }
+
+        if (!strv_isempty(args) && !have_term) {
+                log_error("\"+\" can only be used between terms");
+                return -EINVAL;
         }
 
         return 0;
@@ -1194,7 +1219,7 @@ static int setup_keys(void) {
         size_t mpk_size, seed_size, state_size, i;
         uint8_t *mpk, *seed, *state;
         ssize_t l;
-        int fd = -1, r, attr = 0;
+        int fd = -1, r;
         sd_id128_t machine, boot;
         char *p = NULL, *k = NULL;
         struct FSSHeader h;
@@ -1295,13 +1320,9 @@ static int setup_keys(void) {
 
         /* Enable secure remove, exclusion from dump, synchronous
          * writing and in-place updating */
-        if (ioctl(fd, FS_IOC_GETFLAGS, &attr) < 0)
-                log_warning("FS_IOC_GETFLAGS failed: %m");
-
-        attr |= FS_SECRM_FL|FS_NODUMP_FL|FS_SYNC_FL|FS_NOCOW_FL;
-
-        if (ioctl(fd, FS_IOC_SETFLAGS, &attr) < 0)
-                log_warning("FS_IOC_SETFLAGS failed: %m");
+        r = chattr_fd(fd, true, FS_SECRM_FL|FS_NODUMP_FL|FS_SYNC_FL|FS_NOCOW_FL);
+        if (r < 0)
+                log_warning("Failed to set file attributes: %m");
 
         zero(h);
         memcpy(h.signature, "KSHHRHLP", 8);
@@ -1876,7 +1897,7 @@ int main(int argc, char *argv[]) {
                                         goto finish;
                         }
 
-                        if (!arg_merge) {
+                        if (!arg_merge && !arg_quiet) {
                                 sd_id128_t boot_id;
 
                                 r = sd_journal_get_monotonic_usec(j, NULL, &boot_id);

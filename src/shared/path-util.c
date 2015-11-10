@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/statvfs.h>
 
 #include "macro.h"
@@ -323,6 +325,23 @@ bool path_equal(const char *a, const char *b) {
         }
 }
 
+static int files_same(const char *filea, const char *fileb) {
+        struct stat a, b;
+
+        if (stat(filea, &a) < 0)
+                return -errno;
+
+        if (stat(fileb, &b) < 0)
+                return -errno;
+
+        return a.st_dev == b.st_dev &&
+               a.st_ino == b.st_ino;
+}
+
+bool path_equal_or_files_same(const char *a, const char *b) {
+        return path_equal(a, b) || files_same(a, b) > 0;
+}
+
 int path_is_mount_point(const char *t, bool allow_symlink) {
         char *parent;
         int r;
@@ -408,7 +427,16 @@ int path_is_read_only_fs(const char *path) {
         if (statvfs(path, &st) < 0)
                 return -errno;
 
-        return !!(st.f_flag & ST_RDONLY);
+        if (st.f_flag & ST_RDONLY)
+                return true;
+
+        /* On NFS, statvfs() might not reflect whether we can actually
+         * write to the remote share. Let's try again with
+         * access(W_OK) which is more reliable, at least sometimes. */
+        if (access(path, W_OK) < 0 && errno == EROFS)
+                return true;
+
+        return false;
 }
 
 int path_is_os_tree(const char *path) {
@@ -425,19 +453,21 @@ int path_is_os_tree(const char *path) {
 
 int find_binary(const char *name, char **filename) {
         assert(name);
-        assert(filename);
 
-        if (strchr(name, '/')) {
-                char *p;
+        if (is_path(name)) {
+                if (access(name, X_OK) < 0)
+                    return -errno;
 
-                if (path_is_absolute(name))
-                        p = strdup(name);
-                else
+                if (filename) {
+                        char *p;
+
                         p = path_make_absolute_cwd(name);
-                if (!p)
-                        return -ENOMEM;
+                        if (!p)
+                                return -ENOMEM;
 
-                *filename = p;
+                        *filename = p;
+                }
+
                 return 0;
         } else {
                 const char *path;
@@ -463,8 +493,10 @@ int find_binary(const char *name, char **filename) {
                                 continue;
                         }
 
-                        path_kill_slashes(p);
-                        *filename = p;
+                        if (filename) {
+                                path_kill_slashes(p);
+                                *filename = p;
+                        }
 
                         return 0;
                 }

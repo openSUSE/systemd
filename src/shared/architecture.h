@@ -23,6 +23,8 @@
 
 #include "util.h"
 
+/* A cleaned up architecture definition */
+
 typedef enum Architecture {
         ARCHITECTURE_X86 = 0,
         ARCHITECTURE_X86_64,
@@ -38,7 +40,9 @@ typedef enum Architecture {
         ARCHITECTURE_SPARC,
         ARCHITECTURE_SPARC64,
         ARCHITECTURE_MIPS,
+        ARCHITECTURE_MIPS_LE,
         ARCHITECTURE_MIPS64,
+        ARCHITECTURE_MIPS64_LE,
         ARCHITECTURE_ALPHA,
         ARCHITECTURE_ARM,
         ARCHITECTURE_ARM_BE,
@@ -47,6 +51,8 @@ typedef enum Architecture {
         ARCHITECTURE_SH,
         ARCHITECTURE_SH64,
         ARCHITECTURE_M68K,
+        ARCHITECTURE_TILEGX,
+        ARCHITECTURE_CRIS,
         _ARCHITECTURE_MAX,
         _ARCHITECTURE_INVALID = -1
 } Architecture;
@@ -107,6 +113,10 @@ Architecture uname_architecture(void);
 #  define native_architecture() ARCHITECTURE_SH
 #elif defined(__m68k__)
 #  define native_architecture() ARCHITECTURE_M68K
+#elif defined(__tilegx__)
+#  define native_architecture() ARCHITECTURE_TILEGX
+#elif defined(__cris__)
+#  define native_architecture() ARCHITECTURE_CRIS
 #else
 #error "Please register your architecture here!"
 #endif

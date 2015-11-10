@@ -51,6 +51,7 @@
 #include "bus-util.h"
 #include "bus-container.h"
 #include "bus-protocol.h"
+#include "bus-track.h"
 
 static int bus_poll(sd_bus *bus, bool need_more, uint64_t timeout_usec);
 static int attach_io_events(sd_bus *b);
@@ -130,6 +131,8 @@ static void bus_free(sd_bus *b) {
         struct node *n;
 
         assert(b);
+
+        assert(!b->track_queue);
 
         sd_bus_detach_event(b);
 
@@ -794,8 +797,8 @@ static int parse_container_unix_address(sd_bus *b, const char **p, char **guid) 
         machine = NULL;
 
         b->sockaddr.un.sun_family = AF_UNIX;
-        strncpy(b->sockaddr.un.sun_path, "/var/run/dbus/system_bus_socket", sizeof(b->sockaddr.un.sun_path));
-        b->sockaddr_size = offsetof(struct sockaddr_un, sun_path) + sizeof("/var/run/dbus/system_bus_socket") - 1;
+        strncpy(b->sockaddr.un.sun_path, "/run/dbus/system_bus_socket", sizeof(b->sockaddr.un.sun_path));
+        b->sockaddr_size = offsetof(struct sockaddr_un, sun_path) + strlen("/run/dbus/system_bus_socket");
 
         return 0;
 }
@@ -1051,8 +1054,10 @@ _public_ int sd_bus_start(sd_bus *bus) {
         else
                 return -EINVAL;
 
-        if (r < 0)
+        if (r < 0) {
+                sd_bus_close(bus);
                 return r;
+        }
 
         return bus_send_hello(bus);
 }
@@ -1186,7 +1191,8 @@ _public_ int sd_bus_open_user(sd_bus **ret) {
 #ifdef ENABLE_KDBUS
                         asprintf(&b->address, KERNEL_USER_BUS_FMT, (unsigned long) getuid());
 #else
-                        return -ECONNREFUSED;
+                        r = -ECONNREFUSED;
+                        goto fail;
 #endif
                 }
 
@@ -1443,7 +1449,7 @@ static int bus_seal_message(sd_bus *b, sd_bus_message *m, usec_t timeout) {
 static int bus_remarshal_message(sd_bus *b, sd_bus_message **m) {
         assert(b);
 
-        /* Do packet version and endianess already match? */
+        /* Do packet version and endianness already match? */
         if ((b->message_version == 0 || b->message_version == (*m)->header->version) &&
             (b->message_endian == 0 || b->message_endian == (*m)->header->endian))
                 return 0;
@@ -1460,7 +1466,7 @@ int bus_seal_synthetic_message(sd_bus *b, sd_bus_message *m) {
          * hence let's fill something in for synthetic messages. Since
          * synthetic messages might have a fake sender and we don't
          * want to interfere with the real sender's serial numbers we
-         * pick a fixed, artifical one. We use (uint32_t) -1 rather
+         * pick a fixed, artificial one. We use (uint32_t) -1 rather
          * than (uint64_t) -1 since dbus1 only had 32bit identifiers,
          * even though kdbus can do 64bit. */
 
@@ -1482,15 +1488,15 @@ static int bus_write_message(sd_bus *bus, sd_bus_message *m, bool hint_sync_call
                 return r;
 
         if (bus->is_kernel || *idx >= BUS_MESSAGE_SIZE(m))
-                log_debug("Sent message type=%s sender=%s destination=%s object=%s interface=%s member=%s cookie=%lu reply_cookie=%lu error=%s",
+                log_debug("Sent message type=%s sender=%s destination=%s object=%s interface=%s member=%s cookie=%" PRIu64 " reply_cookie=%" PRIu64 " error=%s",
                           bus_message_type_to_string(m->header->type),
                           strna(sd_bus_message_get_sender(m)),
                           strna(sd_bus_message_get_destination(m)),
                           strna(sd_bus_message_get_path(m)),
                           strna(sd_bus_message_get_interface(m)),
                           strna(sd_bus_message_get_member(m)),
-                          (unsigned long) BUS_MESSAGE_COOKIE(m),
-                          (unsigned long) m->reply_cookie,
+                          BUS_MESSAGE_COOKIE(m),
+                          m->reply_cookie,
                           strna(m->error.message));
 
         return r;
@@ -1591,9 +1597,11 @@ static int bus_send_internal(sd_bus *bus, sd_bus_message *_m, uint64_t *cookie, 
         int r;
 
         assert_return(bus, -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(m, -EINVAL);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         if (m->n_fds > 0) {
                 r = sd_bus_can_send(bus, SD_BUS_TYPE_UNIX_FD);
@@ -1670,9 +1678,11 @@ _public_ int sd_bus_send_to(sd_bus *bus, sd_bus_message *m, const char *destinat
         int r;
 
         assert_return(bus, -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(m, -EINVAL);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         if (!streq_ptr(m->destination, destination)) {
 
@@ -1725,12 +1735,14 @@ _public_ int sd_bus_call_async(
         int r;
 
         assert_return(bus, -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(m, -EINVAL);
         assert_return(m->header->type == SD_BUS_MESSAGE_METHOD_CALL, -EINVAL);
         assert_return(!(m->header->flags & BUS_MESSAGE_NO_REPLY_EXPECTED), -EINVAL);
         assert_return(callback, -EINVAL);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         r = hashmap_ensure_allocated(&bus->reply_callbacks, uint64_hash_func, uint64_compare_func);
         if (r < 0)
@@ -1838,12 +1850,14 @@ _public_ int sd_bus_call(
         int r;
 
         assert_return(bus, -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(m, -EINVAL);
         assert_return(m->header->type == SD_BUS_MESSAGE_METHOD_CALL, -EINVAL);
         assert_return(!(m->header->flags & BUS_MESSAGE_NO_REPLY_EXPECTED), -EINVAL);
         assert_return(!bus_error_is_dirty(error), -EINVAL);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         r = bus_ensure_running(bus);
         if (r < 0)
@@ -1970,8 +1984,10 @@ _public_ int sd_bus_get_events(sd_bus *bus) {
         int flags = 0;
 
         assert_return(bus, -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state) || bus->state == BUS_CLOSING, -ENOTCONN);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state) && bus->state != BUS_CLOSING)
+                return -ENOTCONN;
 
         if (bus->state == BUS_OPENING)
                 flags |= POLLOUT;
@@ -1997,8 +2013,15 @@ _public_ int sd_bus_get_timeout(sd_bus *bus, uint64_t *timeout_usec) {
 
         assert_return(bus, -EINVAL);
         assert_return(timeout_usec, -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state) || bus->state == BUS_CLOSING, -ENOTCONN);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state) && bus->state != BUS_CLOSING)
+                return -ENOTCONN;
+
+        if (bus->track_queue) {
+                *timeout_usec = 0;
+                return 1;
+        }
 
         if (bus->state == BUS_CLOSING) {
                 *timeout_usec = 0;
@@ -2244,15 +2267,15 @@ static int process_message(sd_bus *bus, sd_bus_message *m) {
         bus->current = m;
         bus->iteration_counter++;
 
-        log_debug("Got message type=%s sender=%s destination=%s object=%s interface=%s member=%s cookie=%lu reply_cookie=%lu error=%s",
+        log_debug("Got message type=%s sender=%s destination=%s object=%s interface=%s member=%s cookie=%" PRIu64 " reply_cookie=%" PRIu64 " error=%s",
                   bus_message_type_to_string(m->header->type),
                   strna(sd_bus_message_get_sender(m)),
                   strna(sd_bus_message_get_destination(m)),
                   strna(sd_bus_message_get_path(m)),
                   strna(sd_bus_message_get_interface(m)),
                   strna(sd_bus_message_get_member(m)),
-                  (unsigned long) BUS_MESSAGE_COOKIE(m),
-                  (unsigned long) m->reply_cookie,
+                  BUS_MESSAGE_COOKIE(m),
+                  m->reply_cookie,
                   strna(m->error.message));
 
         r = process_hello(bus, m);
@@ -2282,6 +2305,16 @@ finish:
         return r;
 }
 
+static int dispatch_track(sd_bus *bus) {
+        assert(bus);
+
+        if (!bus->track_queue)
+                return 0;
+
+        bus_track_dispatch(bus->track_queue);
+        return 1;
+}
+
 static int process_running(sd_bus *bus, bool hint_priority, int64_t priority, sd_bus_message **ret) {
         _cleanup_bus_message_unref_ sd_bus_message *m = NULL;
         int r;
@@ -2294,6 +2327,10 @@ static int process_running(sd_bus *bus, bool hint_priority, int64_t priority, sd
                 goto null_message;
 
         r = dispatch_wqueue(bus);
+        if (r != 0)
+                goto null_message;
+
+        r = dispatch_track(bus);
         if (r != 0)
                 goto null_message;
 
@@ -2509,7 +2546,8 @@ static int bus_poll(sd_bus *bus, bool need_more, uint64_t timeout_usec) {
         if (bus->state == BUS_CLOSING)
                 return 1;
 
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         e = sd_bus_get_events(bus);
         if (e < 0)
@@ -2549,7 +2587,7 @@ static int bus_poll(sd_bus *bus, bool need_more, uint64_t timeout_usec) {
                 n = 2;
         }
 
-        r = ppoll(p, n, m == (uint64_t) -1 ? NULL : timespec_store(&ts, m), NULL);
+        r = __ppoll_alias(p, n, m == (uint64_t) -1 ? NULL : timespec_store(&ts, m), NULL);
         if (r < 0)
                 return -errno;
 
@@ -2564,7 +2602,8 @@ _public_ int sd_bus_wait(sd_bus *bus, uint64_t timeout_usec) {
         if (bus->state == BUS_CLOSING)
                 return 0;
 
-        assert_return(BUS_IS_OPEN(bus->state) , -ENOTCONN);
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         if (bus->rqueue_size > 0)
                 return 0;
@@ -2581,7 +2620,8 @@ _public_ int sd_bus_flush(sd_bus *bus) {
         if (bus->state == BUS_CLOSING)
                 return 0;
 
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         r = bus_ensure_running(bus);
         if (r < 0)
@@ -2806,6 +2846,7 @@ static int quit_callback(sd_event_source *event, void *userdata) {
         assert(event);
 
         sd_bus_flush(bus);
+        sd_bus_close(bus);
 
         return 1;
 }
@@ -3057,9 +3098,13 @@ _public_ int sd_bus_get_peer_creds(sd_bus *bus, uint64_t mask, sd_bus_creds **re
         assert_return(bus, -EINVAL);
         assert_return(mask <= _SD_BUS_CREDS_ALL, -ENOTSUP);
         assert_return(ret, -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(!bus_pid_changed(bus), -ECHILD);
-        assert_return(!bus->is_kernel, -ENOTSUP);
+
+        if (!bus->is_kernel)
+                return -ENOTSUP;
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         if (!bus->ucred_valid && !isempty(bus->label))
                 return -ENODATA;
@@ -3087,8 +3132,10 @@ _public_ int sd_bus_get_peer_creds(sd_bus *bus, uint64_t mask, sd_bus_creds **re
         }
 
         r = bus_creds_add_more(c, mask, pid, 0);
-        if (r < 0)
+        if (r < 0) {
+                sd_bus_creds_unref(c);
                 return r;
+        }
 
         *ret = c;
         return 0;
@@ -3098,9 +3145,13 @@ _public_ int sd_bus_try_close(sd_bus *bus) {
         int r;
 
         assert_return(bus, -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(!bus_pid_changed(bus), -ECHILD);
-        assert_return(bus->is_kernel, -ENOTSUP);
+
+        if (!bus->is_kernel)
+                return -ENOTSUP;
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         if (bus->rqueue_size > 0)
                 return -EBUSY;

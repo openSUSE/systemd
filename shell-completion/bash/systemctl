@@ -43,7 +43,7 @@ __filter_units_by_property () {
         local units=("$@")
         local props
         IFS=$'\n' read -rd '' -a props < \
-            <(__systemctl $mode show --property "$property" -- "${units[@]}")
+            <(__systemctl $mode show --property "$property" -- "${units[@]}" 2> /dev/null)
         for ((i=0; $i < ${#units[*]}; i++)); do
                 if [[ "${props[i]}" = "$property=$value" ]]; then
                         echo " ${units[i]}"
@@ -51,12 +51,21 @@ __filter_units_by_property () {
         done
 }
 
-__get_all_units      () { __systemctl $1 list-units --all \
+__get_all_units      () { { __systemctl $1 list-unit-files; __systemctl $1 list-units --all; } \
         | { while read -r a b; do echo " $a"; done; }; }
+__get_template_names () { __systemctl $1 list-unit-files \
+        | { while read -r a b; do [[ $a =~ @\. ]] && echo " ${a%%@.*}@"; done; }; }
+
 __get_active_units   () { __systemctl $1 list-units       \
         | { while read -r a b; do echo " $a"; done; }; }
-__get_startable_units () { __systemctl $1 list-units --all -t service,timer,socket,mount,automount,path,snapshot,swap \
-        | { while read -r a b c d; do [[ $c == "inactive" || $c == "failed " ]] && echo " $a"; done; }; }
+__get_startable_units () {
+        # find inactive or failed units, filter out masked and not-found
+        __systemctl $1 list-units --state inactive,failed -- $( __get_all_units ) | \
+                { while read -r a b c d; do [[ $b == "loaded" ]] && echo " $a"; done; }; }
+__get_restartable_units () {
+        # find !masked, filter out masked and not-found
+        __systemctl $1 list-units --state active,inactive,failed -- $( __get_all_units ) | \
+                { while read -r a b c d; do [[ $b == "loaded" ]] && echo " $a"; done; }; }
 __get_failed_units   () { __systemctl $1 list-units       \
         | { while read -r a b c d; do [[ $c == "failed"   ]] && echo " $a"; done; }; }
 __get_enabled_units  () { __systemctl $1 list-unit-files  \
@@ -74,8 +83,12 @@ _systemctl () {
                [STANDALONE]='--all -a --reverse --after --before --defaults --fail --ignore-dependencies --failed --force -f --full -l --global
                              --help -h --no-ask-password --no-block --no-legend --no-pager --no-reload --no-wall
                              --quiet -q --privileged -P --system --user --version --runtime'
-                      [ARG]='--host -H --kill-mode --kill-who --property -p --signal -s --type -t --state --root'
+                      [ARG]='--host -H --kill-who --property -p --signal -s --type -t --state --root'
         )
+
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
 
         if __contains_word "--user" ${COMP_WORDS[*]}; then
             mode=--user
@@ -98,9 +111,6 @@ _systemctl () {
                         ;;
                         --kill-who)
                                 comps='all control main'
-                        ;;
-                        --kill-mode)
-                                comps='control-group process'
                         ;;
                         --root)
                                 comps=$(compgen -A directory -- "$cur" )
@@ -159,45 +169,57 @@ _systemctl () {
 
         elif __contains_word "$verb" ${VERBS[ALL_UNITS]}; then
                 comps=$( __get_all_units $mode )
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[ENABLED_UNITS]}; then
                 comps=$( __get_enabled_units $mode )
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[DISABLED_UNITS]}; then
-                comps=$( __get_disabled_units $mode )
+                comps=$( __get_disabled_units $mode;
+                        __get_template_names $mode)
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[REENABLABLE_UNITS]}; then
                 comps=$( __get_disabled_units $mode;
-                         __get_enabled_units $mode )
+                         __get_enabled_units $mode;
+                         __get_template_names $mode)
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[STARTABLE_UNITS]}; then
                 comps=$( __filter_units_by_property $mode CanStart yes \
-                      $( __get_startable_units $mode))
+                        $( __get_startable_units $mode);
+                        __get_template_names $mode)
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[RESTARTABLE_UNITS]}; then
                 comps=$( __filter_units_by_property $mode CanStart yes \
-                      $( __get_all_units $mode \
-                        | while read -r line; do \
-                                [[ "$line" =~ \.(device|snapshot|socket|timer)$ ]] || echo " $line"; \
-                        done ))
+                        $( __get_restartable_units $mode); \
+                        __get_template_names $mode)
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[STOPPABLE_UNITS]}; then
                 comps=$( __filter_units_by_property $mode CanStop yes \
                       $( __get_active_units $mode ) )
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[RELOADABLE_UNITS]}; then
                 comps=$( __filter_units_by_property $mode CanReload yes \
                       $( __get_active_units $mode ) )
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[ISOLATABLE_UNITS]}; then
                 comps=$( __filter_units_by_property $mode AllowIsolate yes \
                       $( __get_all_units $mode ) )
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[FAILED_UNITS]}; then
                 comps=$( __get_failed_units $mode )
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[MASKED_UNITS]}; then
                 comps=$( __get_masked_units $mode )
+                compopt -o filenames
 
         elif __contains_word "$verb" ${VERBS[STANDALONE]} ${VERBS[NAME]}; then
                 comps=''
@@ -222,8 +244,8 @@ _systemctl () {
                         | { while read -r a b; do echo " $a"; done; } )
         fi
 
-        COMPREPLY=( $(compgen -W '$comps' -- "$cur") )
+        COMPREPLY=( $(compgen -o filenames -W '$comps' -- "$cur") )
         return 0
 }
 
-complete -F _systemctl systemctl
+complete -o default -o bashdefault -F _systemctl systemctl

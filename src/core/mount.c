@@ -36,6 +36,7 @@
 #include "mkdir.h"
 #include "path-util.h"
 #include "mount-setup.h"
+#include "mount-iface.h"
 #include "unit-name.h"
 #include "dbus-mount.h"
 #include "special.h"
@@ -439,7 +440,7 @@ static int mount_fix_timeouts(Mount *m) {
         Unit *other;
         Iterator i;
         usec_t u;
-        char *t;
+        char *t = NULL;
         int r;
 
         assert(m);
@@ -457,12 +458,40 @@ static int mount_fix_timeouts(Mount *m) {
                 timeout += 31;
         else if ((timeout = mount_test_option(p->options, "x-systemd.device-timeout")))
                 timeout += 25;
-        else
-                return 0;
 
-        t = strndup(timeout, strcspn(timeout, ",;" WHITESPACE));
+        if (timeout) {
+                t = strndup(timeout, strcspn(timeout, ",;" WHITESPACE));
+                if (!t)
+                        return -ENOMEM;
+        } else {
+                _cleanup_free_ char *line = NULL;
+                char *w, *state;
+                size_t l;
+
+                r = proc_cmdline(&line);
+                if (r > 0) {
+                        /*
+                         * Allow to override the device timeout from the
+                         * kernel commandline, allowing later entries
+                         * to override earlier ones.
+                         */
+                        FOREACH_WORD_QUOTED(w, l, line, state) {
+                                if (startswith(w, "mount.timeout=")) {
+                                        if (t)
+                                                free(t);
+                                        t = strdup(w + 14);
+                                } else if (startswith(w, "rd.timeout=")) {
+                                        if (in_initrd()) {
+                                                if (t)
+                                                        free(t);
+                                                t = strdup(w + 11);
+                                        }
+                                }
+                        }
+                }
+        }
         if (!t)
-                return -ENOMEM;
+                return 0;
 
         r = parse_sec(t, &u);
         free(t);
@@ -784,6 +813,7 @@ static int mount_spawn(Mount *m, ExecCommand *c, pid_t *_pid) {
                        true,
                        true,
                        UNIT(m)->manager->confirm_spawn,
+                       false,
                        UNIT(m)->manager->cgroup_supported,
                        UNIT(m)->cgroup_path,
                        UNIT(m)->id,
@@ -946,10 +976,11 @@ static void mount_enter_mounting(Mount *m) {
                 r = exec_command_set(
                                 m->control_command,
                                 "/bin/mount",
+                                "-n",
+                                "-t", m->parameters_fragment.fstype ? m->parameters_fragment.fstype : "auto",
+                                "-o", m->parameters_fragment.options ? m->parameters_fragment.options : "defaults",
                                 m->parameters_fragment.what,
                                 m->where,
-                                "-t", m->parameters_fragment.fstype ? m->parameters_fragment.fstype : "auto",
-                                m->parameters_fragment.options ? "-o" : NULL, m->parameters_fragment.options,
                                 NULL);
         else
                 r = -ENOENT;
@@ -993,10 +1024,11 @@ static void mount_enter_remounting(Mount *m) {
                 r = exec_command_set(
                                 m->control_command,
                                 "/bin/mount",
-                                m->parameters_fragment.what,
-                                m->where,
+                                "-n",
                                 "-t", m->parameters_fragment.fstype ? m->parameters_fragment.fstype : "auto",
                                 "-o", o,
+                                m->parameters_fragment.what,
+                                m->where,
                                 NULL);
         } else
                 r = -ENOENT;
@@ -1377,7 +1409,7 @@ static int mount_dispatch_timer(sd_event_source *source, usec_t usec, void *user
         return 0;
 }
 
-static int mount_add_one(
+static int mount_setup_unit(
                 Manager *m,
                 const char *what,
                 const char *where,
@@ -1388,8 +1420,9 @@ static int mount_add_one(
         _cleanup_free_ char *e = NULL, *w = NULL, *o = NULL, *f = NULL;
         bool load_extras = false;
         MountParameters *p;
-        bool delete;
+        bool delete, changed = false, isnetwork;
         Unit *u;
+        char *c;
         int r;
 
         assert(m);
@@ -1414,13 +1447,15 @@ static int mount_add_one(
         if (!e)
                 return -ENOMEM;
 
+        isnetwork = fstype_is_network(fstype);
+
         u = manager_get_unit(m, e);
         if (!u) {
                 delete = true;
 
                 u = unit_new(m, sizeof(Mount));
                 if (!u)
-                        return -ENOMEM;
+                        return log_oom();
 
                 r = unit_add_name(u, e);
                 if (r < 0)
@@ -1442,7 +1477,7 @@ static int mount_add_one(
                 if (m->running_as == SYSTEMD_SYSTEM) {
                         const char* target;
 
-                        target = fstype_is_network(fstype) ? SPECIAL_REMOTE_FS_TARGET : SPECIAL_LOCAL_FS_TARGET;
+                        target = isnetwork ? SPECIAL_REMOTE_FS_TARGET : SPECIAL_LOCAL_FS_TARGET;
 
                         r = unit_add_dependency_by_name(u, UNIT_BEFORE, target, NULL, true);
                         if (r < 0)
@@ -1456,6 +1491,7 @@ static int mount_add_one(
                 }
 
                 unit_add_to_load_queue(u);
+                changed = true;
         } else {
                 delete = false;
 
@@ -1474,6 +1510,7 @@ static int mount_add_one(
                         /* Load in the extras later on, after we
                          * finished initialization of the unit */
                         load_extras = true;
+                        changed = true;
                 }
         }
 
@@ -1485,10 +1522,16 @@ static int mount_add_one(
         }
 
         p = &MOUNT(u)->parameters_proc_self_mountinfo;
+
+        changed = changed ||
+                !streq_ptr(p->options, options) ||
+                !streq_ptr(p->what, what) ||
+                !streq_ptr(p->fstype, fstype);
+
         if (set_flags) {
                 MOUNT(u)->is_mounted = true;
                 MOUNT(u)->just_mounted = !MOUNT(u)->from_proc_self_mountinfo;
-                MOUNT(u)->just_changed = !streq_ptr(p->options, o);
+                MOUNT(u)->just_changed = changed;
         }
 
         MOUNT(u)->from_proc_self_mountinfo = true;
@@ -1511,11 +1554,40 @@ static int mount_add_one(
                         goto fail;
         }
 
-        unit_add_to_dbus_queue(u);
+        if (isnetwork && (c = strrchr(p->what, ':')) && *(c+1) == '/') {
+                _cleanup_free_ char *opt = strdup(p->options);
+                char *addr;
+
+                if (opt && (addr = strstr(opt, ",addr="))) {
+                        char *colon, *iface;
+
+                        addr += 6;
+                        if ((colon = strchr(addr, ',')))
+                                *colon = '\0';
+
+                        iface = host2iface(addr);
+                        if (iface) {
+                                _cleanup_free_ char* target = NULL;
+                                if (asprintf(&target, "sys-subsystem-net-devices-%s.device", iface) < 0)
+                                        log_oom();
+                                else {
+                                        r = unit_add_dependency_by_name(u, UNIT_AFTER, target, NULL, true);
+                                        if (r < 0)
+                                                log_error_unit(u->id, "Failed to add dependency on %s, ignoring: %s",
+                                                               target, strerror(-r));
+                                }
+                        }
+                }
+        }
+
+        if (changed)
+                unit_add_to_dbus_queue(u);
 
         return 0;
 
 fail:
+        log_warning("Failed to set up mount unit: %s", strerror(-r));
+
         if (delete && u)
                 unit_free(u);
 
@@ -1566,14 +1638,20 @@ static int mount_load_proc_self_mountinfo(Manager *m, bool set_flags) {
                         return log_oom();
 
                 d = cunescape(device);
-                p = cunescape(path);
-                if (!d || !p)
+                if (!d)
                         return log_oom();
 
-                k = mount_add_one(m, d, p, o, fstype, set_flags);
+                p = cunescape(path);
+                if (!p)
+                        return log_oom();
+
+		(void) device_found_node(m, d, true, DEVICE_FOUND_MOUNT, set_flags);
+
+                k = mount_setup_unit(m, d, p, o, fstype, set_flags);
                 if (k < 0)
                         r = k;
         }
+        freeroutes();        /* Just in case of using the routing table with host2iface() */
 
         return r;
 }
@@ -1649,8 +1727,6 @@ static int mount_dispatch_io(sd_event_source *source, int fd, uint32_t revents, 
 
         r = mount_load_proc_self_mountinfo(m, true);
         if (r < 0) {
-                log_error("Failed to reread /proc/self/mountinfo: %s", strerror(-r));
-
                 /* Reset flags, just in case, for later calls */
                 LIST_FOREACH(units_by_type, u, m->units_by_type[UNIT_MOUNT]) {
                         Mount *mount = MOUNT(u);
@@ -1667,21 +1743,25 @@ static int mount_dispatch_io(sd_event_source *source, int fd, uint32_t revents, 
                 Mount *mount = MOUNT(u);
 
                 if (!mount->is_mounted) {
-                        /* This has just been unmounted. */
 
                         mount->from_proc_self_mountinfo = false;
 
                         switch (mount->state) {
 
                         case MOUNT_MOUNTED:
+                                /* This has just been unmounted by
+                                 * somebody else, follow the state
+                                 * change. */
                                 mount_enter_dead(mount, MOUNT_SUCCESS);
                                 break;
 
                         default:
-                                mount_set_state(mount, mount->state);
                                 break;
-
                         }
+
+                        if (mount->parameters_proc_self_mountinfo.what)
+                                (void) device_found_node(m, mount->parameters_proc_self_mountinfo.what, false, DEVICE_FOUND_MOUNT, true);
+
 
                 } else if (mount->just_mounted || mount->just_changed) {
 
@@ -1691,6 +1771,9 @@ static int mount_dispatch_io(sd_event_source *source, int fd, uint32_t revents, 
 
                         case MOUNT_DEAD:
                         case MOUNT_FAILED:
+                                /* This has just been mounted by
+                                 * somebody else, follow the state
+                                 * change. */
                                 mount_enter_mounted(mount, MOUNT_SUCCESS);
                                 break;
 
@@ -1817,6 +1900,8 @@ const UnitVTable mount_vtable = {
         .bus_commit_properties = bus_mount_commit_properties,
 
         .get_timeout = mount_get_timeout,
+
+        .can_transient = true,
 
         .enumerate = mount_enumerate,
         .shutdown = mount_shutdown,

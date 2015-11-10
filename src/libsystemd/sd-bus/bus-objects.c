@@ -579,6 +579,9 @@ static int property_get_set_callbacks_run(
                         return r;
 
         } else {
+                const char *signature = NULL;
+                char type = 0;
+
                 if (c->vtable->type != _SD_BUS_VTABLE_WRITABLE_PROPERTY)
                         return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_PROPERTY_READ_ONLY, "Property '%s' is not writable.", c->member);
 
@@ -589,6 +592,13 @@ static int property_get_set_callbacks_run(
                         return 0;
 
                 c->last_iteration = bus->iteration_counter;
+
+                r = sd_bus_message_peek_type(m, &type, &signature);
+                if (r < 0)
+                        return r;
+
+                if (type != 'v' || !streq(strempty(signature), strempty(c->vtable->x.property.signature)))
+                        return sd_bus_reply_method_errorf(m, SD_BUS_ERROR_INVALID_ARGS, "Incorrect parameters for property '%s', expected '%s', got '%s'.", c->member, strempty(c->vtable->x.property.signature), strempty(signature));
 
                 r = sd_bus_message_enter_container(m, 'v', c->vtable->x.property.signature);
                 if (r < 0)
@@ -1749,6 +1759,11 @@ static int add_object_vtable_internal(
                                 goto fail;
                         }
 
+                        if (v->flags & SD_BUS_VTABLE_PROPERTY_CONST) {
+                                r = -EINVAL;
+                                goto fail;
+                        }
+
                         /* Fall through */
 
                 case _SD_BUS_VTABLE_PROPERTY: {
@@ -2196,9 +2211,10 @@ _public_ int sd_bus_emit_properties_changed_strv(
         assert_return(bus, -EINVAL);
         assert_return(object_path_is_valid(path), -EINVAL);
         assert_return(interface_name_is_valid(interface), -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(!bus_pid_changed(bus), -ECHILD);
 
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         /* A non-NULL but empty names list means nothing needs to be
            generated. A NULL list OTOH indicates that all properties
@@ -2241,8 +2257,10 @@ _public_ int sd_bus_emit_properties_changed(
         assert_return(bus, -EINVAL);
         assert_return(object_path_is_valid(path), -EINVAL);
         assert_return(interface_name_is_valid(interface), -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         if (!name)
                 return 0;
@@ -2361,8 +2379,10 @@ _public_ int sd_bus_emit_interfaces_added_strv(sd_bus *bus, const char *path, ch
 
         assert_return(bus, -EINVAL);
         assert_return(object_path_is_valid(path), -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         if (strv_isempty(interfaces))
                 return 0;
@@ -2421,8 +2441,10 @@ _public_ int sd_bus_emit_interfaces_added(sd_bus *bus, const char *path, const c
 
         assert_return(bus, -EINVAL);
         assert_return(object_path_is_valid(path), -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         interfaces = strv_from_stdarg_alloca(interface);
 
@@ -2435,8 +2457,10 @@ _public_ int sd_bus_emit_interfaces_removed_strv(sd_bus *bus, const char *path, 
 
         assert_return(bus, -EINVAL);
         assert_return(object_path_is_valid(path), -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         if (strv_isempty(interfaces))
                 return 0;
@@ -2461,8 +2485,10 @@ _public_ int sd_bus_emit_interfaces_removed(sd_bus *bus, const char *path, const
 
         assert_return(bus, -EINVAL);
         assert_return(object_path_is_valid(path), -EINVAL);
-        assert_return(BUS_IS_OPEN(bus->state), -ENOTCONN);
         assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
 
         interfaces = strv_from_stdarg_alloca(interface);
 

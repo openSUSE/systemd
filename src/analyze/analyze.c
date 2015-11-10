@@ -43,7 +43,7 @@
 #include "pager.h"
 
 #define SCALE_X (0.1 / 1000.0)   /* pixels per us */
-#define SCALE_Y 20.0
+#define SCALE_Y (20.0)
 
 #define compare(a, b) (((a) > (b))? 1 : (((b) > (a))? -1 : 0))
 
@@ -280,7 +280,8 @@ static int acquire_time_data(sd_bus *bus, struct unit_times **out) {
         return c;
 
 fail:
-        free_unit_times(unit_times, (unsigned) c);
+        if (unit_times)
+                free_unit_times(unit_times, (unsigned) c);
         return r;
 }
 
@@ -784,7 +785,8 @@ static int list_dependencies(sd_bus *bus, const char *name) {
         char ts[FORMAT_TIMESPAN_MAX];
         struct unit_times *times;
         int r;
-        const char *path, *id;
+        const char *id;
+        _cleanup_free_ char *path = NULL;
         _cleanup_bus_message_unref_ sd_bus_message *reply = NULL;
         _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
         struct boot_times *boot;
@@ -1262,7 +1264,7 @@ static int parse_argv(int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         setlocale(LC_ALL, "");
@@ -1274,7 +1276,7 @@ int main(int argc, char *argv[]) {
         if (r <= 0)
                 goto finish;
 
-        r = bus_open_transport(arg_transport, arg_host, arg_user, &bus);
+        r = bus_open_transport_systemd(arg_transport, arg_host, arg_user, &bus);
         if (r < 0) {
                 log_error("Failed to create bus connection: %s", strerror(-r));
                 goto finish;

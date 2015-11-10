@@ -40,6 +40,11 @@
 #include "macro.h"
 #include "virt.h"
 #include "fileio.h"
+#include "strv.h"
+
+#define BIOS_DATA_AREA  0x400
+#define BDA_KEYBOARD_STATUS_FLAGS_4 0x97
+#define BDA_KSF4_NUMLOCK_MASK 0x02
 
 static bool is_vconsole(int fd) {
         unsigned char data[1];
@@ -99,8 +104,8 @@ static int enable_utf8(int fd) {
         return r;
 }
 
-static int keymap_load(const char *vc, const char *map, const char *map_toggle, bool utf8, pid_t *_pid) {
-        const char *args[8];
+static int keymap_load(const char *vc, const char *map, const char *map_toggle, bool utf8, bool disable_capslock, pid_t *_pid) {
+        const char *args[9];
         int i = 0;
         pid_t pid;
 
@@ -119,6 +124,8 @@ static int keymap_load(const char *vc, const char *map, const char *map_toggle, 
         args[i++] = map;
         if (map_toggle)
                 args[i++] = map_toggle;
+        if (disable_capslock)
+                args[i++] = "disable.capslock";
         args[i++] = NULL;
 
         pid = fork();
@@ -180,17 +187,38 @@ static int font_load(const char *vc, const char *font, const char *map, const ch
  */
 static void font_copy_to_all_vcs(int fd) {
         struct vt_stat vcs = {};
+        unsigned char map8[E_TABSZ];
+        unsigned short map16[E_TABSZ];
+        struct unimapdesc unimapd;
+        struct unipair unipairs[USHRT_MAX];
+        struct console_font_op cfo = {};
         int i, r;
+
+        bool hasmap8;
+        bool hasmap16;
+        bool hasunimap;
 
         /* get active, and 16 bit mask of used VT numbers */
         r = ioctl(fd, VT_GETSTATE, &vcs);
         if (r < 0)
                 return;
 
+        /* copy font from active VT, where the font was uploaded to */
+        cfo.op = KD_FONT_OP_COPY;
+        cfo.height = vcs.v_active-1; /* tty1 == index 0 */
+
+        hasmap8 = (ioctl(fd, GIO_SCRNMAP, map8) >= 0);
+        hasmap16 = (ioctl(fd, GIO_UNISCRNMAP, map16) >= 0);
+
+        /* unimapd is a ushort count and a pointer to an
+         * array of struct unipair { ushort, ushort } */
+        unimapd.entries  = unipairs;
+        unimapd.entry_ct = USHRT_MAX;
+        hasunimap = (ioctl(fd, GIO_UNIMAP, &unimapd) >= 0);
+
         for (i = 1; i <= 15; i++) {
                 char vcname[16];
                 _cleanup_close_ int vcfd = -1;
-                struct console_font_op cfo = {};
 
                 if (i == vcs.v_active)
                         continue;
@@ -205,22 +233,138 @@ static void font_copy_to_all_vcs(int fd) {
                 if (vcfd < 0)
                         continue;
 
-                /* copy font from active VT, where the font was uploaded to */
-                cfo.op = KD_FONT_OP_COPY;
-                cfo.height = vcs.v_active-1; /* tty1 == index 0 */
+                /* copy font from active VT to vcs */
                 ioctl(vcfd, KDFONTOP, &cfo);
+
+                /* copy map of 8bit chars to vcs */
+                if (hasmap8)
+                    ioctl(vcfd, PIO_SCRNMAP, map8);
+
+                /* copy map of 8bit chars -> 16bit Unicode values to vcs */
+                if (hasmap16)
+                    ioctl(vcfd, PIO_UNISCRNMAP, map16);
+
+                /* copy unicode translation table to vcs */
+                if (hasunimap) {
+                        struct unimapinit adv = { 0, 0, 0 };
+
+                        ioctl(vcfd, PIO_UNIMAPCLR, &adv);
+                        ioctl(vcfd, PIO_UNIMAP, &unimapd);
+                }
         }
+}
+
+#ifdef HAVE_SYSV_COMPAT
+static int load_compose_table(const char *vc, const char *compose_table, pid_t *_pid) {
+        const char *args[1024];
+        int i = 0, j = 0;
+        pid_t pid;
+        char **strv_compose_table = NULL;
+        char *to_free[1024];
+
+        if (isempty(compose_table)) {
+                /* An empty map means no compose table*/
+                *_pid = 0;
+                return 0;
+        }
+
+        args[i++] = KBD_LOADKEYS;
+        args[i++] = "-q";
+        args[i++] = "-C";
+        args[i++] = vc;
+
+        strv_compose_table = strv_split(compose_table, WHITESPACE);
+        if (strv_compose_table) {
+                bool compose_loaded = false;
+                bool compose_clear = false;
+                char **name;
+                char *arg;
+
+                STRV_FOREACH (name, strv_compose_table) {
+                        if (streq(*name,"-c") || streq(*name,"clear")) {
+                                compose_clear = true;
+                                continue;
+                        }
+                        if (!compose_loaded) {
+                                if (compose_clear)
+                                        args[i++] = "-c";
+                        }
+                        asprintf(&arg, "compose.%s",*name);
+                        compose_loaded = true;
+                        args[i++] = to_free[j++] = arg;
+
+                }
+                strv_free(strv_compose_table);
+        }
+        args[i++] = NULL;
+
+        if ((pid = fork()) < 0) {
+                log_error("Failed to fork: %m");
+                return -errno;
+        } else if (pid == 0) {
+                execv(args[0], (char **) args);
+                _exit(EXIT_FAILURE);
+        }
+
+        *_pid = pid;
+
+        for (i=0 ; i < j ; i++)
+                free (to_free[i]);
+
+        return 0;
+}
+#endif
+
+static int set_kbd_rate(const char *vc, const char *kbd_rate, const char *kbd_delay, pid_t *_pid) {
+        const char *args[7];
+        int i = 0;
+        pid_t pid;
+
+        if (isempty(kbd_rate) && isempty(kbd_delay)) {
+                *_pid = 0;
+                return 0;
+        }
+
+        args[i++] = "/bin/kbdrate";
+        if (!isempty(kbd_rate)) {
+                args[i++] = "-r";
+                args[i++] = kbd_rate;
+        }
+        if (!isempty(kbd_delay)) {
+                args[i++] = "-d";
+                args[i++] = kbd_delay;
+        }
+        args[i++] = "-s";
+        args[i++] = NULL;
+
+        if ((pid = fork()) < 0) {
+                log_error("Failed to fork: %m");
+                return -errno;
+        } else if (pid == 0) {
+                execv(args[0], (char **) args);
+                _exit(EXIT_FAILURE);
+        }
+
+        *_pid = pid;
+        return 0;
 }
 
 int main(int argc, char **argv) {
         const char *vc;
-        char *vc_keymap = NULL;
-        char *vc_keymap_toggle = NULL;
-        char *vc_font = NULL;
-        char *vc_font_map = NULL;
-        char *vc_font_unimap = NULL;
-        int fd = -1;
+        _cleanup_free_ char
+                *vc_keymap = NULL, *vc_keymap_toggle = NULL,
+                *vc_font = NULL, *vc_font_map = NULL, *vc_font_unimap = NULL;
+        _cleanup_close_ int fd = -1;
+#ifdef HAVE_SYSV_COMPAT
+        _cleanup_free_ char
+                *vc_kbd_numlock = NULL, *vc_kbd_delay = NULL,
+                *vc_kbd_rate = NULL, * vc_kbd_disable_caps_lock = NULL,
+                *vc_compose_table = NULL;
+        pid_t kbd_rate_pid = 0, compose_table_pid = 0;
+        bool numlock = false;
+#endif
         bool utf8;
+        bool disable_capslock = false;
         pid_t font_pid = 0, keymap_pid = 0;
         bool font_copy = false;
         int r = EXIT_FAILURE;
@@ -241,15 +385,68 @@ int main(int argc, char **argv) {
         fd = open_terminal(vc, O_RDWR|O_CLOEXEC);
         if (fd < 0) {
                 log_error("Failed to open %s: %m", vc);
-                goto finish;
+                return EXIT_FAILURE;
         }
 
         if (!is_vconsole(fd)) {
                 log_error("Device %s is not a virtual console.", vc);
-                goto finish;
+                return EXIT_FAILURE;
         }
 
         utf8 = is_locale_utf8();
+
+#ifdef HAVE_SYSV_COMPAT
+        r = parse_env_file("/etc/sysconfig/keyboard", NEWLINE,
+                "KEYTABLE", &vc_keymap,
+                "KBD_DELAY", &vc_kbd_delay,
+                "KBD_RATE", &vc_kbd_rate,
+                "KBD_DISABLE_CAPS_LOCK", &vc_kbd_disable_caps_lock,
+                "KBD_NUMLOCK", &vc_kbd_numlock,
+                "COMPOSETABLE", &vc_compose_table,
+                NULL);
+        if (r < 0 && r != -ENOENT)
+            log_warning("Failed to read /etc/sysconfig/keyboard: %s", strerror(-r));
+
+        r = parse_env_file("/etc/sysconfig/console", NEWLINE,
+                "CONSOLE_FONT", &vc_font,
+                "CONSOLE_SCREENMAP", &vc_font_map,
+                "CONSOLE_UNICODEMAP", &vc_font_unimap,
+                NULL);
+        if (r < 0 && r != -ENOENT)
+            log_warning("Failed to read /etc/sysconfig/console: %s", strerror(-r));
+
+        disable_capslock = vc_kbd_disable_caps_lock && strcasecmp(vc_kbd_disable_caps_lock, "YES") == 0;
+#if defined(__i386__) || defined(__x86_64__)
+                if (vc_kbd_numlock && strcaseeq(vc_kbd_numlock, "bios")) {
+                        int _cleanup_close_ fdmem;
+                        char c;
+
+                        fdmem = open ("/dev/mem", O_RDONLY);
+
+                        if(fdmem < 0) {
+                                r = EXIT_FAILURE;
+                                log_error("Failed to open /dev/mem: %m");
+                                goto finish;
+                        }
+
+                        if(lseek(fdmem, BIOS_DATA_AREA + BDA_KEYBOARD_STATUS_FLAGS_4, SEEK_SET) == (off_t) -1) {
+                                r = EXIT_FAILURE;
+                                log_error("Failed to seek /dev/mem: %m");
+                                goto finish;
+                        }
+
+                        if(read (fdmem, &c, sizeof(char)) == -1) {
+                                r = EXIT_FAILURE;
+                                log_error("Failed to read /dev/mem: %m");
+                                goto finish;
+                        }
+
+                        if (c & BDA_KSF4_NUMLOCK_MASK)
+                                numlock = true;
+                } else
+#endif
+                        numlock = vc_kbd_numlock && strcaseeq(vc_kbd_numlock, "yes");
+#endif
 
         r = parse_env_file("/etc/vconsole.conf", NEWLINE,
                            "KEYMAP", &vc_keymap,
@@ -275,34 +472,62 @@ int main(int argc, char **argv) {
                 if (r < 0 && r != -ENOENT)
                         log_warning("Failed to read /proc/cmdline: %s", strerror(-r));
         }
+#ifdef HAVE_SYSV_COMPAT
+finish:
+        r = set_kbd_rate(vc, vc_kbd_rate, vc_kbd_delay, &kbd_rate_pid);
+        if (r < 0) {
+                log_error("Failed to start /bin/kbdrate: %s", strerror(-r));
+                return EXIT_FAILURE;
+        }
+
+        if (kbd_rate_pid > 0)
+                wait_for_terminate_and_warn("/bin/kbdrate", kbd_rate_pid);
+#endif
 
         if (utf8)
                 enable_utf8(fd);
         else
                 disable_utf8(fd);
 
-        r = EXIT_FAILURE;
-        if (keymap_load(vc, vc_keymap, vc_keymap_toggle, utf8, &keymap_pid) >= 0 &&
-            font_load(vc, vc_font, vc_font_map, vc_font_unimap, &font_pid) >= 0)
-                r = EXIT_SUCCESS;
+        r = font_load(vc, vc_font, vc_font_map, vc_font_unimap, &font_pid);
+        if (r < 0) {
+                log_error("Failed to start " KBD_SETFONT ": %s", strerror(-r));
+                return EXIT_FAILURE;
+        }
 
-finish:
+        if (font_pid > 0)
+                wait_for_terminate_and_warn(KBD_SETFONT, font_pid);
+
+        r = keymap_load(vc, vc_keymap, vc_keymap_toggle, utf8, disable_capslock, &keymap_pid);
+        if (r < 0) {
+                log_error("Failed to start " KBD_LOADKEYS ": %s", strerror(-r));
+                return EXIT_FAILURE;
+        }
+
         if (keymap_pid > 0)
                 wait_for_terminate_and_warn(KBD_LOADKEYS, keymap_pid);
 
-        if (font_pid > 0) {
-                wait_for_terminate_and_warn(KBD_SETFONT, font_pid);
-                if (font_copy)
-                        font_copy_to_all_vcs(fd);
+#ifdef HAVE_SYSV_COMPAT
+        r = load_compose_table(vc, vc_compose_table, &compose_table_pid);
+        if (r < 0) {
+                log_error("Failed to start " KBD_LOADKEYS ": %s", strerror(-r));
+                return EXIT_FAILURE;
         }
 
-        free(vc_keymap);
-        free(vc_font);
-        free(vc_font_map);
-        free(vc_font_unimap);
+        if (compose_table_pid > 0)
+                wait_for_terminate_and_warn(KBD_LOADKEYS, compose_table_pid);
+#endif
 
-        if (fd >= 0)
-                close_nointr_nofail(fd);
+#ifdef HAVE_SYSV_COMPAT
+        if (numlock)
+                touch("/run/numlock-on");
+        else
+                unlink("/run/numlock-on");
+#endif
+
+        /* Only copy the font when we started setfont successfully */
+        if (font_copy && font_pid > 0)
+                font_copy_to_all_vcs(fd);
 
         return r;
 }

@@ -74,9 +74,9 @@ static int parse_argv(int argc, char *argv[]) {
         assert(argc >= 1);
         assert(argv);
 
-        opterr = 0;
-
-        while ((c = getopt_long(argc, argv, ":", options, NULL)) >= 0)
+        /* "-" prevents getopt from permuting argv[] and moving the verb away
+         * from argv[1]. Our interface to initrd promises it'll be there. */
+        while ((c = getopt_long(argc, argv, "-", options, NULL)) >= 0)
                 switch (c) {
 
                 case ARG_LOG_LEVEL:
@@ -114,27 +114,25 @@ static int parse_argv(int argc, char *argv[]) {
 
                         break;
 
-                case '?':
-                        log_error("Unknown option %s.", argv[optind-1]);
-                        return -EINVAL;
+                case '\001':
+                        if (!arg_verb)
+                                arg_verb = optarg;
+                        else
+                                log_error("Excess arguments, ignoring");
+                        break;
 
-                case ':':
-                        log_error("Missing argument to %s.", argv[optind-1]);
+                case '?':
                         return -EINVAL;
 
                 default:
                         assert_not_reached("Unhandled option code.");
                 }
 
-        if (optind >= argc) {
+        if (!arg_verb) {
                 log_error("Verb argument missing.");
                 return -EINVAL;
         }
 
-        arg_verb = argv[optind];
-
-        if (optind + 1 < argc)
-                log_error("Excess arguments, ignoring");
         return 0;
 }
 
@@ -276,6 +274,7 @@ int main(int argc, char *argv[]) {
         broadcast_signal(SIGKILL, true, false);
 
         if (in_container) {
+                need_umount = false;
                 need_swapoff = false;
                 need_dm_detach = false;
                 need_loop_detach = false;
@@ -375,11 +374,11 @@ int main(int argc, char *argv[]) {
 
                 if (prepare_new_root() >= 0 &&
                     pivot_to_new_root() >= 0) {
-                        arguments[0] = (char*) "/shutdown";
+                        argv[0] = (char*) "/shutdown";
 
                         log_info("Returning to initrd...");
 
-                        execv("/shutdown", arguments);
+                        execv("/shutdown", argv);
                         log_error("Failed to execute shutdown binary: %m");
                 }
         }
@@ -449,6 +448,10 @@ int main(int argc, char *argv[]) {
         }
 
         reboot(cmd);
+
+        if (cmd == (int)RB_POWER_OFF)
+                reboot(RB_HALT_SYSTEM);
+
         if (errno == EPERM && in_container) {
                 /* If we are in a container, and we lacked
                  * CAP_SYS_BOOT just exit, this will kill our

@@ -24,3 +24,16 @@
 #include "journald-server.h"
 
 void server_forward_console(Server *s, int priority, const char *identifier, const char *message, struct ucred *ucred);
+
+#ifdef HAVE_SYSV_COMPAT
+void klogconsole(Server *s);
+void default_tty_path(Server *s);
+#else
+static inline void klogconsole(Server *s) {
+        return;
+}
+
+static inline void default_tty_path(Server *s) {
+        return;
+}
+#endif

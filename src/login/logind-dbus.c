@@ -1294,6 +1294,46 @@ static int bus_manager_log_shutdown(
                           q, NULL);
 }
 
+static int lid_switch_ignore_handler(sd_event_source *e, uint64_t usec, void *userdata) {
+        Manager *m = userdata;
+
+        assert(e);
+        assert(m);
+
+        m->lid_switch_ignore_event_source = sd_event_source_unref(m->lid_switch_ignore_event_source);
+        return 0;
+}
+
+int manager_set_lid_switch_ignore(Manager *m, usec_t until) {
+        int r;
+
+        assert(m);
+
+        if (until <= now(CLOCK_MONOTONIC))
+                return 0;
+
+        /* We want to ignore the lid switch for a while after each
+         * suspend, and after boot-up. Hence let's install a timer for
+         * this. As long as the event source exists we ignore the lid
+         * switch. */
+
+        if (m->lid_switch_ignore_event_source) {
+                usec_t u;
+
+                r = sd_event_source_get_time(m->lid_switch_ignore_event_source, &u);
+                if (r < 0)
+                        return r;
+
+                if (until <= u)
+                        return 0;
+
+                r = sd_event_source_set_time(m->lid_switch_ignore_event_source, until);
+        } else
+                r = sd_event_add_monotonic(m->event, &m->lid_switch_ignore_event_source, until, 0, lid_switch_ignore_handler, m);
+
+        return r;
+}
+
 static int execute_shutdown_or_sleep(
                 Manager *m,
                 InhibitWhat w,
@@ -1336,6 +1376,9 @@ static int execute_shutdown_or_sleep(
         free(m->action_job);
         m->action_job = c;
         m->action_what = w;
+
+        /* Make sure the lid switch is ignored for a while */
+        manager_set_lid_switch_ignore(m, now(CLOCK_MONOTONIC) + IGNORE_LID_SWITCH_SUSPEND_USEC);
 
         return 0;
 }
@@ -1426,9 +1469,11 @@ static int method_do_shutdown_or_sleep(
                 sd_bus_error *error) {
 
         _cleanup_bus_creds_unref_ sd_bus_creds *creds = NULL;
-        bool multiple_sessions, blocked;
+        bool multiple_sessions, blocked, shutdown_through_acpi;
         int interactive, r;
         uid_t uid;
+        int fd;
+        struct stat buf;
 
         assert(m);
         assert(message);
@@ -1472,25 +1517,41 @@ static int method_do_shutdown_or_sleep(
         multiple_sessions = r > 0;
         blocked = manager_is_inhibited(m, w, INHIBIT_BLOCK, NULL, false, true, uid, NULL);
 
-        if (multiple_sessions) {
+        fd = open ("/run/systemd/acpi-shutdown", O_NOFOLLOW|O_PATH|O_CLOEXEC);
+        if (fd >= 0) {
+            shutdown_through_acpi = ((fstat(fd,&buf) == 0) && (time(NULL) - buf.st_mtime <= 65) && !sleep_verb);
+            close(fd);
+            unlink ("/run/systemd/acpi-shutdown");
+        }
+        else
+            shutdown_through_acpi = false;
+
+
+        if (multiple_sessions && !shutdown_through_acpi) {
                 r = bus_verify_polkit_async(m->bus, &m->polkit_registry, message,
                                             action_multiple_sessions, interactive, error, method, m);
                 if (r < 0)
                         return r;
+                if (r == 0)
+                        return 1; /* No authorization for now, but the async polkit stuff will call us again when it has it */
         }
 
-        if (blocked) {
+        if (blocked && !shutdown_through_acpi) {
                 r = bus_verify_polkit_async(m->bus, &m->polkit_registry, message,
                                             action_ignore_inhibit, interactive, error, method, m);
                 if (r < 0)
                         return r;
+                if (r == 0)
+                        return 1; /* No authorization for now, but the async polkit stuff will call us again when it has it */
         }
 
-        if (!multiple_sessions && !blocked) {
+        if (!multiple_sessions && !blocked && !shutdown_through_acpi) {
                 r = bus_verify_polkit_async(m->bus, &m->polkit_registry, message,
                                             action, interactive, error, method, m);
                 if (r < 0)
                         return r;
+                if (r == 0)
+                        return 1; /* No authorization for now, but the async polkit stuff will call us again when it has it */
         }
 
         r = bus_manager_shutdown_or_sleep_now_or_later(m, unit_name, w, error);
@@ -2180,6 +2241,7 @@ int manager_start_scope(
                 const char *slice,
                 const char *description,
                 const char *after, const char *after2,
+                const char *killmode,
                 sd_bus_error *error,
                 char **job) {
 
@@ -2228,6 +2290,12 @@ int manager_start_scope(
 
         if (!isempty(after2)) {
                 r = sd_bus_message_append(m, "(sv)", "After", "as", 1, after2);
+                if (r < 0)
+                        return r;
+        }
+
+        if (!isempty(killmode)) {
+                r = sd_bus_message_append(m, "(sv)", "KillMode", "s", killmode);
                 if (r < 0)
                         return r;
         }

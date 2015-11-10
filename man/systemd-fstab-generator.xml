@@ -106,6 +106,22 @@
                                 honored by both the main system and
                                 the initrd.  </para></listitem>
                         </varlistentry>
+                        <varlistentry>
+                                <term><varname>mount.timeout=</varname></term>
+                                <term><varname>rd.timeout=</varname></term>
+
+                                <listitem><para>Specifies the device
+                                timeout in seconds. It will only be
+                                applied if no device-specific timeout
+                                settings in
+                                <filename>/etc/fstab</filename> are configured.
+                                <varname>rd.timeout</varname> is
+                                honoured only by initial RAMD disk
+                                (initrd) while
+                                <varname>mount.timeout=</varname> is
+                                honored by both the main system and
+                                the initrd.  </para></listitem>
+                        </varlistentry>
 
                 </variablelist>
         </refsect1>

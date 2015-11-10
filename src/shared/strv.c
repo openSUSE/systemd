@@ -361,13 +361,19 @@ char *strv_join_quoted(char **l) {
 
 int strv_push(char ***l, char *value) {
         char **c;
-        unsigned n;
+        unsigned n, m;
 
         if (!value)
                 return 0;
 
         n = strv_length(*l);
-        c = realloc(*l, sizeof(char*) * (n + 2));
+
+        /* increase and check for overflow */
+        m = n + 2;
+        if (m < n)
+                return -ENOMEM;
+
+        c = realloc(*l, sizeof(char*) * (size_t) m);
         if (!c)
                 return -ENOMEM;
 

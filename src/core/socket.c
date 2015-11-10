@@ -29,9 +29,7 @@
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
 #include <mqueue.h>
-#ifdef HAVE_XATTR
-#include <attr/xattr.h>
-#endif
+#include <sys/xattr.h>
 
 #include "sd-event.h"
 #include "log.h"
@@ -196,16 +194,14 @@ static int socket_instantiate_service(Socket *s) {
 
         assert(s->accept);
 
-        if (!(prefix = unit_name_to_prefix(UNIT(s)->id)))
+        prefix = unit_name_to_prefix(UNIT(s)->id);
+        if (!prefix)
                 return -ENOMEM;
 
-        r = asprintf(&name, "%s@%u.service", prefix, s->n_accepted);
-
-        if (r < 0)
+        if (asprintf(&name, "%s@%u.service", prefix, s->n_accepted) < 0)
                 return -ENOMEM;
 
         r = manager_load_unit(UNIT(s)->manager, name, NULL, NULL, &u);
-
         if (r < 0)
                 return r;
 
@@ -457,7 +453,8 @@ static void socket_dump(Unit *u, FILE *f, const char *prefix) {
                 "%sBroadcast: %s\n"
                 "%sPassCredentials: %s\n"
                 "%sPassSecurity: %s\n"
-                "%sTCPCongestion: %s\n",
+                "%sTCPCongestion: %s\n"
+                "%sSELinuxContextFromNet: %s\n",
                 prefix, socket_state_to_string(s->state),
                 prefix, socket_result_to_string(s->result),
                 prefix, socket_address_bind_ipv6_only_to_string(s->bind_ipv6_only),
@@ -470,7 +467,8 @@ static void socket_dump(Unit *u, FILE *f, const char *prefix) {
                 prefix, yes_no(s->broadcast),
                 prefix, yes_no(s->pass_cred),
                 prefix, yes_no(s->pass_sec),
-                prefix, strna(s->tcp_congestion));
+                prefix, strna(s->tcp_congestion),
+                prefix, yes_no(s->selinux_context_from_net));
 
         if (s->control_pid > 0)
                 fprintf(f,
@@ -1004,7 +1002,12 @@ static int socket_open_fds(Socket *s) {
 
                 if (p->type == SOCKET_SOCKET) {
 
-                        if (!know_label) {
+                        if (!know_label && s->selinux_context_from_net) {
+                                r = label_get_our_label(&label);
+                                if (r < 0)
+                                        return r;
+                                know_label = true;
+                        } else if (!know_label) {
 
                                 if ((r = socket_instantiate_service(s)) < 0)
                                         return r;
@@ -1251,6 +1254,7 @@ static int socket_spawn(Socket *s, ExecCommand *c, pid_t *_pid) {
                        true,
                        true,
                        UNIT(s)->manager->confirm_spawn,
+                       s->selinux_context_from_net,
                        UNIT(s)->manager->cgroup_supported,
                        UNIT(s)->cgroup_path,
                        UNIT(s)->id,
@@ -1511,6 +1515,12 @@ static void socket_enter_running(Socket *s, int cfd) {
                         }
 
                 if (!pending) {
+                        if (!UNIT_ISSET(s->service)) {
+                                log_error_unit(UNIT(s)->id, "%s: service to activate vanished, refusing activation.", UNIT(s)->id);
+                                r = -ENOENT;
+                                goto fail;
+                        }
+
                         r = manager_add_job(UNIT(s)->manager, JOB_START, UNIT_DEREF(s->service), JOB_REPLACE, true, &error, NULL);
                         if (r < 0)
                                 goto fail;
@@ -1566,7 +1576,7 @@ static void socket_enter_running(Socket *s, int cfd) {
 
                 unit_choose_id(UNIT(service), name);
 
-                r = service_set_socket_fd(service, cfd, s);
+                r = service_set_socket_fd(service, cfd, s, s->selinux_context_from_net);
                 if (r < 0)
                         goto fail;
 
@@ -1818,7 +1828,7 @@ static int socket_deserialize_item(Unit *u, const char *key, const char *value, 
 
                         LIST_FOREACH(port, p, s->ports)
                                 if (p->type == SOCKET_FIFO &&
-                                    streq_ptr(p->path, value+skip))
+                                    path_equal_or_files_same(p->path, value+skip))
                                         break;
 
                         if (p) {
@@ -1838,7 +1848,7 @@ static int socket_deserialize_item(Unit *u, const char *key, const char *value, 
 
                         LIST_FOREACH(port, p, s->ports)
                                 if (p->type == SOCKET_SPECIAL &&
-                                    streq_ptr(p->path, value+skip))
+                                    path_equal_or_files_same(p->path, value+skip))
                                         break;
 
                         if (p) {
@@ -1858,7 +1868,7 @@ static int socket_deserialize_item(Unit *u, const char *key, const char *value, 
 
                         LIST_FOREACH(port, p, s->ports)
                                 if (p->type == SOCKET_MQUEUE &&
-                                    streq_ptr(p->path, value+skip))
+                                    streq(p->path, value+skip))
                                         break;
 
                         if (p) {
@@ -2331,10 +2341,6 @@ static void socket_trigger_notify(Unit *u, Unit *other) {
                 socket_notify_service_dead(s, se->result == SERVICE_FAILURE_START_LIMIT);
 
         if (se->state == SERVICE_DEAD ||
-            se->state == SERVICE_STOP ||
-            se->state == SERVICE_STOP_SIGTERM ||
-            se->state == SERVICE_STOP_SIGKILL ||
-            se->state == SERVICE_STOP_POST ||
             se->state == SERVICE_FINAL_SIGTERM ||
             se->state == SERVICE_FINAL_SIGKILL ||
             se->state == SERVICE_AUTO_RESTART)

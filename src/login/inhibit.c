@@ -64,7 +64,7 @@ static int inhibit(sd_bus *bus, sd_bus_error *error) {
         if (r < 0)
                 return r;
 
-        r = dup(fd);
+        r = fcntl(fd, F_DUPFD_CLOEXEC, 3);
         if (r < 0)
                 return -errno;
 
@@ -221,7 +221,7 @@ static int parse_argv(int argc, char *argv[]) {
 
 int main(int argc, char *argv[]) {
         _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
-        _cleanup_bus_unref_ sd_bus *bus = NULL;
+        _cleanup_bus_close_unref_ sd_bus *bus = NULL;
         int r;
 
         log_parse_environment();

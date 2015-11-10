@@ -44,6 +44,10 @@ _coredumpctl() {
             [DUMP]='dump gdb'
         )
 
+        if __contains_word ">" ${COMP_WORDS[*]:0:COMP_CWORD}; then
+                return 0
+        fi
+
         if __contains_word "$prev" '--output -o'; then
                 comps=$( compgen -A file -- "$cur" )
                 compopt -o filenames
@@ -82,4 +86,4 @@ _coredumpctl() {
         return 0
 }
 
-complete -F _coredumpctl systemd-coredumpctl
+complete -o default -o bashdefault -F _coredumpctl systemd-coredumpctl

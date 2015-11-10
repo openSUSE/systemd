@@ -277,10 +277,27 @@ int devnode_acl_all(struct udev *udev,
         SET_FOREACH(n, nodes, i) {
                 int k;
 
-                log_debug("Fixing up ACLs at %s for seat %s", n, seat);
+                log_debug("Changing ACLs at %s for seat %s (uid "UID_FMT"→"UID_FMT"%s%s)",
+                          n, seat, old_uid, new_uid,
+                          del ? " del" : "", add ? " add" : "");
+
                 k = devnode_acl(n, flush, del, old_uid, add, new_uid);
                 if (k < 0)
                         r = k;
+        }
+
+        /* only apply ACL on nvidia* if /dev/nvidiactl exists */
+        if (devnode_acl("/dev/nvidiactl", flush, del, old_uid, add, new_uid) >= 0) {
+                int j;
+                for (j = 0; j <= 256 ; j++) {
+                        _cleanup_free_ char *devname = NULL;
+                        if (asprintf(&devname, "/dev/nvidia%d", j) < 0)
+                                break;
+                        if (devnode_acl(devname, flush, del, old_uid, add, new_uid) < 0)
+                                break;
+                }
+                /* required for additional CUDA support (nvidia-uvm module with appropriate device), bnc#879767 */
+                devnode_acl("/dev/nvidia-uvm", flush, del, old_uid, add, new_uid);
         }
 
         return r;

@@ -54,12 +54,14 @@
 #include <grp.h>
 #include <sys/mman.h>
 #include <sys/vfs.h>
+#include <sys/mount.h>
 #include <linux/magic.h>
 #include <limits.h>
 #include <langinfo.h>
 #include <locale.h>
 #include <sys/personality.h>
 #include <libgen.h>
+#include <linux/fs.h>
 #undef basename
 
 #ifdef HAVE_SYS_AUXV_H
@@ -182,13 +184,37 @@ int close_nointr(int fd) {
                 return -errno;
 }
 
+int safe_close(int fd) {
+
+        /*
+         * Like close_nointr() but cannot fail. Guarantees errno is
+         * unchanged. Is a NOP with negative fds passed, and returns
+         * -1, so that it can be used in this syntax:
+         *
+         * fd = safe_close(fd);
+         */
+
+        if (fd >= 0) {
+                PROTECT_ERRNO;
+
+                /* The kernel might return pretty much any error code
+                 * via close(), but the fd will be closed anyway. The
+                 * only condition we want to check for here is whether
+                 * the fd was invalid at all... */
+
+                assert_se(close_nointr(fd) != -EBADF);
+        }
+
+        return -1;
+}
+
 void close_nointr_nofail(int fd) {
         PROTECT_ERRNO;
 
         /* like close_nointr() but cannot fail, and guarantees errno
          * is unchanged */
 
-        assert_se(close_nointr(fd) == 0);
+        assert_se(close_nointr(fd) != -EBADF);
 }
 
 void close_many(const int fds[], unsigned n_fd) {
@@ -214,9 +240,9 @@ int unlink_noerrno(const char *path) {
 int parse_boolean(const char *v) {
         assert(v);
 
-        if (streq(v, "1") || v[0] == 'y' || v[0] == 'Y' || v[0] == 't' || v[0] == 'T' || strcaseeq(v, "on"))
+        if (streq(v, "1") || strcaseeq(v, "yes") || strcaseeq(v, "y") || strcaseeq(v, "true") || strcaseeq(v, "t") || strcaseeq(v, "on"))
                 return 1;
-        else if (streq(v, "0") || v[0] == 'n' || v[0] == 'N' || v[0] == 'f' || v[0] == 'F' || strcaseeq(v, "off"))
+        else if (streq(v, "0") || strcaseeq(v, "no") || strcaseeq(v, "n") || strcaseeq(v, "false") || strcaseeq(v, "f") || strcaseeq(v, "off"))
                 return 0;
 
         return -EINVAL;
@@ -262,6 +288,14 @@ int parse_uid(const char *s, uid_t* ret_uid) {
 
         if ((unsigned long) uid != ul)
                 return -ERANGE;
+
+        /* Some libc APIs use (uid_t) -1 as special placeholder */
+        if (uid == (uid_t) 0xFFFFFFFF)
+                return -ENXIO;
+
+        /* A long time ago UIDs where 16bit, hence explicitly avoid the 16bit -1 too */
+        if (uid == (uid_t) 0xFFFF)
+                return -ENXIO;
 
         *ret_uid = uid;
         return 0;
@@ -885,6 +919,18 @@ int reset_all_signal_handlers(void) {
         return 0;
 }
 
+static int reset_signal_mask(void) {
+        sigset_t ss;
+
+        if (sigemptyset(&ss) < 0)
+                return -errno;
+
+        if (sigprocmask(SIG_SETMASK, &ss, NULL) < 0)
+                return -errno;
+
+        return 0;
+}
+
 char *strstrip(char *s) {
         char *e;
 
@@ -1240,7 +1286,7 @@ char *cunescape_length_with_prefix(const char *s, size_t length, const char *pre
                         a = unhexchar(f[1]);
                         b = unhexchar(f[2]);
 
-                        if (a < 0 || b < 0) {
+                        if (a < 0 || b < 0 || (a == 0 && b == 0)) {
                                 /* Invalid escape code, let's take it literal then */
                                 *(t++) = '\\';
                                 *(t++) = 'x';
@@ -1267,7 +1313,7 @@ char *cunescape_length_with_prefix(const char *s, size_t length, const char *pre
                         b = unoctchar(f[1]);
                         c = unoctchar(f[2]);
 
-                        if (a < 0 || b < 0 || c < 0) {
+                        if (a < 0 || b < 0 || c < 0 || (a == 0 && b == 0 && c == 0)) {
                                 /* Invalid escape code, let's take it literal then */
                                 *(t++) = '\\';
                                 *(t++) = f[0];
@@ -1368,7 +1414,7 @@ bool ignore_file(const char *filename) {
         assert(filename);
 
         if (endswith(filename, "~"))
-                return false;
+                return true;
 
         return ignore_file_allow_backup(filename);
 }
@@ -1498,10 +1544,12 @@ bool fstype_is_network(const char *fstype) {
         static const char table[] =
                 "cifs\0"
                 "smbfs\0"
+                "sshfs\0"
                 "ncpfs\0"
                 "ncp\0"
                 "nfs\0"
                 "nfs4\0"
+                "afs\0"
                 "gfs\0"
                 "gfs2\0";
 
@@ -1535,8 +1583,7 @@ int chvt(int vt) {
 
 int read_one_char(FILE *f, char *ret, usec_t t, bool *need_nl) {
         struct termios old_termios, new_termios;
-        char c;
-        char line[LINE_MAX];
+        char c, line[LINE_MAX];
 
         assert(f);
         assert(ret);
@@ -1573,12 +1620,14 @@ int read_one_char(FILE *f, char *ret, usec_t t, bool *need_nl) {
                 }
         }
 
-        if (t != (usec_t) -1)
+        if (t != (usec_t) -1) {
                 if (fd_wait_for_event(fileno(f), POLLIN, t) <= 0)
                         return -ETIMEDOUT;
+        }
 
+        errno = 0;
         if (!fgets(line, sizeof(line), f))
-                return -EIO;
+                return errno ? -errno : -EIO;
 
         truncate_nl(line);
 
@@ -1593,6 +1642,7 @@ int read_one_char(FILE *f, char *ret, usec_t t, bool *need_nl) {
 }
 
 int ask(char *ret, const char *replies, const char *text, ...) {
+        int r;
 
         assert(ret);
         assert(replies);
@@ -1601,7 +1651,6 @@ int ask(char *ret, const char *replies, const char *text, ...) {
         for (;;) {
                 va_list ap;
                 char c;
-                int r;
                 bool need_nl = true;
 
                 if (on_tty())
@@ -1747,9 +1796,6 @@ int open_terminal(const char *name, int mode) {
                 usleep(50 * USEC_PER_MSEC);
                 c++;
         }
-
-        if (fd < 0)
-                return -errno;
 
         r = isatty(fd);
         if (r < 0) {
@@ -1947,7 +1993,8 @@ int acquire_terminal(
                  * ended our handle will be dead. It's important that
                  * we do this after sleeping, so that we don't enter
                  * an endless loop. */
-                close_nointr_nofail(fd);
+                if (fd >= 0) close_nointr_nofail(fd);
+                fd = -1;
         }
 
         if (notify >= 0)
@@ -2422,6 +2469,24 @@ void sigset_add_many(sigset_t *ss, ...) {
         va_end(ap);
 }
 
+int sigprocmask_many(int how, ...) {
+        va_list ap;
+        sigset_t ss;
+        int sig;        
+
+        assert_se(sigemptyset(&ss) == 0);
+
+        va_start(ap, how);              
+        while ((sig = va_arg(ap, int)) > 0)     
+                assert_se(sigaddset(&ss, sig) == 0);                
+        va_end(ap);                                     
+
+        if (sigprocmask(how, &ss, NULL) < 0)                    
+                return -errno;                                                      
+
+        return 0;                                                       
+}                       
+
 char* gethostname_malloc(void) {
         struct utsname u;
 
@@ -2886,6 +2951,7 @@ int status_vprintf(const char *status, bool ellipse, bool ephemeral, const char 
         struct iovec iovec[6] = {};
         int n = 0;
         static bool prev_ephemeral;
+        static int is_ansi_console = -1;
 
         assert(format);
 
@@ -2898,6 +2964,41 @@ int status_vprintf(const char *status, bool ellipse, bool ephemeral, const char 
         fd = open_terminal("/dev/console", O_WRONLY|O_NOCTTY|O_CLOEXEC);
         if (fd < 0)
                 return fd;
+
+        if (_unlikely_(is_ansi_console < 0))
+                is_ansi_console = (int)ansi_console(fd);
+
+        if (status && !is_ansi_console) {
+                const char *esc, *ptr;
+                esc = strchr(status, 0x1B);
+                if (esc && (ptr = strpbrk(esc, "SOFDTI*"))) {
+                        switch(*ptr) {
+                        case 'S':
+                                status = " SKIP ";
+                                break;
+                        case 'O':
+                                status = "  OK  ";
+                                break;
+                        case 'F':
+                                status = "FAILED";
+                                break;
+                        case 'D':
+                                status = "DEPEND";
+                                break;
+                        case 'T':
+                                status = " TIME ";
+                                break;
+                        case 'I':
+                                status = " INFO ";
+                                break;
+                        case '*':
+                                status = " BUSY ";
+                                break;
+                        default:
+                                break;
+                        }
+                }
+        }
 
         if (ellipse) {
                 char *e;
@@ -2921,8 +3022,12 @@ int status_vprintf(const char *status, bool ellipse, bool ephemeral, const char 
                 }
         }
 
-        if (prev_ephemeral)
-                IOVEC_SET_STRING(iovec[n++], "\r" ANSI_ERASE_TO_END_OF_LINE);
+        if (prev_ephemeral) {
+                if (is_ansi_console)
+                        IOVEC_SET_STRING(iovec[n++], "\r" ANSI_ERASE_TO_END_OF_LINE);
+                else
+                        IOVEC_SET_STRING(iovec[n++], "\r");
+        }
         prev_ephemeral = ephemeral;
 
         if (status) {
@@ -3169,10 +3274,45 @@ void columns_lines_cache_reset(int signum) {
 bool on_tty(void) {
         static int cached_on_tty = -1;
 
-        if (_unlikely_(cached_on_tty < 0))
+        if (_unlikely_(cached_on_tty < 0)) {
                 cached_on_tty = isatty(STDOUT_FILENO) > 0;
+#if defined (__s390__) || defined (__s390x__)
+                if (cached_on_tty) {
+                        const char *e = getenv("TERM");
+                        if (!e)
+                                return cached_on_tty;
+                        if (streq(e, "dumb") || strneq(e, "ibm3", 4)) {
+                                char *mode = NULL;
+                                int r = parse_env_file("/proc/cmdline", WHITESPACE, "conmode", &mode, NULL);
+                                if (r < 0 || !mode || !streq(mode, "3270"))
+                                        cached_on_tty = 0;
+                        }
+                }
+#endif
+        }
 
         return cached_on_tty;
+}
+
+bool ansi_console(int fd) {
+        static int cached_ansi_console = -1;
+
+        if (_unlikely_(cached_ansi_console < 0)) {
+                cached_ansi_console = isatty(fd) > 0;
+#if defined (__s390__) || defined (__s390x__)
+                if (cached_ansi_console) {
+                        const char *e = getenv("TERM");
+                        if (e && (streq(e, "dumb") || strneq(e, "ibm3", 4))) {
+                                char *mode = NULL;
+                                int r = parse_env_file("/proc/cmdline", WHITESPACE, "conmode", &mode, NULL);
+                                if (r < 0 || !mode || !streq(mode, "3270"))
+                                        cached_ansi_console = 0;
+                        }
+                }
+#endif
+        }
+
+        return cached_ansi_console;
 }
 
 int running_in_chroot(void) {
@@ -3630,7 +3770,38 @@ bool tty_is_vc_resolve(const char *tty) {
 const char *default_term_for_tty(const char *tty) {
         assert(tty);
 
-        return tty_is_vc_resolve(tty) ? "TERM=linux" : "TERM=vt102";
+        if (tty_is_vc_resolve(tty))
+                return "TERM=linux";
+
+        if (startswith(tty, "/dev/"))
+                tty += 5;
+
+#if defined (__s390__) || defined (__s390x__)
+        if (streq(tty, "ttyS0")) {
+                char *mode = NULL;
+                int r = parse_env_file("/proc/cmdline", WHITESPACE, "conmode", &mode, NULL);
+                if (r < 0 || !mode || !streq(mode, "3270"))
+                        return "TERM=dumb";
+                if (streq(mode, "3270"))
+                        return "TERM=ibm327x";
+        }
+        if (streq(tty, "ttyS1"))
+                return "TERM=vt220";
+#endif
+        if (detect_virtualization(NULL) && (streq(tty, "xvc0") || streq(tty, "hvc0") || streq(tty, "ttyS0"))) {
+                char *buf = NULL;
+
+                parse_env_file("/proc/cmdline", WHITESPACE, "term", &buf, NULL);
+                if (buf && *buf) {
+                        char *term;
+                        if (asprintf(&term, "TERM=%s", buf) < 0)
+                                return "TERM=vt220";
+ 
+                        return term;
+                }      
+        } 
+
+        return "TERM=vt220";
 }
 
 bool dirent_is_file(const struct dirent *de) {
@@ -4541,6 +4712,73 @@ char *strjoin(const char *x, ...) {
         return r;
 }
 
+int umount_recursive(const char *prefix, int flags) {
+        bool again;
+        int n = 0, r;
+
+        /* Try to umount everything recursively below a
+         * directory. Also, take care of stacked mounts, and keep
+         * unmounting them until they are gone. */
+
+        do {
+                _cleanup_fclose_ FILE *proc_self_mountinfo = NULL;
+
+                again = false;
+                r = 0;
+
+                proc_self_mountinfo = fopen("/proc/self/mountinfo", "re");
+                if (!proc_self_mountinfo)
+                        return -errno;
+
+                for (;;) {
+                        _cleanup_free_ char *path = NULL, *p = NULL;
+                        int k;
+
+                        k = fscanf(proc_self_mountinfo,
+                                   "%*s "       /* (1) mount id */
+                                   "%*s "       /* (2) parent id */
+                                   "%*s "       /* (3) major:minor */
+                                   "%*s "       /* (4) root */
+                                   "%ms "       /* (5) mount point */
+                                   "%*s"        /* (6) mount options */
+                                   "%*[^-]"     /* (7) optional fields */
+                                   "- "         /* (8) separator */
+                                   "%*s "       /* (9) file system type */
+                                   "%*s"        /* (10) mount source */
+                                   "%*s"        /* (11) mount options 2 */
+                                   "%*[^\n]",   /* some rubbish at the end */
+                                   &path);
+
+                        if (k != 1) {
+                                if (k == EOF)
+                                        break;
+
+                                continue;
+                        }
+
+                        p = cunescape(path);
+                        if (!p)
+                                return -ENOMEM;
+
+                        if (!path_startswith(p, prefix))
+                                continue;
+
+                        if (umount2(p, flags) < 0) {
+                                r = -errno;
+                                continue;
+                        }
+
+                        again = true;
+                        n++;
+
+                        break;
+                }
+
+        } while (again);
+
+        return r ? r : n;
+}
+
 bool is_main_thread(void) {
         static thread_local int cached = 0;
 
@@ -4929,9 +5167,9 @@ int fd_inc_rcvbuf(int fd, size_t n) {
 }
 
 int fork_agent(pid_t *pid, const int except[], unsigned n_except, const char *path, ...) {
-        pid_t parent_pid, agent_pid;
-        int fd;
         bool stdout_is_tty, stderr_is_tty;
+        pid_t parent_pid, agent_pid;
+        sigset_t ss, saved_ss;
         unsigned n, i;
         va_list ap;
         char **l;
@@ -4939,16 +5177,25 @@ int fork_agent(pid_t *pid, const int except[], unsigned n_except, const char *pa
         assert(pid);
         assert(path);
 
-        parent_pid = getpid();
-
         /* Spawns a temporary TTY agent, making sure it goes away when
          * we go away */
 
+        parent_pid = getpid();
+
+        /* First we temporarily block all signals, so that the new
+         * child has them blocked initially. This way, we can be sure
+         * that SIGTERMs are not lost we might send to the agent. */
+        assert_se(sigfillset(&ss) >= 0);
+        assert_se(sigprocmask(SIG_SETMASK, &ss, &saved_ss) >= 0);
+
         agent_pid = fork();
-        if (agent_pid < 0)
+        if (agent_pid < 0) {
+                assert_se(sigprocmask(SIG_SETMASK, &saved_ss, NULL) >= 0);
                 return -errno;
+        }
 
         if (agent_pid != 0) {
+                assert_se(sigprocmask(SIG_SETMASK, &saved_ss, NULL) >= 0);
                 *pid = agent_pid;
                 return 0;
         }
@@ -4958,6 +5205,12 @@ int fork_agent(pid_t *pid, const int except[], unsigned n_except, const char *pa
          * Make sure the agent goes away when the parent dies */
         if (prctl(PR_SET_PDEATHSIG, SIGTERM) < 0)
                 _exit(EXIT_FAILURE);
+
+        /* Make sure we actually can kill the agent, if we need to, in
+         * case somebody invoked us from a shell script that trapped
+         * SIGTERM or so... */
+        reset_all_signal_handlers();
+        reset_signal_mask();
 
         /* Check whether our parent died before we were able
          * to set the death signal */
@@ -4971,6 +5224,8 @@ int fork_agent(pid_t *pid, const int except[], unsigned n_except, const char *pa
         stderr_is_tty = isatty(STDERR_FILENO);
 
         if (!stdout_is_tty || !stderr_is_tty) {
+		int fd;
+
                 /* Detach from stdout/stderr. and reopen
                  * /dev/tty for them. This is important to
                  * ensure that when systemctl is started via
@@ -5294,13 +5549,14 @@ bool filename_is_safe(const char *p) {
 bool string_is_safe(const char *p) {
         const char *t;
 
-        assert(p);
+        if (!p)
+                return false;
 
         for (t = p; *t; t++) {
                 if (*t > 0 && *t < ' ')
                         return false;
 
-                if (strchr("\\\"\'", *t))
+                if (strchr("\\\"\'\0x7f", *t))
                         return false;
         }
 
@@ -5308,17 +5564,24 @@ bool string_is_safe(const char *p) {
 }
 
 /**
- * Check if a string contains control characters.
- * Spaces and tabs are not considered control characters.
+ * Check if a string contains control characters. If 'ok' is non-NULL
+ * it may be a string containing additional CCs to be considered OK.
  */
-bool string_has_cc(const char *p) {
+bool string_has_cc(const char *p, const char *ok) {
         const char *t;
 
         assert(p);
 
-        for (t = p; *t; t++)
-                if (*t > 0 && *t < ' ' && *t != '\t')
+        for (t = p; *t; t++) {
+                if (ok && strchr(ok, *t))
+                        continue;
+
+                if (*t > 0 && *t < ' ')
                         return true;
+
+                if (*t == 127)
+                        return true;
+        }
 
         return false;
 }
@@ -5975,7 +6238,11 @@ int parse_proc_cmdline(int (*parse_word)(const char *word)) {
 
                 r = parse_word(word);
                 if (r < 0) {
-                        log_error("Failed on cmdline argument %s: %s", word, strerror(-r));
+                        if (r == -115) {
+                                log_error("Warning: %s set, redirecting messages to /dev/null.", word);
+                        } else {
+                                log_error("Failed on cmdline argument %s: %s", word, strerror(-r));
+                        }
                         return r;
                 }
         }
@@ -6222,6 +6489,26 @@ int fd_warn_permissions(const char *path, int fd) {
         return 0;
 }
 
+int sethostname_idempotent(const char *s) {
+        int r;
+        char buf[HOST_NAME_MAX + 1] = {};
+
+        assert(s);
+
+        r = gethostname(buf, sizeof(buf));
+        if (r < 0)
+                return -errno;
+
+        if (streq(buf, s))
+                return 0;
+
+        r = sethostname(s, strlen(s));
+        if (r < 0)
+                return -errno;
+
+        return 1;
+}
+
 unsigned long personality_from_string(const char *p) {
 
         /* Parse a personality specifier. We introduce our own
@@ -6268,4 +6555,36 @@ const char* personality_to_string(unsigned long p) {
 #endif
 
         return NULL;
+}
+
+int chattr_fd(int fd, bool b, int mask) {
+        int old_attr, new_attr;
+
+        assert(fd >= 0);
+
+        if (ioctl(fd, FS_IOC_GETFLAGS, &old_attr) < 0)
+                return -errno;
+
+        if (b)
+                new_attr = old_attr | mask;
+        else
+                new_attr = old_attr & ~mask;
+
+        if (new_attr == old_attr)
+                return 0;
+
+        if (ioctl(fd, FS_IOC_SETFLAGS, &new_attr) < 0)
+                return -errno;
+
+        return 0;
+}
+
+int chattr_path(const char *p, bool b, int mask) {
+        _cleanup_close_ int fd = -1;
+
+        fd = open(p, O_RDWR|O_CLOEXEC|O_NOCTTY|O_NOFOLLOW);
+        if (fd < 0)
+                return -errno;
+
+        return chattr_fd(fd, b, mask);
 }

@@ -154,6 +154,8 @@ struct Socket {
         char *smack;
         char *smack_ip_in;
         char *smack_ip_out;
+
+        bool selinux_context_from_net;
 };
 
 /* Called from the service code when collecting fds */

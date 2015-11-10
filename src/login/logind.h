@@ -42,6 +42,9 @@ typedef struct Manager Manager;
 #include "logind-button.h"
 #include "logind-action.h"
 
+#define IGNORE_LID_SWITCH_STARTUP_USEC (3 * USEC_PER_MINUTE)
+#define IGNORE_LID_SWITCH_SUSPEND_USEC (30 * USEC_PER_SEC)
+
 struct Manager {
         sd_event *event;
         sd_bus *bus;
@@ -118,6 +121,8 @@ struct Manager {
         bool lid_switch_ignore_inhibited;
 
         Hashmap *polkit_registry;
+
+        sd_event_source *lid_switch_ignore_event_source;
 };
 
 Manager *manager_new(void);
@@ -149,6 +154,7 @@ int manager_get_user_by_pid(Manager *m, pid_t pid, User **user);
 int manager_get_session_by_pid(Manager *m, pid_t pid, Session **session);
 
 bool manager_is_docked(Manager *m);
+int manager_count_displays(Manager *m);
 
 extern const sd_bus_vtable manager_vtable[];
 
@@ -164,7 +170,7 @@ int manager_send_changed(Manager *manager, const char *property, ...) _sentinel_
 
 int manager_dispatch_delayed(Manager *manager);
 
-int manager_start_scope(Manager *manager, const char *scope, pid_t pid, const char *slice, const char *description, const char *after, const char *after2, sd_bus_error *error, char **job);
+int manager_start_scope(Manager *manager, const char *scope, pid_t pid, const char *slice, const char *description, const char *after, const char *after2, const char *killmode, sd_bus_error *error, char **job);
 int manager_start_unit(Manager *manager, const char *unit, sd_bus_error *error, char **job);
 int manager_stop_unit(Manager *manager, const char *unit, sd_bus_error *error, char **job);
 int manager_abandon_scope(Manager *manager, const char *scope, sd_bus_error *error);
@@ -177,3 +183,5 @@ const struct ConfigPerfItem* logind_gperf_lookup(const char *key, unsigned lengt
 
 int manager_watch_busname(Manager *manager, const char *name);
 void manager_drop_busname(Manager *manager, const char *name);
+
+int manager_set_lid_switch_ignore(Manager *m, usec_t until);

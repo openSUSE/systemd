@@ -115,7 +115,7 @@ bluetooth:v0024*
  ID_VENDOR_FROM_DATABASE=Alcatel
 
 bluetooth:v0025*
- ID_VENDOR_FROM_DATABASE=Philips Semiconductors
+ ID_VENDOR_FROM_DATABASE=NXP Semiconductors (formerly Philips Semiconductors)
 
 bluetooth:v0026*
  ID_VENDOR_FROM_DATABASE=C Technologies
@@ -184,7 +184,7 @@ bluetooth:v003B*
  ID_VENDOR_FROM_DATABASE=Gennum Corporation
 
 bluetooth:v003C*
- ID_VENDOR_FROM_DATABASE=Research In Motion
+ ID_VENDOR_FROM_DATABASE=BlackBerry Limited (formerly Research In Motion)
 
 bluetooth:v003D*
  ID_VENDOR_FROM_DATABASE=IPextreme, Inc.
@@ -427,7 +427,7 @@ bluetooth:v008B*
  ID_VENDOR_FROM_DATABASE=Topcorn Positioning Systems, LLC
 
 bluetooth:v008C*
- ID_VENDOR_FROM_DATABASE=Qualcomm Retail Solutions, Inc. (formerly Qualcomm Labs, Inc.)
+ ID_VENDOR_FROM_DATABASE=Gimbal Inc. (formerly Qualcomm Labs, Inc. and Qualcomm Retail Solutions, Inc.)
 
 bluetooth:v008D*
  ID_VENDOR_FROM_DATABASE=Zscan Software
@@ -733,7 +733,7 @@ bluetooth:v00F1*
  ID_VENDOR_FROM_DATABASE=Witron Technology Limited
 
 bluetooth:v00F2*
- ID_VENDOR_FROM_DATABASE=Morse Project Inc.
+ ID_VENDOR_FROM_DATABASE=Aether Things Inc. (formerly Morse Project Inc.)
 
 bluetooth:v00F3*
  ID_VENDOR_FROM_DATABASE=Kent Displays Inc.
@@ -902,3 +902,324 @@ bluetooth:v0129*
 
 bluetooth:v012A*
  ID_VENDOR_FROM_DATABASE=Changzhou Yongse Infotech Co., Ltd
+
+bluetooth:v012B*
+ ID_VENDOR_FROM_DATABASE=SportIQ
+
+bluetooth:v012C*
+ ID_VENDOR_FROM_DATABASE=TEMEC Instruments B.V.
+
+bluetooth:v012D*
+ ID_VENDOR_FROM_DATABASE=Sony Corporation
+
+bluetooth:v012E*
+ ID_VENDOR_FROM_DATABASE=ASSA ABLOY
+
+bluetooth:v012F*
+ ID_VENDOR_FROM_DATABASE=Clarion Co., Ltd.
+
+bluetooth:v0130*
+ ID_VENDOR_FROM_DATABASE=Warehouse Innovations
+
+bluetooth:v0131*
+ ID_VENDOR_FROM_DATABASE=Cypress Semiconductor Corporation
+
+bluetooth:v0132*
+ ID_VENDOR_FROM_DATABASE=MADS Inc
+
+bluetooth:v0133*
+ ID_VENDOR_FROM_DATABASE=Blue Maestro Limited
+
+bluetooth:v0134*
+ ID_VENDOR_FROM_DATABASE=Resolution Products, Inc.
+
+bluetooth:v0135*
+ ID_VENDOR_FROM_DATABASE=Airewear LLC
+
+bluetooth:v0136*
+ ID_VENDOR_FROM_DATABASE=ETC sp. z.o.o.
+
+bluetooth:v0137*
+ ID_VENDOR_FROM_DATABASE=Prestigio Plaza Ltd.
+
+bluetooth:v0138*
+ ID_VENDOR_FROM_DATABASE=NTEO Inc.
+
+bluetooth:v0139*
+ ID_VENDOR_FROM_DATABASE=Focus Systems Corporation
+
+bluetooth:v013A*
+ ID_VENDOR_FROM_DATABASE=Tencent Holdings Limited
+
+bluetooth:v013B*
+ ID_VENDOR_FROM_DATABASE=Allegion
+
+bluetooth:v013C*
+ ID_VENDOR_FROM_DATABASE=Murata Manufacuring Co., Ltd.
+
+bluetooth:v013D*
+ ID_VENDOR_FROM_DATABASE=WirelessWERX
+
+bluetooth:v013E*
+ ID_VENDOR_FROM_DATABASE=Nod, Inc.
+
+bluetooth:v013F*
+ ID_VENDOR_FROM_DATABASE=B&B Manufacturing Company
+
+bluetooth:v0140*
+ ID_VENDOR_FROM_DATABASE=Alpine Electronics (China) Co., Ltd
+
+bluetooth:v0141*
+ ID_VENDOR_FROM_DATABASE=FedEx Services
+
+bluetooth:v0142*
+ ID_VENDOR_FROM_DATABASE=Grape Systems Inc.
+
+bluetooth:v0143*
+ ID_VENDOR_FROM_DATABASE=Bkon Connect
+
+bluetooth:v0144*
+ ID_VENDOR_FROM_DATABASE=Lintech GmbH
+
+bluetooth:v0145*
+ ID_VENDOR_FROM_DATABASE=Novatel Wireless
+
+bluetooth:v0146*
+ ID_VENDOR_FROM_DATABASE=Ciright
+
+bluetooth:v0147*
+ ID_VENDOR_FROM_DATABASE=Mighty Cast, Inc.
+
+bluetooth:v0148*
+ ID_VENDOR_FROM_DATABASE=Ambimat Electronics
+
+bluetooth:v0149*
+ ID_VENDOR_FROM_DATABASE=Perytons Ltd.
+
+bluetooth:v014A*
+ ID_VENDOR_FROM_DATABASE=Tivoli Audio, LLC
+
+bluetooth:v014B*
+ ID_VENDOR_FROM_DATABASE=Master Lock
+
+bluetooth:v014C*
+ ID_VENDOR_FROM_DATABASE=Mesh-Net Ltd
+
+bluetooth:v014D*
+ ID_VENDOR_FROM_DATABASE=Huizhou Desay SV Automotive CO., LTD.
+
+bluetooth:v014E*
+ ID_VENDOR_FROM_DATABASE=Tangerine, Inc.
+
+bluetooth:v014F*
+ ID_VENDOR_FROM_DATABASE=B&W Group Ltd.
+
+bluetooth:v0150*
+ ID_VENDOR_FROM_DATABASE=Pioneer Corporation
+
+bluetooth:v0151*
+ ID_VENDOR_FROM_DATABASE=OnBeep
+
+bluetooth:v0152*
+ ID_VENDOR_FROM_DATABASE=Vernier Software & Technology
+
+bluetooth:v0153*
+ ID_VENDOR_FROM_DATABASE=ROL Ergo
+
+bluetooth:v0154*
+ ID_VENDOR_FROM_DATABASE=Pebble Technology
+
+bluetooth:v0155*
+ ID_VENDOR_FROM_DATABASE=NETATMO
+
+bluetooth:v0156*
+ ID_VENDOR_FROM_DATABASE=Accumulate AB
+
+bluetooth:v0157*
+ ID_VENDOR_FROM_DATABASE=Anhui Huami Information Technology Co., Ltd.
+
+bluetooth:v0158*
+ ID_VENDOR_FROM_DATABASE=Inmite s.r.o.
+
+bluetooth:v0159*
+ ID_VENDOR_FROM_DATABASE=ChefSteps, Inc.
+
+bluetooth:v015A*
+ ID_VENDOR_FROM_DATABASE=micas AG
+
+bluetooth:v015B*
+ ID_VENDOR_FROM_DATABASE=Biomedical Research Ltd.
+
+bluetooth:v015C*
+ ID_VENDOR_FROM_DATABASE=Pitius Tec S.L.
+
+bluetooth:v015D*
+ ID_VENDOR_FROM_DATABASE=Estimote, Inc.
+
+bluetooth:v015E*
+ ID_VENDOR_FROM_DATABASE=Unikey Technologies, Inc.
+
+bluetooth:v015F*
+ ID_VENDOR_FROM_DATABASE=Timer Cap Co.
+
+bluetooth:v0160*
+ ID_VENDOR_FROM_DATABASE=AwoX
+
+bluetooth:v0161*
+ ID_VENDOR_FROM_DATABASE=yikes
+
+bluetooth:v0162*
+ ID_VENDOR_FROM_DATABASE=MADSGlobal NZ Ltd.
+
+bluetooth:v0163*
+ ID_VENDOR_FROM_DATABASE=PCH International
+
+bluetooth:v0164*
+ ID_VENDOR_FROM_DATABASE=Qingdao Yeelink Information Technology Co., Ltd.
+
+bluetooth:v0165*
+ ID_VENDOR_FROM_DATABASE=Milwaukee Tool (formerly Milwaukee Electric Tools)
+
+bluetooth:v0166*
+ ID_VENDOR_FROM_DATABASE=MISHIK Pte Ltd
+
+bluetooth:v0167*
+ ID_VENDOR_FROM_DATABASE=Bayer HealthCare
+
+bluetooth:v0168*
+ ID_VENDOR_FROM_DATABASE=Spicebox LLC
+
+bluetooth:v0169*
+ ID_VENDOR_FROM_DATABASE=emberlight
+
+bluetooth:v016A*
+ ID_VENDOR_FROM_DATABASE=Cooper-Atkins Corporation
+
+bluetooth:v016B*
+ ID_VENDOR_FROM_DATABASE=Qblinks
+
+bluetooth:v016C*
+ ID_VENDOR_FROM_DATABASE=MYSPHERA
+
+bluetooth:v016D*
+ ID_VENDOR_FROM_DATABASE=LifeScan Inc
+
+bluetooth:v016E*
+ ID_VENDOR_FROM_DATABASE=Volantic AB
+
+bluetooth:v016F*
+ ID_VENDOR_FROM_DATABASE=Podo Labs, Inc
+
+bluetooth:v0170*
+ ID_VENDOR_FROM_DATABASE=Roche Diabetes Care AG
+
+bluetooth:v0171*
+ ID_VENDOR_FROM_DATABASE=Amazon Fulfillment Service
+
+bluetooth:v0172*
+ ID_VENDOR_FROM_DATABASE=Connovate Technology Private Limited
+
+bluetooth:v0173*
+ ID_VENDOR_FROM_DATABASE=Kocomojo, LLC
+
+bluetooth:v0174*
+ ID_VENDOR_FROM_DATABASE=Everykey LLC
+
+bluetooth:v0175*
+ ID_VENDOR_FROM_DATABASE=Dynamic Controls
+
+bluetooth:v0176*
+ ID_VENDOR_FROM_DATABASE=SentriLock
+
+bluetooth:v0177*
+ ID_VENDOR_FROM_DATABASE=I-SYST inc.
+
+bluetooth:v0178*
+ ID_VENDOR_FROM_DATABASE=CASIO COMPUTER CO., LTD.
+
+bluetooth:v0179*
+ ID_VENDOR_FROM_DATABASE=LAPIS Semiconductor Co., Ltd.
+
+bluetooth:v017A*
+ ID_VENDOR_FROM_DATABASE=Telemonitor, Inc.
+
+bluetooth:v017B*
+ ID_VENDOR_FROM_DATABASE=taskit GmbH
+
+bluetooth:v017C*
+ ID_VENDOR_FROM_DATABASE=Daimler AG
+
+bluetooth:v017D*
+ ID_VENDOR_FROM_DATABASE=BatAndCat
+
+bluetooth:v017E*
+ ID_VENDOR_FROM_DATABASE=BluDotz Ltd
+
+bluetooth:v017F*
+ ID_VENDOR_FROM_DATABASE=XTel ApS
+
+bluetooth:v0180*
+ ID_VENDOR_FROM_DATABASE=Gigaset Communications GmbH
+
+bluetooth:v0181*
+ ID_VENDOR_FROM_DATABASE=Gecko Health Innovations, Inc.
+
+bluetooth:v0182*
+ ID_VENDOR_FROM_DATABASE=HOP Ubiquitous
+
+bluetooth:v0183*
+ ID_VENDOR_FROM_DATABASE=To Be Assigned
+
+bluetooth:v0184*
+ ID_VENDOR_FROM_DATABASE=Nectar
+
+bluetooth:v0185*
+ ID_VENDOR_FROM_DATABASE=bel'apps LLC
+
+bluetooth:v0186*
+ ID_VENDOR_FROM_DATABASE=CORE Lighting Ltd
+
+bluetooth:v0187*
+ ID_VENDOR_FROM_DATABASE=Seraphim Sense Ltd
+
+bluetooth:v0188*
+ ID_VENDOR_FROM_DATABASE=Unico RBC
+
+bluetooth:v0189*
+ ID_VENDOR_FROM_DATABASE=Physical Enterprises Inc.
+
+bluetooth:v018A*
+ ID_VENDOR_FROM_DATABASE=Able Trend Technology Limited
+
+bluetooth:v018B*
+ ID_VENDOR_FROM_DATABASE=Konica Minolta, Inc.
+
+bluetooth:v018C*
+ ID_VENDOR_FROM_DATABASE=Wilo SE
+
+bluetooth:v018D*
+ ID_VENDOR_FROM_DATABASE=Extron Design Services
+
+bluetooth:v018E*
+ ID_VENDOR_FROM_DATABASE=Fitbit, Inc.
+
+bluetooth:v018F*
+ ID_VENDOR_FROM_DATABASE=Fireflies Systems
+
+bluetooth:v0190*
+ ID_VENDOR_FROM_DATABASE=Intelletto Technologies Inc.
+
+bluetooth:v0191*
+ ID_VENDOR_FROM_DATABASE=FDK CORPORATION
+
+bluetooth:v0192*
+ ID_VENDOR_FROM_DATABASE=Cloudleaf, Inc
+
+bluetooth:v0193*
+ ID_VENDOR_FROM_DATABASE=Maveric Automation LLC
+
+bluetooth:v0194*
+ ID_VENDOR_FROM_DATABASE=Acoustic Stream Corporation
+
+bluetooth:v0195*
+ ID_VENDOR_FROM_DATABASE=Zuli

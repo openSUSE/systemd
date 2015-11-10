@@ -493,6 +493,9 @@ static void spawn_read(struct udev_event *event,
                 for (i = 0; i < fdcount; i++) {
                         int *fd = (int *)ev[i].data.ptr;
 
+                        if (*fd < 0)
+                                continue;
+
                         if (ev[i].events & EPOLLIN) {
                                 ssize_t count;
                                 char buf[4096];
@@ -750,8 +753,9 @@ static int rename_netif(struct udev_event *event)
         struct udev_device *dev = event->dev;
         _cleanup_rtnl_unref_ sd_rtnl *rtnl = NULL;
         char name[IFNAMSIZ];
+        char interim[IFNAMSIZ], *ptr = &interim[0];
         const char *oldname;
-        int r;
+        int r, loop;
 
         oldname = udev_device_get_sysname(dev);
 
@@ -765,22 +769,54 @@ static int rename_netif(struct udev_event *event)
                 return r;
 
         r = rtnl_set_link_name(rtnl, udev_device_get_ifindex(dev), name);
-        if (r < 0)
+        if (r == 0) {
+                print_kmsg("renamed network interface %s to %s\n", oldname, name);
+                return r;
+        } else if (r != -EEXIST) {
                 log_error("error changing net interface name %s to %s: %s",
                           oldname, name, strerror(-r));
-        else
-                print_kmsg("renamed network interface %s to %s", oldname, name);
+                return r;
+        }
 
+        /* free our own name, another process may wait for us */
+        strpcpyf(&ptr, IFNAMSIZ, "rename%u", udev_device_get_ifindex(dev));
+
+        r = rtnl_set_link_name(rtnl, udev_device_get_ifindex(dev), interim);
+        if (r < 0) {
+                log_error("error changing net interface name %s to %s: %s",
+                          oldname, interim, strerror(-r));
+                return r;
+        }
+
+        /* log temporary name */
+        print_kmsg("renamed network interface %s to %s\n", oldname, interim);
+
+        loop = 90 * 20;
+        while (loop--) {
+                const struct timespec duration = { 0, 1000 * 1000 * 1000 / 20 };
+                nanosleep(&duration, NULL);
+
+                r = rtnl_set_link_name(rtnl, udev_device_get_ifindex(dev), name);
+                if (r == 0) {
+                        print_kmsg("renamed network interface %s to %s\n", interim, name);
+                        break;
+                }
+
+                if (r != -EEXIST) {
+                        log_error("error changing net interface name %s to %s: %s",
+                                  interim, name, strerror(-r));
+                        break;
+                }
+        }
         return r;
 }
 
-int udev_event_execute_rules(struct udev_event *event, struct udev_rules *rules, const sigset_t *sigmask)
+void udev_event_execute_rules(struct udev_event *event, struct udev_rules *rules, const sigset_t *sigmask)
 {
         struct udev_device *dev = event->dev;
-        int err = 0;
 
         if (udev_device_get_subsystem(dev) == NULL)
-                return -1;
+                return;
 
         if (streq(udev_device_get_action(dev), "remove")) {
                 udev_device_read_db(dev, NULL);
@@ -814,9 +850,10 @@ int udev_event_execute_rules(struct udev_event *event, struct udev_rules *rules,
                     event->name != NULL && !streq(event->name, udev_device_get_sysname(dev))) {
                         char syspath[UTIL_PATH_SIZE];
                         char *pos;
+                        int r;
 
-                        err = rename_netif(event);
-                        if (err == 0) {
+                        r = rename_netif(event);
+                        if (r >= 0) {
                                 log_debug("renamed netif to '%s'", event->name);
 
                                 /* remember old name */
@@ -879,7 +916,6 @@ int udev_event_execute_rules(struct udev_event *event, struct udev_rules *rules,
                 udev_device_unref(event->dev_db);
                 event->dev_db = NULL;
         }
-        return err;
 }
 
 void udev_event_execute_run(struct udev_event *event, const sigset_t *sigmask)

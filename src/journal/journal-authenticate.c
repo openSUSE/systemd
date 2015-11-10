@@ -355,7 +355,7 @@ int journal_file_fss_load(JournalFile *f) {
                 goto finish;
         }
 
-        m = mmap(NULL, PAGE_ALIGN(sizeof(FSSHeader)), PROT_READ, MAP_SHARED, fd, 0);
+        m = mmap(NULL, PAGE_ALIGN(sizeof(FSSHeader)), PROT_READ, MAP_SHARED|MAP_STACK, fd, 0);
         if (m == MAP_FAILED) {
                 m = NULL;
                 r = -errno;
@@ -399,7 +399,7 @@ int journal_file_fss_load(JournalFile *f) {
                 goto finish;
         }
 
-        f->fss_file = mmap(NULL, PAGE_ALIGN(f->fss_file_size), PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+        f->fss_file = mmap(NULL, PAGE_ALIGN(f->fss_file_size), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_STACK, fd, 0);
         if (f->fss_file == MAP_FAILED) {
                 f->fss_file = NULL;
                 r = -errno;

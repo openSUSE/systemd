@@ -7,7 +7,7 @@
 
 ACTION=="remove", GOTO="systemd_end"
 
-SUBSYSTEM=="tty", KERNEL=="tty[a-zA-Z]*|hvc*|xvc*|hvsi*|ttysclp*|sclp_line*", TAG+="systemd"
+SUBSYSTEM=="tty", KERNEL=="tty[a-zA-Z]*|hvc*|xvc*|hvsi*|ttysclp*|sclp_line*|3270/tty*", TAG+="systemd"
 
 KERNEL=="vport*", TAG+="systemd"
 
@@ -21,6 +21,9 @@ SUBSYSTEM=="block", KERNEL!="ram*", ENV{DM_UUID}=="CRYPT-*", ENV{ID_PART_TABLE_T
 # Ignore raid devices that are not yet assembled and started
 SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="md*", TEST!="md/array_state", ENV{SYSTEMD_READY}="0"
 SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="md*", ATTR{md/array_state}=="|clear|inactive", ENV{SYSTEMD_READY}="0"
+
+# Ignore loop devices that don't have any file attached
+SUBSYSTEM=="block", KERNEL=="loop[0-9]*", TEST!="loop/backing_file", ENV{SYSTEMD_READY}="0"
 
 # Ignore nbd devices in the "add" event, with "change" the nbd is ready
 ACTION=="add", SUBSYSTEM=="block", KERNEL=="nbd*", ENV{SYSTEMD_READY}="0"
@@ -59,7 +62,7 @@ SUBSYSTEM=="leds", KERNEL=="*kbd_backlight", TAG+="systemd", IMPORT{builtin}="pa
 
 # Pull in rfkill save/restore for all rfkill devices
 
-SUBSYSTEM=="rfkill", TAG+="systemd", IMPORT{builtin}="path_id", ENV{SYSTEMD_WANTS}+="systemd-rfkill@$name.service"
+SUBSYSTEM=="rfkill", TAG+="systemd", IMPORT{builtin}="path_id", ENV{SYSTEMD_ALIAS}+="/sys/subsystem/rfkill/devices/%k", ENV{SYSTEMD_WANTS}+="systemd-rfkill@$name.service"
 
 # Asynchronously mount file systems implemented by these modules as
 # soon as they are loaded.

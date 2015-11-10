@@ -158,12 +158,18 @@ L    /tmp/foobar -    -    -    -   /dev/null</programlisting>
 
                                 <varlistentry>
                                         <term><varname>c</varname></term>
-                                        <listitem><para>Create a character device node if it does not exist yet.</para></listitem>
+                                        <listitem><para>Create a character device node if it does not exist yet. 
+                                            It is recommended to suffix this entry with an exclamation mark to only 
+                                            create static device nodes at boot, as udev will not manage static device 
+                                            nodes that are created at runtime.</para></listitem>
                                 </varlistentry>
 
                                 <varlistentry>
                                         <term><varname>b</varname></term>
-                                        <listitem><para>Create a block device node if it does not exist yet.</para></listitem>
+                                        <listitem><para>Create a block device node if it does not exist yet.
+                                            It is recommended to suffix this entry with an exclamation mark to only 
+                                            create static device nodes at boot, as udev will not manage static device 
+                                            nodes that re created at runtime.</para></listitem>
                                 </varlistentry>
 
                                 <varlistentry>
@@ -429,8 +435,12 @@ r! /tmp/.X[0-9]*-lock</programlisting>
                         <varname>f</varname>, <varname>F</varname>,
                         and <varname>w</varname> may be used to
                         specify a short string that is written to the
-                        file, suffixed by a newline. Ignored for all
-                        other lines.</para>
+                        file, suffixed by a newline. 
+                        For <varname>x</varname>, <varname>X</varname>
+                        a comma separated list of usernames. If given, 
+                        only paths belonging to these users will be 
+                        excluded during directory cleanup.
+                        Ignored for all other lines.</para>
                 </refsect2>
 
         </refsect1>
@@ -441,8 +451,8 @@ r! /tmp/.X[0-9]*-lock</programlisting>
                         <title>/etc/tmpfiles.d/screen.conf example</title>
                         <para><command>screen</command> needs two directories created at boot with specific modes and ownership.</para>
 
-                        <programlisting>d /var/run/screens  1777 root root 10d
-d /var/run/uscreens 0755 root root 10d12h</programlisting>
+                        <programlisting>d /run/screens  1777 root root 10d
+d /run/uscreens 0755 root root 10d12h</programlisting>
                 </example>
                 <example>
                         <title>/etc/tmpfiles.d/abrt.conf example</title>

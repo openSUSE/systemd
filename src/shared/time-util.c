@@ -194,11 +194,10 @@ char *format_timestamp_relative(char *buf, size_t l, usec_t t) {
         const char *s;
         usec_t n, d;
 
-        n = now(CLOCK_REALTIME);
-
         if (t <= 0 || (t == (usec_t) -1))
                 return NULL;
 
+        n = now(CLOCK_REALTIME);
         if (n > t) {
                 d = n - t;
                 s = "ago";
@@ -376,18 +375,21 @@ void dual_timestamp_serialize(FILE *f, const char *name, dual_timestamp *t) {
                 (unsigned long long) t->monotonic);
 }
 
-void dual_timestamp_deserialize(const char *value, dual_timestamp *t) {
+int dual_timestamp_deserialize(const char *value, dual_timestamp *t) {
         unsigned long long a, b;
 
         assert(value);
         assert(t);
 
-        if (sscanf(value, "%llu %llu", &a, &b) != 2)
-                log_debug("Failed to parse finish timestamp value %s", value);
-        else {
-                t->realtime = a;
-                t->monotonic = b;
+        if (sscanf(value, "%llu %llu", &a, &b) != 2) {
+                log_debug("Failed to parse finish timestamp value %s.", value);
+                return -EINVAL;
         }
+
+        t->realtime = a;
+        t->monotonic = b;
+
+        return 0;
 }
 
 int parse_timestamp(const char *t, usec_t *usec) {
@@ -736,7 +738,7 @@ int parse_nsec(const char *t, nsec_t *nsec) {
                 { "", 1ULL }, /* default is nsec */
         };
 
-        const char *p;
+        const char *p, *s;
         nsec_t r = 0;
         bool something = false;
 
@@ -744,6 +746,18 @@ int parse_nsec(const char *t, nsec_t *nsec) {
         assert(nsec);
 
         p = t;
+
+        p += strspn(p, WHITESPACE);
+        s = startswith(p, "infinity");
+        if (s) {
+                s += strspn(s, WHITESPACE);
+                if (!*s != 0)
+                        return -EINVAL;
+
+                *nsec = ((nsec_t) -1);
+                return 0;
+        }
+
         for (;;) {
                 long long l, z = 0;
                 char *e;

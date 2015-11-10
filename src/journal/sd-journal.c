@@ -51,6 +51,8 @@
 
 #define DEFAULT_DATA_THRESHOLD (64*1024)
 
+static void remove_file_real(sd_journal *j, JournalFile *f);
+
 static bool journal_pid_changed(sd_journal *j) {
         assert(j);
 
@@ -885,6 +887,7 @@ static int real_journal_next(sd_journal *j, direction_t direction) {
                 r = next_beyond_location(j, f, direction, &o, &p);
                 if (r < 0) {
                         log_debug("Can't iterate through %s, ignoring: %s", f->path, strerror(-r));
+                        remove_file_real(j, f);
                         continue;
                 } else if (r == 0)
                         continue;
@@ -1339,7 +1342,7 @@ static int add_file(sd_journal *j, const char *prefix, const char *filename) {
 }
 
 static int remove_file(sd_journal *j, const char *prefix, const char *filename) {
-        char *path;
+        _cleanup_free_ char *path;
         JournalFile *f;
 
         assert(j);
@@ -1351,9 +1354,16 @@ static int remove_file(sd_journal *j, const char *prefix, const char *filename) 
                 return -ENOMEM;
 
         f = hashmap_get(j->files, path);
-        free(path);
         if (!f)
                 return 0;
+
+        remove_file_real(j, f);
+        return 0;
+}
+
+static void remove_file_real(sd_journal *j, JournalFile *f) {
+        assert(j);
+        assert(f);
 
         hashmap_remove(j->files, f->path);
 
@@ -1372,8 +1382,6 @@ static int remove_file(sd_journal *j, const char *prefix, const char *filename) 
         journal_file_close(f);
 
         j->current_invalidate_counter ++;
-
-        return 0;
 }
 
 static int add_directory(sd_journal *j, const char *prefix, const char *dirname) {
@@ -2558,6 +2566,21 @@ _public_ int sd_journal_enumerate_unique(sd_journal *j, const void **data, size_
                 r = return_data(j, j->unique_file, o, &odata, &ol);
                 if (r < 0)
                         return r;
+
+                /* Check if we have at least the field name and "=". */
+                if (ol <= k) {
+                        log_debug("%s:offset " OFSfmt ": object has size %zu, expected at least %zu",
+                                  j->unique_file->path, j->unique_offset,
+                                  ol, k + 1);
+                        return -EBADMSG;
+                }
+
+                if (memcmp(odata, j->unique_field, k) || ((const char*) odata)[k] != '=') {
+                        log_debug("%s:offset " OFSfmt ": object does not start with \"%s=\"",
+                                  j->unique_file->path, j->unique_offset,
+                                  j->unique_field);
+                        return -EBADMSG;
+                }
 
                 /* OK, now let's see if we already returned this data
                  * object by checking if it exists in the earlier

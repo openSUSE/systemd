@@ -138,7 +138,7 @@ int ask_password_tty(
                                 goto finish;
                         }
 
-                if ((k = poll(pollfd, notify > 0 ? 2 : 1, sleep_for)) < 0) {
+                if ((k = __poll_alias(pollfd, notify > 0 ? 2 : 1, sleep_for)) < 0) {
 
                         if (errno == EINTR)
                                 continue;
@@ -207,6 +207,11 @@ int ask_password_tty(
                         if (ttyfd >= 0)
                                 loop_write(ttyfd, "(no echo) ", 10, false);
                 } else {
+                        if (p >= sizeof(passphrase)-1) {
+                                loop_write(ttyfd, "\a", 1, false);
+                                continue;
+                        }
+
                         passphrase[p++] = c;
 
                         if (!silent_mode && ttyfd >= 0)
@@ -270,7 +275,7 @@ static int create_socket(char **name) {
 
         if (r < 0) {
                 r = -errno;
-                log_error("bind() failed: %m");
+                log_error("bind(%s) failed: %m", sa.un.sun_path);
                 goto fail;
         }
 

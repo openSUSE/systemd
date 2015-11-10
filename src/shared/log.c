@@ -92,12 +92,24 @@ void log_close_kmsg(void) {
         kmsg_fd = -1;
 }
 
+static int parse_proc_cmdline_word(const char *word) {
+        if (streq(word, "systemd.log_target=null"))
+                return -115;
+
+        return 0;
+}
+
 static int log_open_kmsg(void) {
 
         if (kmsg_fd >= 0)
                 return 0;
 
-        kmsg_fd = open("/dev/kmsg", O_WRONLY|O_NOCTTY|O_CLOEXEC);
+        if (parse_proc_cmdline(parse_proc_cmdline_word) == -115) {
+                kmsg_fd = open("/dev/null", O_WRONLY|O_NOCTTY|O_CLOEXEC);
+        } else {
+                kmsg_fd = open("/dev/kmsg", O_WRONLY|O_NOCTTY|O_CLOEXEC);
+        }
+
         if (kmsg_fd < 0)
                 return -errno;
 
@@ -479,7 +491,7 @@ static int log_do_header(char *header, size_t size,
                  func ? "CODE_FUNCTION=" : "",
                  func ? LINE_MAX : 0, func,
                  func ? "\n" : "",
-                 object ? object_name : "",
+                 object_name ? object_name : "",
                  object ? LINE_MAX : 0, object, /* %.0s means no output */
                  object ? "\n" : "",
                  program_invocation_short_name);
@@ -893,25 +905,28 @@ void log_parse_environment(void) {
                         if (l == 5 && startswith(w, "debug")) {
                                 log_set_max_level(LOG_DEBUG);
                                 break;
+                        } else if (l == 5 && startswith(w, "quiet")) {
+                                log_set_max_level(LOG_WARNING);
+                                break;
                         }
                 }
         }
 
         e = secure_getenv("SYSTEMD_LOG_TARGET");
         if (e && log_set_target_from_string(e) < 0)
-                log_warning("Failed to parse log target %s. Ignoring.", e);
+                log_warning("Failed to parse log target '%s'. Ignoring.", e);
 
         e = secure_getenv("SYSTEMD_LOG_LEVEL");
         if (e && log_set_max_level_from_string(e) < 0)
-                log_warning("Failed to parse log level %s. Ignoring.", e);
+                log_warning("Failed to parse log level '%s'. Ignoring.", e);
 
         e = secure_getenv("SYSTEMD_LOG_COLOR");
         if (e && log_show_color_from_string(e) < 0)
-                log_warning("Failed to parse bool %s. Ignoring.", e);
+                log_warning("Failed to parse bool '%s'. Ignoring.", e);
 
         e = secure_getenv("SYSTEMD_LOG_LOCATION");
         if (e && log_show_location_from_string(e) < 0)
-                log_warning("Failed to parse bool %s. Ignoring.", e);
+                log_warning("Failed to parse bool '%s'. Ignoring.", e);
 }
 
 LogTarget log_get_target(void) {

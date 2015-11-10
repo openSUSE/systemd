@@ -58,7 +58,7 @@ typedef struct JournalFile {
         bool writable:1;
         bool compress:1;
         bool seal:1;
-
+        bool defrag_on_close:1;
         bool tail_entry_monotonic_valid:1;
 
         direction_t last_direction;
@@ -210,14 +210,15 @@ static unsigned type_to_context(int type) {
 
 static inline int journal_file_object_keep(JournalFile *f, Object *o, uint64_t offset) {
         unsigned context = type_to_context(o->object.type);
+        uint64_t s = le64toh(o->object.size);
 
         return mmap_cache_get(f->mmap, f->fd, f->prot, context, true,
-                              offset, o->object.size, &f->last_stat, NULL);
+                              offset, s, &f->last_stat, NULL);
 }
 
 static inline int journal_file_object_release(JournalFile *f, Object *o, uint64_t offset) {
         unsigned context = type_to_context(o->object.type);
+        uint64_t s = le64toh(o->object.size);
 
-        return mmap_cache_release(f->mmap, f->fd, f->prot, context,
-                                  offset, o->object.size);
+        return mmap_cache_release(f->mmap, f->fd, f->prot, context, offset, s);
 }

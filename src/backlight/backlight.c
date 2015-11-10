@@ -24,6 +24,7 @@
 #include "fileio.h"
 #include "libudev.h"
 #include "udev-util.h"
+#include "def.h"
 
 static struct udev_device *find_pci_or_platform_parent(struct udev_device *device) {
         struct udev_device *parent;
@@ -50,7 +51,7 @@ static struct udev_device *find_pci_or_platform_parent(struct udev_device *devic
                 if (!c)
                         return NULL;
 
-                c += strspn(c, "0123456789");
+                c += strspn(c, DIGITS);
                 if (*c == '-') {
                         /* A connector DRM device, let's ignore all but LVDS and eDP! */
 
@@ -67,7 +68,8 @@ static struct udev_device *find_pci_or_platform_parent(struct udev_device *devic
                         unsigned long class = 0;
 
                         if (safe_atolu(value, &class) < 0) {
-                                log_warning("Cannot parse PCI class %s of device %s:%s.", value, subsystem, sysname);
+                                log_warning("Cannot parse PCI class %s of device %s:%s.",
+                                            value, subsystem, sysname);
                                 return NULL;
                         }
 
@@ -175,7 +177,9 @@ static bool validate_device(struct udev *udev, struct udev_device *device) {
                 if (same_device(parent, other_parent)) {
                         /* Both have the same PCI parent, that means
                          * we are out. */
-                        log_debug("Skipping backlight device %s, since backlight device %s is on same PCI device and, takes precedence.", udev_device_get_sysname(device), udev_device_get_sysname(other));
+                        log_debug("Skipping backlight device %s, since device %s is on same PCI device and takes precedence.",
+                                  udev_device_get_sysname(device),
+                                  udev_device_get_sysname(other));
                         return false;
                 }
 
@@ -184,7 +188,9 @@ static bool validate_device(struct udev *udev, struct udev_device *device) {
                         /* The other is connected to the platform bus
                          * and we are a PCI device, that also means we
                          * are out. */
-                        log_debug("Skipping backlight device %s, since backlight device %s is a platform device and takes precedence.", udev_device_get_sysname(device), udev_device_get_sysname(other));
+                        log_debug("Skipping backlight device %s, since device %s is a platform device and takes precedence.",
+                                  udev_device_get_sysname(device),
+                                  udev_device_get_sysname(other));
                         return false;
                 }
         }
@@ -192,11 +198,78 @@ static bool validate_device(struct udev *udev, struct udev_device *device) {
         return true;
 }
 
+static unsigned get_max_brightness(struct udev_device *device) {
+        int r;
+        const char *max_brightness_str;
+        unsigned max_brightness;
+
+        max_brightness_str = udev_device_get_sysattr_value(device, "max_brightness");
+        if (!max_brightness_str) {
+                log_warning("Failed to read 'max_brightness' attribute.");
+                return 0;
+        }
+
+        r = safe_atou(max_brightness_str, &max_brightness);
+        if (r < 0) {
+                log_warning("Failed to parse 'max_brightness' \"%s\": %s", max_brightness_str, strerror(-r));
+                return 0;
+        }
+
+        if (max_brightness <= 0) {
+                log_warning("Maximum brightness is 0, ignoring device.");
+                return 0;
+        }
+
+        return max_brightness;
+}
+
+/* Some systems turn the backlight all the way off at the lowest levels.
+ * clamp_brightness clamps the saved brightness to at least 1 or 5% of
+ * max_brightness in case of 'backlight' subsystem. This avoids preserving
+ * an unreadably dim screen, which would otherwise force the user to
+ * disable state restoration. */
+static void clamp_brightness(struct udev_device *device, char **value, unsigned max_brightness) {
+        int r;
+        unsigned brightness, new_brightness, min_brightness;
+        const char *subsystem;
+
+        r = safe_atou(*value, &brightness);
+        if (r < 0) {
+                log_warning("Failed to parse brightness \"%s\": %s", *value, strerror(-r));
+                return;
+        }
+
+        subsystem = udev_device_get_subsystem(device);
+        if (streq_ptr(subsystem, "backlight"))
+                min_brightness = MAX(1U, max_brightness/20);
+        else
+                min_brightness = 0;
+
+        new_brightness = CLAMP(brightness, min_brightness, max_brightness);
+        if (new_brightness != brightness) {
+                char *old_value = *value;
+
+                r = asprintf(value, "%u", new_brightness);
+                if (r < 0) {
+                        log_oom();
+                        return;
+                }
+
+                log_info("Saved brightness %s %s to %s.", old_value,
+                         new_brightness > brightness ?
+                         "too low; increasing" : "too high; decreasing",
+                         *value);
+
+                free(old_value);
+        }
+}
+
 int main(int argc, char *argv[]) {
         _cleanup_udev_unref_ struct udev *udev = NULL;
         _cleanup_udev_device_unref_ struct udev_device *device = NULL;
         _cleanup_free_ char *saved = NULL, *ss = NULL, *escaped_ss = NULL, *escaped_sysname = NULL, *escaped_path_id = NULL;
         const char *sysname, *path_id;
+        unsigned max_brightness;
         int r;
 
         if (argc != 3) {
@@ -212,7 +285,8 @@ int main(int argc, char *argv[]) {
 
         r = mkdir_p("/var/lib/systemd/backlight", 0755);
         if (r < 0) {
-                log_error("Failed to create backlight directory: %s", strerror(-r));
+                log_error("Failed to create backlight directory /var/lib/systemd/backlight: %s",
+                          strerror(-r));
                 return EXIT_FAILURE;
         }
 
@@ -224,7 +298,7 @@ int main(int argc, char *argv[]) {
 
         sysname = strchr(argv[2], ':');
         if (!sysname) {
-                log_error("Requires pair of subsystem and sysname for specifying backlight device.");
+                log_error("Requires a subsystem and sysname pair specifying a backlight device.");
                 return EXIT_FAILURE;
         }
 
@@ -251,6 +325,14 @@ int main(int argc, char *argv[]) {
 
                 return EXIT_FAILURE;
         }
+
+        /* If max_brightness is 0, then there is no actual backlight
+         * device. This happens on desktops with Asus mainboards
+         * that load the eeepc-wmi module.
+         */
+        max_brightness = get_max_brightness(device);
+        if (max_brightness == 0)
+                return EXIT_SUCCESS;
 
         escaped_ss = cescape(ss);
         if (!escaped_ss) {
@@ -290,8 +372,11 @@ int main(int argc, char *argv[]) {
          * device probing should be complete), so that the validity
          * check at boot time doesn't have to be reliable. */
 
-        if (streq(argv[1], "load") && shall_restore_state()) {
+        if (streq(argv[1], "load")) {
                 _cleanup_free_ char *value = NULL;
+
+                if (!shall_restore_state())
+                        return EXIT_SUCCESS;
 
                 if (!validate_device(udev, device))
                         return EXIT_SUCCESS;
@@ -306,9 +391,12 @@ int main(int argc, char *argv[]) {
                         return EXIT_FAILURE;
                 }
 
+                clamp_brightness(device, &value, max_brightness);
+
                 r = udev_device_set_sysattr_value(device, "brightness", value);
                 if (r < 0) {
-                        log_error("Failed to write system attribute: %s", strerror(-r));
+                        log_error("Failed to write system 'brightness' attribute: %s",
+                                  strerror(-r));
                         return EXIT_FAILURE;
                 }
 
@@ -322,7 +410,7 @@ int main(int argc, char *argv[]) {
 
                 value = udev_device_get_sysattr_value(device, "brightness");
                 if (!value) {
-                        log_error("Failed to read system attribute: %s", strerror(-r));
+                        log_error("Failed to read system 'brightness' attribute: %s", strerror(-r));
                         return EXIT_FAILURE;
                 }
 

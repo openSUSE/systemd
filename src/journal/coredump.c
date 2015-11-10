@@ -38,10 +38,10 @@
 #include "cgroup-util.h"
 
 /* Few programs have less than 3MiB resident */
-#define COREDUMP_MIN_START (3*1024*1024)
+#define COREDUMP_MIN_START (3*1024*1024u)
 /* Make sure to not make this larger than the maximum journal entry
- * size. See ENTRY_SIZE_MAX in journald-native.c. */
-#define COREDUMP_MAX (767*1024*1024)
+ * size. See DATA_SIZE_MAX in journald-native.c. */
+#define COREDUMP_MAX (1024*1024*767u)
 
 enum {
         ARG_PID = 1,
