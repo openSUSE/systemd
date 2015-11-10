@@ -2548,7 +2548,12 @@ dist_udevrules_DATA += \
 	rules/75-tty-description.rules \
 	rules/78-sound-card.rules \
 	rules/80-net-setup-link.rules \
-	rules/95-udev-late.rules
+	rules/95-udev-late.rules \
+	src/udev/rule_generator/75-persistent-net-generator.rules
+
+udevlibexec_PROGRAMS += \
+	src/udev/rule_generator/rule_generator.functions \
+	src/udev/rule_generator/write_net_rules
 
 dist_udevhwdb_DATA = \
 	hwdb/20-pci-vendor-model.hwdb \

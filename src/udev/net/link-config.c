@@ -92,14 +92,20 @@ static int link_config_ctx_connect(link_config_ctx *ctx) {
 
         if (ctx->ethtool_fd == -1) {
                 r = ethtool_connect(&ctx->ethtool_fd);
-                if (r < 0)
+                if (r < 0) {
+                        log_warning("link_config: could not connect to ethtool: %s",
+                                    strerror(-r));
                         return r;
+                }
         }
 
         if (!ctx->rtnl) {
                 r = sd_rtnl_open(&ctx->rtnl, 0);
-                if (r < 0)
+                if (r < 0) {
+                        log_warning("link_config: could not connect to rtnl: %s",
+                                    strerror(-r));
                         return r;
+                }
         }
 
         return 0;
@@ -118,6 +124,7 @@ static void link_configs_free(link_config_ctx *ctx) {
                 free(link->match_type);
                 free(link->description);
                 free(link->alias);
+                free(link->name_policy);
 
                 free(link);
         }
@@ -185,7 +192,7 @@ failure:
 }
 
 static bool enable_name_policy(void) {
-        _cleanup_free_ char *line;
+        _cleanup_free_ char *line = NULL;
         char *w, *state;
         int r;
         size_t l;
@@ -193,6 +200,18 @@ static bool enable_name_policy(void) {
         r = proc_cmdline(&line);
         if (r < 0)
                 log_warning("Failed to read /proc/cmdline, ignoring: %s", strerror(-r));
+#if defined(NET_IFNAMES) && (NET_IFNAMES == 1)
+# warning Using persistent rules as a default
+        if (r <= 0)
+                return false;
+
+        FOREACH_WORD_QUOTED(w, l, line, state)
+                if (strneq(w, "net.ifnames=1", l))
+                       return true;
+
+        return false;
+#else
+# warning Using predictable rules as a default
         if (r <= 0)
                 return true;
 
@@ -201,11 +220,13 @@ static bool enable_name_policy(void) {
                         return false;
 
         return true;
+#endif
 }
 
 int link_config_load(link_config_ctx *ctx) {
         int r;
-        char **files, **f;
+        _cleanup_strv_free_ char **files;
+        char **f;
 
         link_configs_free(ctx);
 
@@ -419,7 +440,9 @@ int link_config_apply(link_config_ctx *ctx, link_config *config, struct udev_dev
                 case MACPOLICY_PERSISTENT:
                         if (!mac_is_permanent(device)) {
                                 r = get_mac(device, false, &generated_mac);
-                                if (r < 0)
+                                if (r == -ENOENT)
+                                        break;
+                                else if (r < 0)
                                         return r;
                                 mac = &generated_mac;
                         }
@@ -427,7 +450,9 @@ int link_config_apply(link_config_ctx *ctx, link_config *config, struct udev_dev
                 case MACPOLICY_RANDOM:
                         if (!mac_is_random(device)) {
                                 r = get_mac(device, true, &generated_mac);
-                                if (r < 0)
+                                if (r == -ENOENT)
+                                        break;
+                                else if (r < 0)
                                         return r;
                                 mac = &generated_mac;
                         }

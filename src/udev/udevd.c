@@ -273,7 +273,7 @@ static void worker_new(struct event *event)
                         struct udev_event *udev_event;
                         struct worker_message msg;
                         int fd_lock = -1;
-                        int err;
+                        int err = 0;
 
                         log_debug("seq %llu running", udev_device_get_seqnum(dev));
                         udev_event = udev_event_new(dev);
@@ -310,6 +310,7 @@ static void worker_new(struct event *event)
                                         if (fd_lock >= 0 && flock(fd_lock, LOCK_SH|LOCK_NB) < 0) {
                                                 log_debug("Unable to flock(%s), skipping event handling: %m", udev_device_get_devnode(d));
                                                 err = -EWOULDBLOCK;
+                                                close_nointr_nofail(fd_lock); fd_lock = -1;
                                                 goto skip;
                                         }
                                 }
@@ -321,13 +322,13 @@ static void worker_new(struct event *event)
                         udev_event_execute_run(udev_event, &sigmask_orig);
 
                         /* apply/restore inotify watch */
-                        if (err == 0 && udev_event->inotify_watch) {
+                        if (udev_event->inotify_watch) {
                                 udev_watch_begin(udev, dev);
                                 udev_device_update_db(dev);
                         }
 
                         if (fd_lock >= 0)
-                                close(fd_lock);
+                                close_nointr_nofail(fd_lock);
 
                         /* send processed event back to libudev listeners */
                         udev_monitor_send_device(worker_monitor, NULL, dev);
@@ -387,9 +388,9 @@ skip:
 out:
                 udev_device_unref(dev);
                 if (fd_signal >= 0)
-                        close(fd_signal);
+                        close_nointr_nofail(fd_signal);
                 if (fd_ep >= 0)
-                        close(fd_ep);
+                        close_nointr_nofail(fd_ep);
                 close(fd_inotify);
                 close(worker_watch[WRITE_END]);
                 udev_rules_unref(rules);
@@ -1397,16 +1398,16 @@ int main(int argc, char *argv[])
                                 if (worker->state != WORKER_RUNNING)
                                         continue;
 
-                                if ((now(CLOCK_MONOTONIC) - worker->event_start_usec) > 30 * 1000 * 1000) {
+                                if ((now(CLOCK_MONOTONIC) - worker->event_start_usec) > 30 * USEC_PER_SEC) {
                                         log_error("worker [%u] %s timeout; kill it", worker->pid,
                                             worker->event ? worker->event->devpath : "<idle>");
                                         kill(worker->pid, SIGKILL);
                                         worker->state = WORKER_KILLED;
+
                                         /* drop reference taken for state 'running' */
                                         worker_unref(worker);
                                         if (worker->event) {
-                                                log_error("seq %llu '%s' killed",
-                                                          udev_device_get_seqnum(worker->event->dev), worker->event->devpath);
+                                                log_error("seq %llu '%s' killed", udev_device_get_seqnum(worker->event->dev), worker->event->devpath);
                                                 worker->event->exitcode = -64;
                                                 event_queue_delete(worker->event, true);
                                                 worker->event = NULL;
