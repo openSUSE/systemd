@@ -1,0 +1,10 @@
+[Unit]
+Description=Rule generator for /dev/root symlink
+Before=systemd-udevd.service
+DefaultDependencies=no
+ConditionPathIsReadWrite=/run/udev
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/udev/rootsymlink-generator

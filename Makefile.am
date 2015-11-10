@@ -2542,6 +2542,7 @@ dist_udevrules_DATA += \
 	rules/60-persistent-input.rules \
 	rules/60-persistent-alsa.rules \
 	rules/60-persistent-storage.rules \
+	rules/60-ssd-scheduler.rules \
 	rules/64-btrfs.rules \
 	rules/75-net-description.rules \
 	rules/75-tty-description.rules \
@@ -2779,6 +2780,25 @@ EXTRA_DIST += \
 	test/rule-syntax-check.py
 
 # ------------------------------------------------------------------------------
+rootsymlink_generator_SOURCES = \
+	src/udev/rootsymlink_generator/rootsymlink_generator.c
+
+rootsymlink_generator_CFLAGS = \
+	$(AM_CFLAGS)
+
+udevlibexec_PROGRAMS += \
+	rootsymlink-generator
+
+nodist_systemunit_DATA += \
+	units/systemd-udev-root-symlink.service
+
+SYSINIT_TARGET_WANTS += \
+	systemd-udev-root-symlink.service
+
+EXTRA_DIST += \
+	units/systemd-udev-root-symlink.service.in
+
+# ------------------------------------------------------------------------------
 ata_id_SOURCES = \
 	src/udev/ata_id/ata_id.c
 
@@ -2788,6 +2808,17 @@ ata_id_LDADD = \
 
 udevlibexec_PROGRAMS += \
 	ata_id
+
+# ------------------------------------------------------------------------------
+path_id_compat_SOURCES = \
+	src/udev/path_id_compat/path_id_compat.c
+
+path_id_compat_LDADD = \
+	libudev-internal.la \
+	libsystemd-shared.la
+
+udevlibexec_PROGRAMS += \
+	path_id_compat
 
 # ------------------------------------------------------------------------------
 cdrom_id_SOURCES = \

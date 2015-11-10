@@ -74,6 +74,9 @@ static bool reload;
 static int children;
 static int children_max;
 static int exec_delay;
+static usec_t event_timeout_usec = 180 * USEC_PER_SEC;
+static usec_t event_timeout_warn_usec = 180 * USEC_PER_SEC / 3;
+static bool event_killkmod = false;
 static sigset_t sigmask_orig;
 static UDEV_LIST(event_list);
 static UDEV_LIST(worker_list);
@@ -125,6 +128,7 @@ struct worker {
         enum worker_state state;
         struct event *event;
         usec_t event_start_usec;
+        bool event_warned;
 };
 
 /* passed from worker to main process */
@@ -310,9 +314,9 @@ static void worker_new(struct event *event)
                         }
 
                         /* apply rules, create node, symlinks */
-                        udev_event_execute_rules(udev_event, rules, &sigmask_orig);
+                        udev_event_execute_rules(udev_event, event_timeout_usec, event_timeout_warn_usec, rules, &sigmask_orig);
 
-                        udev_event_execute_run(udev_event, &sigmask_orig);
+                        udev_event_execute_run(udev_event, event_timeout_usec, event_timeout_warn_usec, &sigmask_orig);
 
                         /* apply/restore inotify watch */
                         if (udev_event->inotify_watch) {
@@ -406,6 +410,7 @@ out:
                 worker->pid = pid;
                 worker->state = WORKER_RUNNING;
                 worker->event_start_usec = now(CLOCK_MONOTONIC);
+                worker->event_warned = false;
                 worker->event = event;
                 event->state = EVENT_RUNNING;
                 udev_list_node_append(&worker->node, &worker_list);
@@ -437,13 +442,14 @@ static void event_run(struct event *event)
                 worker->event = event;
                 worker->state = WORKER_RUNNING;
                 worker->event_start_usec = now(CLOCK_MONOTONIC);
+                worker->event_warned = false;
                 event->state = EVENT_RUNNING;
                 return;
         }
 
         if (children >= children_max) {
                 if (children_max > 1)
-                        log_debug("maximum number (%i) of children reached", children);
+                        log_error("maximum number (%i) of children reached", children);
                 return;
         }
 
@@ -977,7 +983,7 @@ static void kernel_cmdline_options(struct udev *udev)
                 return;
 
         FOREACH_WORD_QUOTED(w, l, line, state) {
-                char *s, *opt;
+                char *s, *opt, *value;
 
                 s = strndup(w, l);
                 if (!s)
@@ -989,24 +995,41 @@ static void kernel_cmdline_options(struct udev *udev)
                 else
                         opt = s;
 
-                if (startswith(opt, "udev.log-priority=")) {
+                if ((value = startswith(opt, "udev.log-priority="))) {
                         int prio;
 
-                        prio = util_log_priority(opt + 18);
+                        prio = util_log_priority(value);
                         log_set_max_level(prio);
                         udev_set_log_priority(udev, prio);
-                } else if (startswith(opt, "udev.children-max=")) {
-                        children_max = strtoul(opt + 18, NULL, 0);
-                } else if (startswith(opt, "udev.exec-delay=")) {
-                        exec_delay = strtoul(opt + 16, NULL, 0);
+                } else if ((value = startswith(opt, "udev.children-max="))) {
+                        r = safe_atoi(value, &children_max);
+                        if (r < 0)
+                                log_warning("Invalid udev.children-max ignored: %s", value);
+                } else if ((value = startswith(opt, "udev.exec-delay="))) {
+                        r = safe_atoi(value, &exec_delay);
+                        if (r < 0)
+                                log_warning("Invalid udev.exec-delay ignored: %s", value);
+                } else if ((value = startswith(opt, "udev.event-timeout="))) {
+                        r = safe_atou64(value, &event_timeout_usec);
+                        if (r < 0) {
+                                log_warning("Invalid udev.event-timeout ignored: %s", value);
+                                break;
+                        }
+                        event_timeout_usec *= USEC_PER_SEC;
+                        event_timeout_warn_usec = (event_timeout_usec / 3) ? : 1;
+                } else if (startswith(opt, "udev.killkmod=")) {
+                        r = parse_boolean(opt + 14);
+                        if (r < 0)
+                                log_warning("Invalid udev.killkmod Ignoring: %s", opt + 14);
+                        else
+                                event_killkmod = r;
                 }
 
                 free(s);
         }
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
         struct udev *udev;
         sigset_t mask;
         int daemonize = false;
@@ -1016,6 +1039,7 @@ int main(int argc, char *argv[])
                 { "debug", no_argument, NULL, 'D' },
                 { "children-max", required_argument, NULL, 'c' },
                 { "exec-delay", required_argument, NULL, 'e' },
+                { "event-timeout", required_argument, NULL, 't' },
                 { "resolve-names", required_argument, NULL, 'N' },
                 { "help", no_argument, NULL, 'h' },
                 { "version", no_argument, NULL, 'V' },
@@ -1026,7 +1050,7 @@ int main(int argc, char *argv[])
         int fd_worker = -1;
         struct epoll_event ep_ctrl, ep_inotify, ep_signal, ep_netlink, ep_worker;
         struct udev_ctrl_connection *ctrl_conn = NULL;
-        int rc = 1;
+        int rc = 1, r;
 
         udev = udev_new();
         if (udev == NULL)
@@ -1040,7 +1064,11 @@ int main(int argc, char *argv[])
         log_set_max_level(udev_get_log_priority(udev));
 
         log_debug("version %s", VERSION);
-        label_init("/dev");
+        r = label_init("/dev");
+        if (r < 0) {
+                log_error("could not initialize labelling: %s", strerror(-r));
+                goto exit;
+        }
 
         for (;;) {
                 int option;
@@ -1054,10 +1082,23 @@ int main(int argc, char *argv[])
                         daemonize = true;
                         break;
                 case 'c':
-                        children_max = strtoul(optarg, NULL, 0);
+                        r = safe_atoi(optarg, &children_max);
+                        if (r < 0)
+                                log_warning("Invalid --children-max ignored: %s", optarg);
                         break;
                 case 'e':
-                        exec_delay = strtoul(optarg, NULL, 0);
+                        r = safe_atoi(optarg, &exec_delay);
+                        if (r < 0)
+                                log_warning("Invalid --exec-delay ignored: %s", optarg);
+                        break;
+                case 't':
+                        r = safe_atou64(optarg, &event_timeout_usec);
+                        if (r < 0)
+                                log_warning("Invalid --event-timeout ignored: %s", optarg);
+                        else {
+                                event_timeout_usec *= USEC_PER_SEC;
+                                event_timeout_warn_usec = (event_timeout_usec / 3) ? : 1;
+                        }
                         break;
                 case 'D':
                         debug = true;
@@ -1083,6 +1124,7 @@ int main(int argc, char *argv[])
                                "  --debug\n"
                                "  --children-max=<maximum number of workers>\n"
                                "  --exec-delay=<seconds to wait before executing RUN=>\n"
+                               "  --event-timeout=<seconds to wait before terminating an event>\n"
                                "  --resolve-names=early|late|never\n"
                                "  --version\n"
                                "  --help\n"
@@ -1105,10 +1147,18 @@ int main(int argc, char *argv[])
         }
 
         /* set umask before creating any file/directory */
-        chdir("/");
+        r = chdir("/");
+        if (r < 0) {
+                log_error("could not change dir to /: %m");
+                goto exit;
+        }
         umask(022);
 
-        mkdir("/run/udev", 0755);
+        r = mkdir("/run/udev", 0755);
+        if (r < 0 && errno != EEXIST) {
+                log_error("could not create /run/udev: %m");
+                goto exit;
+        }
 
         dev_setup(NULL);
 
@@ -1209,7 +1259,7 @@ int main(int argc, char *argv[])
                 sd_notify(1, "READY=1");
         }
 
-        print_kmsg("starting version " VERSION "\n");
+        log_info("starting version " VERSION "\n");
 
         if (!debug) {
                 int fd;
@@ -1300,7 +1350,7 @@ int main(int argc, char *argv[])
                 children_max = 8;
 
                 if (sched_getaffinity(0, sizeof (cpu_set), &cpu_set) == 0) {
-                        children_max +=  CPU_COUNT(&cpu_set) * 2;
+                        children_max += CPU_COUNT(&cpu_set) * 64;
                 }
         }
         log_debug("set children_max to %u", children_max);
@@ -1311,6 +1361,12 @@ int main(int argc, char *argv[])
 
         udev_list_node_init(&event_list);
         udev_list_node_init(&worker_list);
+
+        r = mkdir_p("/run/udev/kmod", 0755);
+        if (r < 0 && errno != EEXIST) {
+                log_error("could not create /run/udev/kmod: %m");
+                goto exit;
+        }
 
         for (;;) {
                 static usec_t last_usec;
@@ -1392,23 +1448,34 @@ int main(int argc, char *argv[])
                         /* check for hanging events */
                         udev_list_node_foreach(loop, &worker_list) {
                                 struct worker *worker = node_to_worker(loop);
+                                usec_t ts;
 
                                 if (worker->state != WORKER_RUNNING)
                                         continue;
+#ifdef HAVE_KMOD
+                                if (udev_check_for_kmod(worker->pid)) {
+                                        log_debug("worker [%u] %s is using kmod", worker->pid, worker->event->devpath);
+                                        if (!event_killkmod)
+                                                continue;
+                                }
+#endif
+                                ts = now(CLOCK_MONOTONIC);
 
-                                if ((now(CLOCK_MONOTONIC) - worker->event_start_usec) > 30 * USEC_PER_SEC) {
-                                        log_error("worker [%u] %s timeout; kill it", worker->pid,
-                                            worker->event ? worker->event->devpath : "<idle>");
-                                        kill(worker->pid, SIGKILL);
-                                        worker->state = WORKER_KILLED;
+                                if ((ts - worker->event_start_usec) > event_timeout_warn_usec) {
+                                        if ((ts - worker->event_start_usec) > event_timeout_usec) {
+                                                log_error("worker [%u] %s timeout; kill it", worker->pid, worker->event->devpath);
+                                                kill(worker->pid, SIGKILL);
+                                                worker->state = WORKER_KILLED;
 
-                                        /* drop reference taken for state 'running' */
-                                        worker_unref(worker);
-                                        if (worker->event) {
+                                                /* drop reference taken for state 'running' */
+                                                worker_unref(worker);
                                                 log_error("seq %llu '%s' killed", udev_device_get_seqnum(worker->event->dev), worker->event->devpath);
                                                 worker->event->exitcode = -64;
                                                 event_queue_delete(worker->event);
                                                 worker->event = NULL;
+                                        } else if (!worker->event_warned) {
+                                                log_warning("worker [%u] %s is taking a long time", worker->pid, worker->event->devpath);
+                                                worker->event_warned = true;
                                         }
                                 }
                         }

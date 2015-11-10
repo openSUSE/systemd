@@ -97,7 +97,8 @@ static const char hex_str[]="0123456789abcdef";
 
 static int do_scsi_page80_inquiry(struct udev *udev,
                                   struct scsi_id_device *dev_scsi, int fd,
-                                  char *serial, char *serial_short, int max_len);
+                                  char *serial, char *serial_short,
+                                  char *serial_compat, int max_len);
 
 static int sg_err_category_new(struct udev *udev,
                                int scsi_status, int msg_status, int
@@ -620,7 +621,7 @@ static int do_scsi_page83_inquiry(struct udev *udev,
         unsigned char page_83[SCSI_INQ_BUFF_LEN];
 
         /* also pick up the page 80 serial number */
-        do_scsi_page80_inquiry(udev, dev_scsi, fd, NULL, unit_serial_number, MAX_SERIAL_LEN);
+        do_scsi_page80_inquiry(udev, dev_scsi, fd, NULL, unit_serial_number, NULL, MAX_SERIAL_LEN);
 
         memzero(page_83, SCSI_INQ_BUFF_LEN);
         retval = scsi_inquiry(udev, dev_scsi, fd, 1, PAGE_83, page_83,
@@ -765,7 +766,8 @@ static int do_scsi_page83_prespc3_inquiry(struct udev *udev,
 /* Get unit serial number VPD page */
 static int do_scsi_page80_inquiry(struct udev *udev,
                                   struct scsi_id_device *dev_scsi, int fd,
-                                  char *serial, char *serial_short, int max_len)
+                                  char *serial, char *serial_short,
+                                  char *serial_compat, int max_len)
 {
         int retval;
         int ser_ind;
@@ -799,9 +801,14 @@ static int do_scsi_page80_inquiry(struct udev *udev,
                 ser_ind = prepend_vendor_model(udev, dev_scsi, &serial[1]);
                 if (ser_ind < 0)
                         return 1;
+                if (serial_compat)
+                        strcpy(serial_compat, serial);
                 ser_ind++; /* for the leading 'S' */
-                for (i = 4; i < len + 4; i++, ser_ind++)
+                for (i = 4; i < len + 4; i++, ser_ind++) {
                         serial[ser_ind] = buf[i];
+                        if (serial_compat)
+                                serial_compat[ser_ind - 1] = buf[i];
+                }
         }
         if (serial_short != NULL) {
                 memcpy(serial_short, &buf[4], len);
@@ -877,7 +884,7 @@ int scsi_get_serial(struct udev *udev,
                 return 1;
 
         if (page_code == PAGE_80) {
-                if (do_scsi_page80_inquiry(udev, dev_scsi, fd, dev_scsi->serial, dev_scsi->serial_short, len)) {
+                if (do_scsi_page80_inquiry(udev, dev_scsi, fd, dev_scsi->serial, dev_scsi->serial_short, dev_scsi->serial_compat, len)) {
                         retval = 1;
                         goto completed;
                 } else  {
@@ -951,7 +958,7 @@ int scsi_get_serial(struct udev *udev,
         for (ind = 4; ind <= page0[3] + 3; ind++)
                 if (page0[ind] == PAGE_80)
                         if (!do_scsi_page80_inquiry(udev, dev_scsi, fd,
-                                                    dev_scsi->serial, dev_scsi->serial_short, len)) {
+                                                    dev_scsi->serial, dev_scsi->serial_short, dev_scsi->serial_compat, len)) {
                                 /*
                                  * Success
                                  */

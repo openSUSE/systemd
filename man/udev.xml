@@ -513,13 +513,6 @@
                 </listitem>
               </varlistentry>
               <varlistentry>
-                <term><option>event_timeout=</option></term>
-                <listitem>
-                  <para>Number of seconds an event waits for operations to finish before
-                  giving up and terminating itself.</para>
-                </listitem>
-              </varlistentry>
-              <varlistentry>
                 <term><option>string_escape=<replaceable>none|replace</replaceable></option></term>
                 <listitem>
                   <para>Usually control and other possibly unsafe characters are replaced
@@ -921,10 +914,12 @@
               successful one is used. The name is not set directly, but
               is exported to udev as the property <literal>ID_NET_NAME</literal>,
               which is, by default, used by a udev rule to set
-              <literal>NAME</literal>. The available policies are:
+              <literal>NAME</literal>. If the name has already
+              been set by userspace, no renaming is performed.
+              The available policies are:
             </para>
             <variablelist>
-              <varlistentry>
+             <varlistentry>
                 <term><literal>database</literal></term>
                 <listitem>
                   <para>The name is set based on entries in the Hardware
