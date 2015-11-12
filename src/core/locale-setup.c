@@ -74,9 +74,8 @@ int locale_setup(char ***environment) {
         char *variables[_VARIABLE_MAX] = {};
         int r = 0, i;
 #ifdef HAVE_SYSV_COMPAT
-        char _cleanup_free_ *root_uses_lang;
-
-        zero(root_uses_lang);
+        char _cleanup_free_ *rc_lang = NULL, *rc_lc_ctype = NULL;
+        char _cleanup_free_ *root_uses_lang = NULL;
 #endif
 
         if (detect_container(NULL) <= 0) {
@@ -125,25 +124,39 @@ int locale_setup(char ***environment) {
                         log_warning("Failed to read /etc/locale.conf: %s", strerror(-r));
         }
 #ifdef HAVE_SYSV_COMPAT
-        if (r <= 0 &&
-            (r = parse_env_file("/etc/sysconfig/language", NEWLINE,
-                                "ROOT_USES_LANG", &root_uses_lang,
-                                "RC_LANG", &variables[VARIABLE_LANG],
-                                 NULL)) < 0) {
-            if (r != -ENOENT)
-                    log_warning("Failed to read /etc/sysconfig/language: %s", strerror(-r));
+        r = parse_env_file("/etc/sysconfig/language", NEWLINE,
+                           "RC_LANG", &rc_lang,
+                           "RC_LC_CTYPE", &rc_lc_ctype,
+                           "ROOT_USES_LANG", &root_uses_lang,
+                           NULL);
 
-        } else {
-             if (!root_uses_lang || (root_uses_lang && !strcaseeq(root_uses_lang,"yes"))) {
-                     if (root_uses_lang && strcaseeq(root_uses_lang,"ctype"))
-                            variables[VARIABLE_LC_CTYPE]=variables[VARIABLE_LANG];
-                     else
-                            free(variables[VARIABLE_LANG]);
+        if (r < 0 && r != -ENOENT)
+                log_warning("Failed to read /etc/sysconfig/language: %s", strerror(-r));
 
-                    variables[VARIABLE_LANG]=strdup("POSIX");
+        /*
+         * Use the values of the interactive locale configuration in /etc/sysconfig/language
+         * as fallback if /etc/locale.conf does not exist and no locale was specified on the
+         * kernel's command line.  The special case ROOT_USES_LANG=ctype allows to set LC_CTYPE
+         * even if LANG for root is set to e.g. POSIX. But do this only if no LC_CTYPE has been
+         * set in /etc/locale.conf and on the kernel's command line.
+         */
+        if (root_uses_lang) {
+                if (strcaseeq(root_uses_lang, "yes") && !variables[VARIABLE_LANG]) {
+                        variables[VARIABLE_LANG] = rc_lang;
+                        rc_lang = NULL;
+                }
+                if (strcaseeq(root_uses_lang, "ctype") && !variables[VARIABLE_LC_CTYPE]) {
+                        if (variables[VARIABLE_LANG])
+                                variables[VARIABLE_LC_CTYPE] = strdup(variables[VARIABLE_LANG]);
+                        else if (rc_lc_ctype && *rc_lc_ctype) {
+                                variables[VARIABLE_LC_CTYPE] = rc_lc_ctype;
+                                rc_lc_ctype = NULL;
+                        } else if (rc_lang && *rc_lang) {
+                                variables[VARIABLE_LC_CTYPE] = rc_lang;
+                                rc_lang = NULL;
+                        }
+                }
         }
-      }
-
 #endif
 
         add = NULL;
