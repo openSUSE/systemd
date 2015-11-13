@@ -272,7 +272,7 @@ static int make_read_only(BindMount *m) {
         if (r < 0 && !(m->ignore && errno == ENOENT))
                 return -errno;
 
-        return r;
+        return 0;
 }
 
 int setup_namespace(
