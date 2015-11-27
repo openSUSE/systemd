@@ -16,6 +16,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <sys/stat.h>
@@ -26,29 +27,34 @@
 #define BUFFER_SIZE     128
 
 #define _ROOTDEV_	"/"
-#define _PATH_		"/run/udev/rules.d"
+#define _RUN_PATH_	"/run/udev"
 #define _FILE_		"10-root-symlink.rules"
 
-int main()
+int main(void)
 {
 	struct stat statbuf;
+	char *udev_rule;
 
 	if (stat(_ROOTDEV_, &statbuf) != 0)
 		return 0;
 
 	if (major(statbuf.st_dev) > 0) {
 		int fd = -1;
-		char filename[BUFFER_SIZE];
 
-		if (mkdir(_PATH_, 0755) != 0 && errno != EEXIST)
+		if (mkdir(_RUN_PATH_, 0755) != 0 && errno != EEXIST)
 			return errno;
 
-		snprintf(filename, BUFFER_SIZE, "%s/%s", _PATH_, _FILE_);
+		udev_rule = calloc(BUFFER_SIZE, 1);
+		if (!udev_rule)
+			return ENOMEM;
 
-		if ((fd = open(filename, O_CREAT|O_WRONLY|O_TRUNC, 0644)) == -1)
-			return errno;
-		else {
+		snprintf(udev_rule, sizeof(_RUN_PATH_) + 10, "%s/rules.d/", _RUN_PATH_);
+		if (mkdir(udev_rule, 0755) == 0 || errno == EEXIST) {
 			char buf[BUFFER_SIZE];
+
+			strcat(udev_rule, _FILE_);
+			if ((fd = open(udev_rule, O_CREAT|O_WRONLY|O_TRUNC, 0644)) == -1)
+				return errno;
 
 			snprintf(buf, BUFFER_SIZE, "ACTION==\"add|change\", SUBSYSTEM==\"block\", ENV{MAJOR}==\"%d\", ENV{MINOR}==\"%d\", SYMLINK+=\"root\"\n",
 				 major(statbuf.st_dev), minor(statbuf.st_dev));

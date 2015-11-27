@@ -4,6 +4,7 @@
   This file is part of systemd.
 
   Copyright 2010 Lennart Poettering
+  Copyright 2015 Werner Fink
 
   systemd is free software; you can redistribute it and/or modify it
   under the terms of the GNU Lesser General Public License as published by
@@ -47,7 +48,9 @@
 #include "build.h"
 #include "fileio.h"
 #include "macro.h"
-#include "list.h"
+#include "hashmap.h"
+#include "strv.h"
+#include "exit-status.h"
 
 static enum {
         ACTION_LIST,
@@ -56,14 +59,6 @@ static enum {
         ACTION_WALL
 } arg_action = ACTION_QUERY;
 
-struct console {
-        LIST_FIELDS(struct console, handle);
-        char *tty;
-        pid_t pid;
-        int id;
-};
-
-static volatile uint32_t *usemask;
 static volatile sig_atomic_t sigchild;
 static void chld_handler(int sig)
 {
@@ -73,6 +68,7 @@ static void chld_handler(int sig)
 
 static bool arg_plymouth = false;
 static bool arg_console = false;
+static const char *arg_device;
 
 static int ask_password_plymouth(
                 const char *message,
@@ -268,68 +264,64 @@ finish:
         return r;
 }
 
-static const char *current_dev = "/dev/console";
-static LIST_HEAD(struct console, consoles);
-static int collect_consoles(void) {
+static int get_kernel_consoles(char ***consoles) {
+        _cleanup_strv_free_ char **con = NULL;
         _cleanup_free_ char *active = NULL;
-        char *w, *state;
-        struct console *c;
-        size_t l;
-        int id;
-        int r;
+        char *word, *state;
+        int count = 0;
+        size_t len;
+        int ret;
 
-        r = read_one_line_file("/sys/class/tty/console/active", &active);
-        if (r < 0)
-                return r;
+        assert(consoles);
 
-        id = 0;
-        FOREACH_WORD(w, l, active, state) {
+        ret = read_one_line_file("/sys/class/tty/console/active", &active);
+        if (ret < 0)
+                return ret;
+
+        FOREACH_WORD(word, len, active, state) {
                 _cleanup_free_ char *tty = NULL;
+                char *path;
 
-                if (strneq(w, "tty0", l)) {
-                        if (read_one_line_file("/sys/class/tty/tty0/active", &tty) >= 0) {
-                                w = tty;
-                                l = strlen(tty);
-                        }
+                if (len == 4 && strneq(word, "tty0", 4)) {
+
+                        ret = read_one_line_file("/sys/class/tty/tty0/active", &tty);
+                        if (ret < 0)
+                                return ret;
+                } else {
+
+                        tty = strndup(word, len);
+                        if (!tty)
+                                return -ENOMEM;
                 }
 
-                c = malloc0(sizeof(struct console)+5+l+1);
-                if (!c) {
-                        log_oom();
-                        continue;
-                }
-
-                c->tty = ((char*)c)+sizeof(struct console);
-                stpncpy(stpcpy(c->tty, "/dev/"),w,l);
-                c->id = id++;
-
-                LIST_PREPEND(handle, consoles, c);
-        }
-
-        if (!consoles) {
-
-                c = malloc0(sizeof(struct console));
-                if (!c) {
-                        log_oom();
+                path = strjoin("/dev/", tty, NULL);
+                if (!path)
                         return -ENOMEM;
+
+                ret = strv_push(&con, path);
+                if (ret < 0) {
+                        free(path);
+                        return ret;
                 }
 
-                c->tty = (char *)current_dev;
-                c->id = id++;
-
-                LIST_PREPEND(handle, consoles, c);
+                count++;
         }
 
-        return 0;
-}
+        if (count == 0) {
 
-static void free_consoles(void) {
-        struct console *c;
-        LIST_FOREACH(handle, c, consoles) {
-                LIST_REMOVE(handle, consoles, c);
-                free(c);
+                log_debug("No devices found for system console");
+
+                ret = strv_extend(&con, "/dev/console");
+                if (ret < 0)
+                        return ret;
+
+                count++;
         }
-        LIST_HEAD_INIT(consoles);
+
+        *consoles = con;
+        con = NULL;
+
+        return count;
 }
 
 static int parse_password(const char *filename, char **wall) {
@@ -451,7 +443,7 @@ static int parse_password(const char *filename, char **wall) {
                         char *password = NULL;
 
                         if (arg_console)
-                                if ((tty_fd = acquire_terminal(current_dev, false, false, true, (usec_t) -1)) < 0) {
+                                if ((tty_fd = acquire_terminal(arg_device ? arg_device : "/dev/console", false, false, false, (usec_t) -1)) < 0) {
                                         r = tty_fd;
                                         goto finish;
                                 }
@@ -752,7 +744,7 @@ static int parse_argv(int argc, char *argv[]) {
                 { "watch",    no_argument, NULL, ARG_WATCH    },
                 { "wall",     no_argument, NULL, ARG_WALL     },
                 { "plymouth", no_argument, NULL, ARG_PLYMOUTH },
-                { "console",  no_argument, NULL, ARG_CONSOLE  },
+                { "console",  optional_argument, NULL, ARG_CONSOLE  },
                 {}
         };
 
@@ -795,6 +787,8 @@ static int parse_argv(int argc, char *argv[]) {
 
                 case ARG_CONSOLE:
                         arg_console = true;
+                        if (!isempty(optarg))
+                                arg_device = optarg;
                         break;
 
                 case '?':
@@ -813,11 +807,208 @@ static int parse_argv(int argc, char *argv[]) {
         return 1;
 }
 
+/*
+ * To be able to ask on all terminal devices of /dev/console
+ * the devices are collected. If more than one device are found,
+ * then on each of the terminals a inquiring task is forked.
+ * Every task has its own session and its own controlling terminal.
+ * If one of the tasks does handle a password, the remaining tasks
+ * will be terminated.
+ */
+static int ask_on_consoles(int argc, char *argv[]) {
+        _cleanup_hashmap_free_ Hashmap *pids = NULL;
+        _cleanup_strv_free_ char **consoles = NULL;
+        struct sigaction sig = {
+                .sa_handler = chld_handler,
+                .sa_flags = SA_NOCLDSTOP | SA_RESTART,
+        };
+        struct timespec timeout;
+        siginfo_t status = {};
+        sigset_t set;
+        Iterator it;
+        char *device;
+        char **tty;
+        void *ptr;
+        pid_t pid;
+        int ret, signum;
+
+        ret = get_kernel_consoles(&consoles);
+        if (ret < 0) {
+                errno = -ret;
+                log_error("Failed to determine devices of /dev/console: %m");
+                return ret;
+        }
+
+        pids = hashmap_new(NULL, NULL);
+        if (!pids)
+                return log_oom();
+
+        assert_se(sigprocmask_many(SIG_UNBLOCK, NULL, SIGHUP, SIGCHLD, -1) >= 0);
+
+        assert_se(sigemptyset(&sig.sa_mask) >= 0);
+        assert_se(sigaction(SIGCHLD, &sig, NULL) >= 0);
+
+        sig.sa_handler = SIG_DFL;
+        assert_se(sigaction(SIGHUP, &sig, NULL) >= 0);
+
+        STRV_FOREACH(tty, consoles) {
+
+                pid = fork();
+                if (pid < 0) {
+                        log_error("Failed to fork process: %m");
+                        return -errno;
+                }
+
+                device = *tty;
+
+                if (pid == 0) {
+                        char *conarg;
+                        static const struct sigaction sa = {
+                                .sa_handler = SIG_DFL,
+                                .sa_flags = SA_RESTART,
+                        };
+                        sigset_t ss;
+                        int ac;
+
+                        conarg = strjoin("--console=", device, NULL);
+                        if (!conarg)
+                                return log_oom();
+
+                        assert_se(prctl(PR_SET_PDEATHSIG, SIGHUP) >= 0);
+
+                        assert_se(sigemptyset(&ss) >= 0);
+                        assert_se(sigprocmask(SIG_SETMASK, &ss, NULL) >= 0);
+                        assert_se(sigaction(SIGCHLD, &sa, NULL) == 0);
+
+                        for (ac = 0; ac < argc; ac++) {
+                                if (streq(argv[ac], "--console")) {
+                                        argv[ac] = conarg;
+                                        break;
+                                }
+                        }
+
+                        assert(ac < argc);
+
+                        execv(SYSTEMD_TTY_ASK_PASSWORD_AGENT_BINARY_PATH, argv);
+                        _exit(EXIT_FAILURE);
+                }
+
+                device = strdup(*tty);
+                if (!device)
+                        return log_oom();
+
+                ret = hashmap_put(pids, UINT_TO_PTR(pid), device);
+                if (ret < 0)
+                        return log_oom();
+        }
+
+        for (;;) {
+
+                assert_se(!hashmap_isempty(pids));
+
+                ret = waitid(P_ALL, 0, &status, WEXITED);
+
+                if (!ret)
+                        break;
+
+                if (errno == EINTR)
+                        continue;
+
+                log_error("waitid() failed: %m");
+                return -errno;
+        }
+
+        /*
+         * Remove the returned process from hashmap.
+         */
+        device = hashmap_remove(pids, UINT_TO_PTR(status.si_pid));
+        assert(device);
+
+        if (!is_clean_exit(status.si_code, status.si_status, NULL)) {
+                if (status.si_code == CLD_EXITED)
+                        log_error("Failed to execute child for %s: %d", device, status.si_status);
+                else
+                        log_error("Failed to execute child for %s due signal %s", device, signal_to_string(status.si_status));
+        }
+
+        free(device);
+
+        if (hashmap_isempty(pids))
+                return ret;
+
+        /*
+         * Request termination of the remaining processes as those
+         * are not required anymore.
+         */
+        HASHMAP_FOREACH_KEY(device, ptr, pids, it) {
+
+                assert(device);
+                pid = PTR_TO_UINT(ptr);
+
+                if (kill(pid, SIGTERM) < 0 && errno != ESRCH)
+                        log_warning("kill(%d, SIGTERM) failed: %m", pid);
+        }
+
+        /*
+         * Collect the processes which have go away.
+         */
+        assert_se(sigemptyset(&set) >= 0);
+        assert_se(sigaddset(&set, SIGCHLD) >= 0);
+        timespec_store(&timeout, 50 * USEC_PER_MSEC);
+
+        while ((ptr = hashmap_first_key(pids))) {
+
+                ret = waitid(P_ALL, 0, &status, WEXITED|WNOHANG);
+                if (ret < 0 && errno == EINTR)
+                        continue;
+
+                if (!ret && status.si_pid > 0) {
+                        device = hashmap_remove(pids, UINT_TO_PTR(status.si_pid));
+                        assert(device);
+                        free(device);
+                        continue;
+                }
+
+                signum = sigtimedwait(&set, NULL, &timeout);
+                if (signum != SIGCHLD) {
+
+                        if (signum < 0 && errno == EAGAIN)
+                                break;
+
+                        if (signum < 0) {
+                                log_error("sigtimedwait() failed: %m");
+                                return -errno;
+                        }
+
+                        if (signum >= 0)
+                                log_warning("sigtimedwait() returned unexpected signal.");
+                }
+        }
+
+
+        /*
+         * Kill hanging processes.
+         */
+        while ((ptr = hashmap_first_key(pids))) {
+
+                device = hashmap_remove(pids, ptr);
+                assert(device);
+
+                pid = PTR_TO_UINT(ptr);
+
+                log_debug("Failed to terminate child %d for %s, going to kill it", pid, device);
+                free(device);
+
+                if (kill(pid, SIGKILL) < 0 && errno != ESRCH)
+                        log_warning("kill(%d, SIGKILL) failed: %m", pid);
+        }
+
+        return ret;
+}
+
 int main(int argc, char *argv[]) {
-        int id = 0;
         int r;
 
-        LIST_HEAD_INIT(consoles);
         log_set_target(LOG_TARGET_AUTO);
         log_parse_environment();
         log_open();
@@ -827,110 +1018,31 @@ int main(int argc, char *argv[]) {
         if ((r = parse_argv(argc, argv)) <= 0)
                 goto finish;
 
-        usemask = (uint32_t*) mmap(NULL, sizeof(uint32_t), PROT_READ|PROT_WRITE,
-                                   MAP_ANONYMOUS|MAP_SHARED, -1, 0);
+        if (arg_console && !arg_device)
+                /*
+                 * Spwan for each console device a own process
+                 */
+                r = ask_on_consoles(argc, argv);
+        else {
 
-        if (arg_console) {
-                if (!arg_plymouth && arg_action != ACTION_WALL &&
-                    arg_action != ACTION_LIST) {
-                        struct console *c;
-                        struct sigaction sig = {
-                                .sa_handler = chld_handler,
-                                .sa_flags = SA_NOCLDSTOP|SA_RESTART,
-                        };
-                        struct sigaction oldsig;
-                        sigset_t set, oldset;
-                        int status = 0;
-                        pid_t job;
-
-                        collect_consoles();
-
-                        if (!consoles->handle_next) {
-                                consoles->pid = 0;
-                                c = consoles;
-                                goto nofork;
-                        }
-
-                        assert_se(sigemptyset(&set) == 0);
-                        assert_se(sigaddset(&set, SIGHUP) == 0);
-                        assert_se(sigaddset(&set, SIGCHLD) == 0);
-                        assert_se(sigemptyset(&sig.sa_mask) == 0);
-
-                        assert_se(sigprocmask(SIG_UNBLOCK, &set, &oldset) == 0);
-                        assert_se(sigaction(SIGCHLD, &sig, &oldsig) == 0);
-                        sig.sa_handler = SIG_DFL;
-                        assert_se(sigaction(SIGHUP, &sig, NULL) == 0);
-                        LIST_FOREACH(handle, c, consoles) {
-
-                                switch ((c->pid = fork())) {
-                                case 0:
-                                        if (prctl(PR_SET_PDEATHSIG, SIGHUP) < 0)
-                                                _exit(EXIT_FAILURE);
-                                        zero(sig);
-                                        assert_se(sigprocmask(SIG_UNBLOCK, &oldset, NULL) == 0);
-                                        assert_se(sigaction(SIGCHLD, &oldsig, NULL) == 0);
-                                        /* fall through */
-                                nofork:
-                                        setsid();
-                                        release_terminal();
-                                        id = c->id;
-                                        *usemask |= (1<<id);
-                                        current_dev = c->tty;
-                                        goto forked;                        /* child */
-                                case -1:
-                                        log_error("Failed to query password: %s", strerror(errno));
-                                        return EXIT_FAILURE;
-                                default:
-                                        break;
-                                }
-                        }
-
-                        r = 0;
-                        while ((job = wait(&status))) {
-                                if (job < 0) {
-                                        if (errno != EINTR)
-                                                break;
-                                        continue;
-                                }
-                                LIST_FOREACH(handle, c, consoles) {
-                                        if (c->pid == job) {
-                                                *usemask &= ~(1<<c->id);
-                                                continue;
-                                        }
-                                        if (kill(c->pid, 0) < 0) {
-                                                *usemask &= ~(1<<c->id);
-                                                continue;
-                                        }
-                                        if (*usemask & (1<<c->id))
-                                                continue;
-                                        kill(c->pid, SIGHUP);
-                                        usleep(50000);
-                                        kill(c->pid, SIGKILL);
-                                }
-                
-                                if (WIFEXITED(status) && !r)
-                                        r = WEXITSTATUS(status);
-                        }
-                        free_consoles();
-                        return r != 0 ? EXIT_FAILURE : EXIT_SUCCESS;        /* parent */
-
-                } else {
-                        setsid();
-                        release_terminal();
+                if (arg_device) {
+                        /*
+                         * Later on a controlling terminal will be will be acquired,
+                         * therefore the current process has to become a session
+                         * leader and should not have a controlling terminal already.
+                         */
+                        (void) setsid();
+                        (void) release_terminal();
                 }
+                if (arg_action == ACTION_WATCH || arg_action == ACTION_WALL)
+                        r = watch_passwords();
+                else
+                        r = show_passwords();
         }
-forked:
-        if (arg_action == ACTION_WATCH ||
-            arg_action == ACTION_WALL)
-                r = watch_passwords();
-        else
-                r = show_passwords();
 
         if (r < 0)
                 log_error("Error: %s", strerror(-r));
 
-        free_consoles();
-        *usemask &= ~(1<<id);
 finish:
         return r < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
 }
