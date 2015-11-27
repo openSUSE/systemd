@@ -49,7 +49,7 @@ static int check_ro_from_cmdline(void) {
                 size_t l;
 
                 FOREACH_WORD_QUOTED(w, l, line, state) {
-                        if (l == 8 && memcmp(w, "readonly", 8) == 0) {
+                        if (l == 2 && memcmp(w, "ro", 2) == 0) {
                                 return 1;
                                 break;
                         }
