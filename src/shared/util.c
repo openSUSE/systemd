@@ -5707,7 +5707,7 @@ bool is_locale_utf8(void) {
         /* Check result, but ignore the result if C was set
          * explicitly. */
         cached_answer =
-                streq(set, "C") &&
+                (streq(set, "C") || streq(set, "POSIX")) &&
                 !getenv("LC_ALL") &&
                 !getenv("LC_CTYPE") &&
                 !getenv("LANG");

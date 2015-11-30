@@ -458,6 +458,8 @@ static int mount_fix_timeouts(Mount *m) {
                 timeout += 31;
         else if ((timeout = mount_test_option(p->options, "x-systemd.device-timeout")))
                 timeout += 25;
+        else if (mount_test_option(p->options, "nofail"))
+                timeout = "1";
 
         if (timeout) {
                 t = strndup(timeout, strcspn(timeout, ",;" WHITESPACE));
