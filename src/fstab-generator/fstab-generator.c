@@ -335,9 +335,9 @@ static int add_mount(
         }
 
         c = check_crypttab(what);
-        if (!noauto && (c != 0)) {
+        if (!automount && !noauto && (c != 0)) {
                 if (post) {
-                        lnk = strjoin(arg_dest, "/", post, nofail || automount ? ".wants/" : ".requires/", name, NULL);
+                        lnk = strjoin(arg_dest, "/", post, nofail ? ".wants/" : ".requires/", name, NULL);
                         if (!lnk)
                                 return log_oom();
 
