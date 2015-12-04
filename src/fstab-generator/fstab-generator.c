@@ -109,7 +109,7 @@ static int mount_find_pri(struct mntent *me, int *ret) {
 static int add_swap(const char *what, struct mntent *me) {
         _cleanup_free_ char *name = NULL, *unit = NULL, *lnk = NULL;
         _cleanup_fclose_ FILE *f = NULL;
-        bool noauto;
+        bool noauto, nofail;
         int r, pri = -1;
 
         assert(what);
@@ -122,6 +122,7 @@ static int add_swap(const char *what, struct mntent *me) {
         }
 
         noauto = !!hasmntopt(me, "noauto");
+        nofail = !!hasmntopt(me, "nofail");
 
         name = unit_name_from_path(what, ".swap");
         if (!name)
@@ -160,7 +161,8 @@ static int add_swap(const char *what, struct mntent *me) {
         }
 
         if (!noauto) {
-                lnk = strjoin(arg_dest, "/" SPECIAL_SWAP_TARGET ".wants/", name, NULL);
+                lnk = strjoin(arg_dest, "/" SPECIAL_SWAP_TARGET,
+                              nofail ? ".wants/" : ".requires/", name, NULL);
                 if (!lnk)
                         return log_oom();
 
