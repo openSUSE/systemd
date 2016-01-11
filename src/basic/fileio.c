@@ -157,7 +157,7 @@ int read_one_line_file(const char *fn, char **line) {
         if (!fgets(t, sizeof(t), f)) {
 
                 if (ferror(f))
-                        return errno ? -errno : -EIO;
+                        return errno > 0 ? -errno : -EIO;
 
                 t[0] = 0;
         }
@@ -1056,7 +1056,7 @@ int fflush_and_check(FILE *f) {
         fflush(f);
 
         if (ferror(f))
-                return errno ? -errno : -EIO;
+                return errno > 0 ? -errno : -EIO;
 
         return 0;
 }
