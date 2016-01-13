@@ -451,7 +451,7 @@ static void event_run(struct event *event)
 
         if (children >= children_max) {
                 if (children_max > 1)
-                        log_error("maximum number (%i) of children reached", children);
+                        log_debug("maximum number (%i) of children reached", children);
                 return;
         }
 
