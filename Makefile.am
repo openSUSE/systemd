@@ -144,6 +144,7 @@ noinst_PROGRAMS =
 TESTS =
 endif
 udevlibexec_PROGRAMS =
+udevlibexec_SCRIPTS =
 
 .PHONY: $(INSTALL_EXEC_HOOKS) $(UNINSTALL_EXEC_HOOKS) \
 	$(INSTALL_DATA_HOOKS) $(UNINSTALL_DATA_HOOKS) \
@@ -2581,7 +2582,7 @@ dist_udevrules_DATA += \
 	rules/95-udev-late.rules \
 	src/udev/rule_generator/75-persistent-net-generator.rules
 
-udevlibexec_PROGRAMS += \
+udevlibexec_SCRIPTS += \
 	src/udev/rule_generator/rule_generator.functions \
 	src/udev/rule_generator/write_net_rules
 
