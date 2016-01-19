@@ -2055,6 +2055,15 @@ finish:
                         args[i++] = NULL;
 
                         assert(i <= args_size);
+
+                        /*
+                         * We want valgrind to print its memory usage summary before reexecution.
+                         * Valgrind won't do this is on its own on exec(), but it will do it on exit().
+                         * Hence, to ensure we get a summary here, fork() off a child, let it exit() cleanly,
+                         * so that it prints the summary, and wait() for it in the parent, before proceeding into the exec().
+                         */
+                        valgrind_summary_hack();
+
                         (void) execv(args[0], (char* const*) args);
                 }
 
