@@ -38,6 +38,8 @@ LICENSE:
 
 REQUIREMENTS:
         Linux kernel >= 3.7
+
+        Kernel Config Options:
           CONFIG_DEVTMPFS
           CONFIG_CGROUPS (it's OK to disable all controllers)
           CONFIG_INOTIFY_USER
@@ -51,7 +53,7 @@ REQUIREMENTS:
 
         Linux kernel >= 3.8 for Smack support
 
-        Udev will fail to work with the legacy sysfs layout:
+        udev will fail to work with the legacy sysfs layout:
           CONFIG_SYSFS_DEPRECATED=n
 
         Legacy hotplug slows down the system and confuses udev:
