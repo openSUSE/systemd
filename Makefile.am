@@ -1502,7 +1502,8 @@ tests += \
 	test-af-list \
 	test-arphrd-list \
 	test-dns-domain \
-	test-install-root
+	test-install-root \
+	test-signal-util
 
 EXTRA_DIST += \
 	test/a.service \
@@ -1865,6 +1866,12 @@ test_install_root_LDADD = \
 
 test_namespace_LDADD = \
 	libcore.la
+
+test_signal_util_SOURCES = \
+	src/test/test-signal-util.c
+
+test_signal_util_LDADD = \
+	libshared.la
 
 BUILT_SOURCES += \
 	src/test/test-hashmap-ordered.c

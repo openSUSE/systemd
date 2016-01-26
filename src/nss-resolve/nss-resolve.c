@@ -35,6 +35,7 @@
 #include "nss-util.h"
 #include "string-util.h"
 #include "util.h"
+#include "signal-util.h"
 
 NSS_GETHOSTBYNAME_PROTOTYPES(resolve);
 NSS_GETHOSTBYADDR_PROTOTYPES(resolve);
@@ -127,6 +128,8 @@ enum nss_status _nss_resolve_gethostbyname4_r(
         size_t l, ms, idx;
         char *r_name;
         int c, r, i = 0;
+
+        BLOCK_SIGNALS(NSS_SIGNALS_BLOCK);
 
         assert(name);
         assert(pat);
@@ -307,6 +310,8 @@ enum nss_status _nss_resolve_gethostbyname3_r(
         size_t l, idx, ms, alen;
         const char *canonical;
         int c, r, i = 0;
+
+        BLOCK_SIGNALS(NSS_SIGNALS_BLOCK);
 
         assert(name);
         assert(result);
@@ -512,6 +517,8 @@ enum nss_status _nss_resolve_gethostbyaddr2_r(
         size_t ms = 0, idx;
         const char *n;
         int r, ifindex;
+
+        BLOCK_SIGNALS(NSS_SIGNALS_BLOCK);
 
         assert(addr);
         assert(result);
