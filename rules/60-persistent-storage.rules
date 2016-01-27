@@ -40,8 +40,8 @@ KERNEL=="sd*[!0-9]|sr*", ENV{ID_SERIAL}!="?*", SUBSYSTEMS=="usb", IMPORT{builtin
 KERNEL=="sd*[!0-9]|sr*", ENV{ID_SERIAL}!="?*", IMPORT{program}="scsi_id --export --whitelisted -d $devnode", ENV{ID_BUS}="scsi"
 KERNEL=="cciss*", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL}!="?*", IMPORT{program}="scsi_id --export --whitelisted -d $devnode", ENV{ID_BUS}="cciss"
 KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL}!="?*", IMPORT{program}="scsi_id --export --whitelisted -d $tempnode", ENV{ID_BUS}="nvme"
-KERNEL=="sd*|sr*|cciss*|nvme*", ENV{DEVTYPE}=="disk", ENV{DM_MULTIPATH_DEVICE_PATH}!="1", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/$env{ID_BUS}-$env{ID_SERIAL}"
-KERNEL=="sd*|cciss*|nvme*", ENV{DEVTYPE}=="partition", ENV{DM_MULTIPATH_DEVICE_PATH}!="1", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/$env{ID_BUS}-$env{ID_SERIAL}-part%n"
+KERNEL=="sd*|sr*|cciss*", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/$env{ID_BUS}-$env{ID_SERIAL}"
+KERNEL=="sd*|cciss*", ENV{DEVTYPE}=="partition", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/$env{ID_BUS}-$env{ID_SERIAL}-part%n"
 
 # scsi compat links for ATA devices
 KERNEL=="sd*[!0-9]", ENV{ID_BUS}=="ata", PROGRAM="scsi_id --whitelisted --replace-whitespace -p0x80 -d $devnode", RESULT=="?*", ENV{ID_SCSI_COMPAT}="$result", SYMLINK+="disk/by-id/scsi-$env{ID_SCSI_COMPAT}"
@@ -79,9 +79,6 @@ KERNEL=="sr*", ENV{DISK_EJECT_REQUEST}!="?*", ENV{ID_CDROM_MEDIA_TRACK_COUNT_DAT
 # single-session CDs do not have ID_CDROM_MEDIA_SESSION_LAST_OFFSET
 KERNEL=="sr*", ENV{DISK_EJECT_REQUEST}!="?*", ENV{ID_CDROM_MEDIA_TRACK_COUNT_DATA}=="?*", ENV{ID_CDROM_MEDIA_SESSION_LAST_OFFSET}=="", \
   IMPORT{builtin}="blkid --noraid"
-
-# Skip blkid on multipath device paths
-ENV{DM_MULTIPATH_DEVICE_PATH}=="1", GOTO="persistent_storage_end"
 
 # probe filesystem metadata of disks
 KERNEL!="sr*", IMPORT{builtin}="blkid"

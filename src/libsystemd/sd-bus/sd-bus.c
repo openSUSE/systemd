@@ -2587,7 +2587,7 @@ static int bus_poll(sd_bus *bus, bool need_more, uint64_t timeout_usec) {
                 n = 2;
         }
 
-        r = __ppoll_alias(p, n, m == (uint64_t) -1 ? NULL : timespec_store(&ts, m), NULL);
+        r = ppoll(p, n, m == (uint64_t) -1 ? NULL : timespec_store(&ts, m), NULL);
         if (r < 0)
                 return -errno;
 

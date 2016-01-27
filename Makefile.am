@@ -144,6 +144,7 @@ noinst_PROGRAMS =
 TESTS =
 endif
 udevlibexec_PROGRAMS =
+udevlibexec_SCRIPTS =
 
 .PHONY: $(INSTALL_EXEC_HOOKS) $(UNINSTALL_EXEC_HOOKS) \
 	$(INSTALL_DATA_HOOKS) $(UNINSTALL_DATA_HOOKS) \
@@ -2552,7 +2553,7 @@ dist_udevrules_DATA += \
 	rules/95-udev-late.rules \
 	src/udev/rule_generator/75-persistent-net-generator.rules
 
-udevlibexec_PROGRAMS += \
+udevlibexec_SCRIPTS += \
 	src/udev/rule_generator/rule_generator.functions \
 	src/udev/rule_generator/write_net_rules
 
@@ -2673,18 +2674,6 @@ libudev_core_la_LIBADD = \
 	libsystemd-shared.la \
 	$(BLKID_LIBS) \
 	$(KMOD_LIBS)
-
-libudev_core_la_CPPFLAGS = \
-	$(AM_CPPFLAGS) \
-	-DFIRMWARE_PATH="$(FIRMWARE_PATH)"
-
-if ENABLE_FIRMWARE
-libudev_core_la_SOURCES += \
-	src/udev/udev-builtin-firmware.c
-
-dist_udevrules_DATA += \
-	rules/50-firmware.rules
-endif
 
 if HAVE_KMOD
 libudev_core_la_SOURCES += \
