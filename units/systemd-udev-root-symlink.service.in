@@ -7,4 +7,4 @@ ConditionPathIsReadWrite=/run/udev
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=@udevlibexec@/rootsymlink-generator
+ExecStart=@udevlibexecdir@/rootsymlink-generator
