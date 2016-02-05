@@ -1,7 +1,7 @@
 #!/bin/sh
 
-if [ -x /bin/plymouth ]; then
-    /bin/plymouth --wait quit
+if [ -x /usr/bin/plymouth ]; then
+    /usr/bin/plymouth --wait quit
 fi
 
 echo "You are in $1 mode. After logging in, type \"journalctl -xb\" to view"
