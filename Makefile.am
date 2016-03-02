@@ -1449,6 +1449,7 @@ tests += \
 	test-utf8 \
 	test-ellipsize \
 	test-util \
+	test-glob-util \
 	test-fs-util \
 	test-string-util \
 	test-extract-word \
@@ -1755,6 +1756,12 @@ test_util_SOURCES = \
 
 test_util_LDADD = \
 	libshared.la
+
+test_glob_util_SOURCES = \
+	src/test/test-glob-util.c
+
+test_glob_util_LDADD = \
+	libbasic.la
 
 test_fs_util_SOURCES = \
 	src/test/test-fs-util.c
