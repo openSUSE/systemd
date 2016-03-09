@@ -395,28 +395,26 @@ int main(int argc, char **argv) {
             log_warning("Failed to read /etc/sysconfig/console: %s", strerror(-r));
 
         disable_capslock = vc_kbd_disable_caps_lock && strcasecmp(vc_kbd_disable_caps_lock, "YES") == 0;
+
 #if defined(__i386__) || defined(__x86_64__)
                 if (vc_kbd_numlock && strcaseeq(vc_kbd_numlock, "bios")) {
                         int _cleanup_close_ fdmem;
                         char c;
 
                         fdmem = open ("/dev/mem", O_RDONLY);
-
                         if(fdmem < 0) {
-                                r = EXIT_FAILURE;
-                                log_error("Failed to open /dev/mem: %m");
+                                log_debug("BIOS NumLock check: Failed to open /dev/mem: %m");
                                 goto finish;
                         }
 
                         if(lseek(fdmem, BIOS_DATA_AREA + BDA_KEYBOARD_STATUS_FLAGS_4, SEEK_SET) == (off_t) -1) {
-                                r = EXIT_FAILURE;
-                                log_error("Failed to seek /dev/mem: %m");
+                                log_debug("BIOS NumLock check: Failed to seek /dev/mem: %m");
                                 goto finish;
                         }
 
                         if(read (fdmem, &c, sizeof(char)) == -1) {
-                                r = EXIT_FAILURE;
-                                log_error("Failed to read /dev/mem: %m");
+                                /* On virtualized system, these data can simply not be read */
+                                log_debug("BIOS NumLock check: Failed to read /dev/mem: %m");
                                 goto finish;
                         }
 
@@ -427,6 +425,7 @@ int main(int argc, char **argv) {
                         numlock = vc_kbd_numlock && strcaseeq(vc_kbd_numlock, "yes");
 #endif
 
+finish:
         r = parse_env_file("/etc/vconsole.conf", NEWLINE,
                            "KEYMAP", &vc_keymap,
                            "KEYMAP_TOGGLE", &vc_keymap_toggle,
@@ -452,7 +451,6 @@ int main(int argc, char **argv) {
                         log_warning("Failed to read /proc/cmdline: %s", strerror(-r));
         }
 #ifdef HAVE_SYSV_COMPAT
-finish:
         r = set_kbd_rate(vc, vc_kbd_rate, vc_kbd_delay, &kbd_rate_pid);
         if (r < 0) {
                 log_error("Failed to start /bin/kbdrate: %s", strerror(-r));
