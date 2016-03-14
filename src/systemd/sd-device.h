@@ -23,6 +23,7 @@
   along with systemd; If not, see <http://www.gnu.org/licenses/>.
 ***/
 
+#include <sys/sysmacros.h>
 #include <sys/types.h>
 #include <inttypes.h>
 
