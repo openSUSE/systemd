@@ -1,6 +1,6 @@
 # This file is part of systemd.
 
-auth     include system-auth
-account  include system-auth
-password include system-auth
-session  include system-auth
+auth     include common-auth
+account  include common-account
+password include common-password
+session  include common-session
