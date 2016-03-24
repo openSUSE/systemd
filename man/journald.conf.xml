@@ -306,8 +306,8 @@
         the system console, or sent as wall messages to all logged-in users.  These
         options take boolean arguments. If forwarding to syslog is enabled but nothing
         reads messages from the socket, forwarding to syslog has no effect. By default,
-        only forwarding to wall is enabled. These settings may be overridden at boot time
-        with the kernel command line options
+        only forwarding to syslog and wall are enabled. These settings may be overridden
+        at boot time with the kernel command line options
         <literal>systemd.journald.forward_to_syslog</literal>,
         <literal>systemd.journald.forward_to_kmsg</literal>,
         <literal>systemd.journald.forward_to_console</literal>, and
