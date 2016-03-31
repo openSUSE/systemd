@@ -113,6 +113,13 @@ static bool mount_is_auto(MountParameters *p) {
         return !mount_test_option(p->options, "noauto");
 }
 
+static bool mount_is_automount(const MountParameters *p) {
+        assert(p);
+
+        return mount_test_option(p->options, "comment=systemd.automount") ||
+                mount_test_option(p->options, "x-systemd.automount");
+}
+
 static bool needs_quota(MountParameters *p) {
         assert(p);
 
@@ -329,7 +336,8 @@ static int mount_add_device_links(Mount *m) {
         if (path_equal(m->where, "/"))
                 return 0;
 
-        if (mount_is_auto(p) && UNIT(m)->manager->running_as == SYSTEMD_SYSTEM)
+        if (mount_is_auto(p) && !mount_is_automount(p) &&
+            UNIT(m)->manager->running_as == SYSTEMD_SYSTEM)
                 device_wants_mount = true;
 
         r = unit_add_node_link(UNIT(m), p->what, device_wants_mount);
