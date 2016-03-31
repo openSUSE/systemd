@@ -419,10 +419,3 @@ uint64_t util_string_bloom64(const char *str)
         bits |= 1LLU << ((hash >> 18) & 63);
         return bits;
 }
-
-static int parse_proc_cmdline_word(const char *word) {
-        if (streq(word, "systemd.log_target=null"))
-                return -115;
-
-        return 0;
-}

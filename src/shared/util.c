@@ -4063,6 +4063,8 @@ char* hostname_cleanup(char *s, bool lowercase) {
         char *p, *d;
         bool dot;
 
+        strshorten(s, HOST_NAME_MAX);
+
         for (p = s, d = s, dot = true; *p; p++) {
                 if (*p == '.') {
                         if (dot)
@@ -4081,8 +4083,6 @@ char* hostname_cleanup(char *s, bool lowercase) {
                 d[-1] = 0;
         else
                 *d = 0;
-
-        strshorten(s, HOST_NAME_MAX);
 
         return s;
 }
@@ -6281,11 +6281,7 @@ int parse_proc_cmdline(int (*parse_word)(const char *word)) {
 
                 r = parse_word(word);
                 if (r < 0) {
-                        if (r == -115) {
-                                log_error("Warning: %s set, redirecting messages to /dev/null.", word);
-                        } else {
-                                log_error("Failed on cmdline argument %s: %s", word, strerror(-r));
-                        }
+                        log_error("Failed on cmdline argument %s: %s", word, strerror(-r));
                         return r;
                 }
         }
