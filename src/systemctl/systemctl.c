@@ -329,6 +329,11 @@ next:
         if (arg_all)
                 return true;
 
+        if (!strv_isempty(arg_states))
+                return true;
+
+        /* By default show all units except the ones in inactive
+         * state and with no pending job */
         if (u->job_id > 0)
                 return true;
 

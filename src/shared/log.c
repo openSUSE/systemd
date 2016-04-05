@@ -92,24 +92,12 @@ void log_close_kmsg(void) {
         kmsg_fd = -1;
 }
 
-static int parse_proc_cmdline_word(const char *word) {
-        if (streq(word, "systemd.log_target=null"))
-                return -115;
-
-        return 0;
-}
-
 static int log_open_kmsg(void) {
 
         if (kmsg_fd >= 0)
                 return 0;
 
-        if (parse_proc_cmdline(parse_proc_cmdline_word) == -115) {
-                kmsg_fd = open("/dev/null", O_WRONLY|O_NOCTTY|O_CLOEXEC);
-        } else {
-                kmsg_fd = open("/dev/kmsg", O_WRONLY|O_NOCTTY|O_CLOEXEC);
-        }
-
+        kmsg_fd = open("/dev/kmsg", O_WRONLY|O_NOCTTY|O_CLOEXEC);
         if (kmsg_fd < 0)
                 return -errno;
 
@@ -904,9 +892,6 @@ void log_parse_environment(void) {
                 FOREACH_WORD_QUOTED(w, l, line, state) {
                         if (l == 5 && startswith(w, "debug")) {
                                 log_set_max_level(LOG_DEBUG);
-                                break;
-                        } else if (l == 5 && startswith(w, "quiet")) {
-                                log_set_max_level(LOG_WARNING);
                                 break;
                         }
                 }

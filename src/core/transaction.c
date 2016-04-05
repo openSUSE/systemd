@@ -975,7 +975,8 @@ int transaction_add_job_and_dependencies(
                         SET_FOREACH(dep, ret->unit->dependencies[UNIT_WANTS], i) {
                                 r = transaction_add_job_and_dependencies(tr, JOB_START, dep, ret, false, false, false, false, ignore_order, e);
                                 if (r < 0) {
-                                        log_full_unit(r == -EADDRNOTAVAIL ? LOG_DEBUG : LOG_WARNING, dep->id,
+                                        /* unit masked and unit not found are not considered as errors. */
+                                        log_full_unit(r ==  -EADDRNOTAVAIL || r == -ENOENT ? LOG_DEBUG : LOG_WARNING, dep->id,
                                                       "Cannot add dependency job for unit %s, ignoring: %s",
                                                       dep->id, bus_error_message(e, r));
 
