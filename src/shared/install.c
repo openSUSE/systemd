@@ -1587,7 +1587,7 @@ int unit_file_unmask(
                         return -ENOMEM;
 
                 if (unlink(path) < 0) {
-                        if (errno != -ENOENT && r >= 0)
+                        if (errno != ENOENT && r >= 0)
                                 r = -errno;
                 } else {
                         q = mark_symlink_for_removal(&remove_symlinks_to, path);
