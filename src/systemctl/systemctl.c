@@ -5430,6 +5430,8 @@ static int enable_unit(int argc, char *argv[], void *userdata) {
 
                 if (r == -ESHUTDOWN)
                         return log_error_errno(r, "Unit file is masked.");
+                if (r == -ELOOP)
+                        return log_error_errno(r, "Refusing to operate on linked unit file.");
                 if (r < 0)
                         return log_error_errno(r, "Operation failed: %m");
 

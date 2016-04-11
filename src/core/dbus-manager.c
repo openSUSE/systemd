@@ -1608,6 +1608,17 @@ fail:
         return r;
 }
 
+static int install_error(sd_bus_error *error, int c) {
+        assert(c < 0);
+
+        if (c == -ESHUTDOWN)
+                return sd_bus_error_setf(error, BUS_ERROR_UNIT_MASKED, "Unit file is masked.");
+        if (c == -ELOOP)
+                return sd_bus_error_setf(error, BUS_ERROR_UNIT_LINKED, "Refusing to operate on linked unit file.");
+
+        return c;
+}
+
 static int method_enable_unit_files_generic(
                 sd_bus_message *message,
                 Manager *m,
@@ -1642,10 +1653,8 @@ static int method_enable_unit_files_generic(
         scope = m->running_as == MANAGER_SYSTEM ? UNIT_FILE_SYSTEM : UNIT_FILE_USER;
 
         r = call(scope, runtime, NULL, l, force, &changes, &n_changes);
-        if (r == -ESHUTDOWN)
-                return sd_bus_error_setf(error, BUS_ERROR_UNIT_MASKED, "Unit file is masked");
         if (r < 0)
-                return r;
+                return install_error(error, r);
 
         return reply_unit_file_changes_and_free(m, message, carries_install_info ? r : -1, changes, n_changes);
 }
@@ -1714,7 +1723,7 @@ static int method_preset_unit_files_with_mode(sd_bus_message *message, void *use
 
         r = unit_file_preset(scope, runtime, NULL, l, mm, force, &changes, &n_changes);
         if (r < 0)
-                return r;
+                return install_error(error, r);
 
         return reply_unit_file_changes_and_free(m, message, r, changes, n_changes);
 }
@@ -1753,7 +1762,7 @@ static int method_disable_unit_files_generic(
 
         r = call(scope, runtime, NULL, l, &changes, &n_changes);
         if (r < 0)
-                return r;
+                return install_error(error, r);
 
         return reply_unit_file_changes_and_free(m, message, -1, changes, n_changes);
 }
@@ -1795,7 +1804,7 @@ static int method_set_default_target(sd_bus_message *message, void *userdata, sd
 
         r = unit_file_set_default(scope, NULL, name, force, &changes, &n_changes);
         if (r < 0)
-                return r;
+                return install_error(error, r);
 
         return reply_unit_file_changes_and_free(m, message, -1, changes, n_changes);
 }
@@ -1878,10 +1887,8 @@ static int method_add_dependency_unit_files(sd_bus_message *message, void *userd
         scope = m->running_as == MANAGER_SYSTEM ? UNIT_FILE_SYSTEM : UNIT_FILE_USER;
 
         r = unit_file_add_dependency(scope, runtime, NULL, l, target, dep, force, &changes, &n_changes);
-        if (r == -ESHUTDOWN)
-                return sd_bus_error_setf(error, BUS_ERROR_UNIT_MASKED, "Unit file is masked");
         if (r < 0)
-                return r;
+                return install_error(error, r);
 
         return reply_unit_file_changes_and_free(m, message, -1, changes, n_changes);
 }
