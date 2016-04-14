@@ -297,6 +297,13 @@ int main(int argc, char **argv) {
         if (r < 0 && r != -ENOENT)
                 log_warning_errno(r, "Failed to read /etc/sysconfig/console: %m");
 
+        r = parse_env_file("/etc/sysconfig/keyboard", NEWLINE,
+                           "KEYTABLE", &vc_keymap,
+                           NULL);
+
+        if (r < 0 && r != -ENOENT)
+                log_warning_errno(r, "Failed to read /etc/sysconfig/keyboard: %m");
+
         r = parse_env_file("/etc/vconsole.conf", NEWLINE,
                            "KEYMAP", &vc_keymap,
                            "KEYMAP_TOGGLE", &vc_keymap_toggle,
