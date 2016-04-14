@@ -602,7 +602,9 @@ w- /proc/sys/vm/swappiness - - - - 10</programlisting></para>
       suffixed by a newline. For <varname>C</varname>, specifies the source file or directory. For <varname>t</varname>
       and <varname>T</varname>, determines extended attributes to be set. For <varname>a</varname> and
       <varname>A</varname>, determines ACL attributes to be set. For <varname>h</varname> and <varname>H</varname>,
-      determines the file attributes to set. Ignored for all other lines.</para>
+      determines the file attributes to set. For <varname>x</varname> and <varname>X</varname> a comma separated list
+      of usernames.  If given, only paths belonging to these users will be excluded during directory cleanup.  Ignored
+      for all other lines.</para>
 
       <para>This field can contain specifiers, see below.</para>
     </refsect2>
