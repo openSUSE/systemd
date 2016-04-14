@@ -286,6 +286,17 @@ int main(int argc, char **argv) {
 
         utf8 = is_locale_utf8();
 
+        /* Systemd default conf files have precedence over SuSE
+         * specific ones */
+        r = parse_env_file("/etc/sysconfig/console", NEWLINE,
+                           "CONSOLE_FONT", &vc_font,
+                           "CONSOLE_SCREENMAP", &vc_font_map,
+                           "CONSOLE_UNICODEMAP", &vc_font_unimap,
+                           NULL);
+
+        if (r < 0 && r != -ENOENT)
+                log_warning_errno(r, "Failed to read /etc/sysconfig/console: %m");
+
         r = parse_env_file("/etc/vconsole.conf", NEWLINE,
                            "KEYMAP", &vc_keymap,
                            "KEYMAP_TOGGLE", &vc_keymap_toggle,
