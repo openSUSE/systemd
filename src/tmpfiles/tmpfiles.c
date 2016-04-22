@@ -482,14 +482,6 @@ static int item_set_perms_full(Item *i, const char *path, bool ignore_enoent) {
         assert(path);
 
         /* not using i->path directly because it may be a glob */
-        if (i->mode_set)
-                if (chmod(path, i->mode) < 0) {
-                        if (errno != ENOENT || !ignore_enoent) {
-                                log_error("chmod(%s) failed: %m", path);
-                                return -errno;
-                        }
-                }
-
         if (i->mode_set) {
                 mode_t m = i->mode;
 
