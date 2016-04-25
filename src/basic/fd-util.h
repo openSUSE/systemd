@@ -73,3 +73,5 @@ int same_fd(int a, int b);
 void cmsg_close_all(struct msghdr *mh);
 
 bool fdname_is_valid(const char *s);
+
+int fd_get_path(int fd, char **ret);
