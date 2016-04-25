@@ -89,6 +89,15 @@ static bool mount_is_network(MountParameters *p) {
         return false;
 }
 
+static bool mount_is_loop(const MountParameters *p) {
+        assert(p);
+
+        if (mount_test_option(p->options, "loop"))
+                return true;
+
+        return false;
+}
+
 static bool mount_is_bind(MountParameters *p) {
         assert(p);
 
@@ -275,12 +284,12 @@ static int mount_add_mount_links(Mount *m) {
         }
 
         /* Adds in links to other mount points that might be needed
-         * for the source path (if this is a bind mount) to be
+         * for the source path (if this is a bind mount or a loop mount) to be
          * available. */
         pm = get_mount_parameters_fragment(m);
         if (pm && pm->what &&
             path_is_absolute(pm->what) &&
-            (mount_is_bind(pm) || !mount_is_network(pm))) {
+            (mount_is_bind(pm) || mount_is_loop(pm) || !mount_is_network(pm))) {
 
                 r = unit_require_mounts_for(UNIT(m), pm->what);
                 if (r < 0)
