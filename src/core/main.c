@@ -369,6 +369,14 @@ static int parse_proc_cmdline_word(const char *word) {
                         log_warning("Failed to parse default standard error switch %s. Ignoring.", word + 31);
                 else
                         arg_default_std_error = r;
+
+        } else if (startswith(word, "systemd.default_timeout_start_sec=")) {
+                int r;
+
+                r = parse_sec(word + 34, &arg_default_timeout_start_usec);
+                if (r < 0)
+                        log_warning("Failed to parse default start timeout: %s, ignoring.", word + 34);
+
         } else if (startswith(word, "systemd.setenv=")) {
                 const char *cenv = word + 15;
 
