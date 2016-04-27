@@ -281,7 +281,7 @@ static int parse_insserv(void) {
 
                 while ((de = readdir(d))) {
                         char *path = NULL;
-                        if (hidden_file(de->d_name))
+                        if (hidden_or_backup_file(de->d_name))
                                 continue;
 
                         path = strjoin("/etc/insserv.conf.d/", de->d_name, NULL);

@@ -1157,7 +1157,7 @@ static void manager_build_unit_path_cache(Manager *m) {
                 while ((de = readdir(d))) {
                         char *p;
 
-                        if (hidden_file(de->d_name))
+                        if (hidden_or_backup_file(de->d_name))
                                 continue;
 
                         p = strjoin(streq(*i, "/") ? "" : *i, "/", de->d_name, NULL);
