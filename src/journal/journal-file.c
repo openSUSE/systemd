@@ -130,7 +130,7 @@ int journal_file_set_offline(JournalFile *f) {
         if (mmap_cache_got_sigbus(f->mmap, f->fd))
                 return -EIO;
 
-        f->header->state = STATE_OFFLINE;
+        f->header->state = f->archive ? STATE_ARCHIVED : STATE_OFFLINE;
 
         if (mmap_cache_got_sigbus(f->mmap, f->fd))
                 return -EIO;
@@ -2813,7 +2813,13 @@ int journal_file_rotate(JournalFile **f, bool compress, bool seal) {
         if (r < 0 && errno != ENOENT)
                 return -errno;
 
-        old_file->header->state = STATE_ARCHIVED;
+        /* Set as archive so offlining commits w/state=STATE_ARCHIVED.
+         * Previously we would set old_file->header->state to STATE_ARCHIVED directly here,
+         * but journal_file_set_offline() short-circuits when state != STATE_ONLINE, which
+         * would result in the rotated journal never getting fsync() called before closing.
+         * Now we simply queue the archive state by setting an archive bit, leaving the state
+         * as STATE_ONLINE so proper offlining occurs. */
+        old_file->archive = true;
 
         /* Currently, btrfs is not very good with out write patterns
          * and fragments heavily. Let's defrag our journal files when
