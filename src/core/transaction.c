@@ -876,7 +876,7 @@ int transaction_add_job_and_dependencies(
         }
 
         if (type != JOB_STOP && unit->load_state == UNIT_NOT_FOUND)
-                return sd_bus_error_setf(e, BUS_ERROR_LOAD_FAILED,
+                return sd_bus_error_setf(e, BUS_ERROR_NO_SUCH_UNIT,
                                          "Unit %s failed to load: %s.",
                                          unit->id, strerror(-unit->load_error));
 
