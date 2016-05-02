@@ -55,7 +55,5 @@ struct Automount {
 
 extern const UnitVTable automount_vtable;
 
-int automount_update_mount(Automount *a, MountState old_state, MountState state);
-
 const char* automount_result_to_string(AutomountResult i) _const_;
 AutomountResult automount_result_from_string(const char *s) _pure_;
