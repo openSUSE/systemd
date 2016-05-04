@@ -304,6 +304,7 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
                 "remote_fs",            SPECIAL_REMOTE_FS_TARGET,
                 "syslog",               NULL,
                 "time",                 SPECIAL_TIME_SYNC_TARGET,
+                "all",                  SPECIAL_DEFAULT_TARGET,
         };
 
         char *filename_no_sh, *e, *m;
@@ -315,6 +316,7 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
         assert(filename);
         assert(ret);
 
+        n = *name == '+' ? ++name   : name;
         n = *name == '$' ? name + 1 : name;
 
         for (i = 0; i < ELEMENTSOF(table); i += 2) {
@@ -339,7 +341,7 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
         if (*name == '$')  {
                 r = unit_name_build(n, NULL, ".target", ret);
                 if (r < 0)
-                        return log_error_errno(r, "Failed to build name: %m");
+                        return log_error_errno(r, "Failed to build name for '%s': %m", name);
 
                 return r;
         }
@@ -444,7 +446,7 @@ static int handle_dependencies(SysvStub *s, unsigned line, const char *full_text
 
         for (;;) {
                 _cleanup_free_ char *word = NULL, *m = NULL;
-                bool is_before;
+                bool is_before, is_wanted;
 
                 r = extract_first_word(&text, &word, NULL, EXTRACT_QUOTES|EXTRACT_RELAX);
                 if (r < 0)
@@ -457,6 +459,7 @@ static int handle_dependencies(SysvStub *s, unsigned line, const char *full_text
                         continue;
 
                 is_before = startswith_no_case(full_text, "X-Start-Before:");
+                is_wanted = startswith_no_case(full_text, "Required-Start:");
 
                 if (streq(m, SPECIAL_NETWORK_ONLINE_TARGET) && !is_before) {
                         /* the network-online target is special, as it needs to be actively pulled in */
@@ -465,8 +468,13 @@ static int handle_dependencies(SysvStub *s, unsigned line, const char *full_text
                                 return log_oom();
 
                         r = strv_extend(&s->wants, m);
-                } else
+                } else {
                         r = strv_extend(is_before ? &s->before : &s->after, m);
+
+                        if (is_wanted)
+                                r = strv_extend(&s->wants, m);
+                }
+
                 if (r < 0)
                         return log_oom();
         }
