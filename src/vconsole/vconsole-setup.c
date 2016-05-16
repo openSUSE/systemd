@@ -261,8 +261,14 @@ static int load_compose_table_and_wait(const char *vc, const char *compose_table
 static void font_copy_to_all_vcs(int fd) {
         struct vt_stat vcs = {};
         struct unimapdesc unimapd;
-        struct unipair unipairs[USHRT_MAX];
+        _cleanup_free_ struct unipair* unipairs = NULL;
         int i, r;
+
+        unipairs = new(struct unipair, USHRT_MAX);
+        if (unipairs == NULL) {
+                log_error("Not enough memory to copy fonts");
+                return;
+        }
 
         /* get active, and 16 bit mask of used VT numbers */
         r = ioctl(fd, VT_GETSTATE, &vcs);
