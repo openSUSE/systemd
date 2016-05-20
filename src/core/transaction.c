@@ -885,7 +885,7 @@ int transaction_add_job_and_dependencies(
                                "Unit %s failed to load: %s.",
                                unit->id,
                                strerror(-unit->load_error));
-                return -EINVAL;
+                return -ENOENT;
         }
 
         if (type != JOB_STOP && unit->load_state == UNIT_MASKED) {
