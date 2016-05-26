@@ -47,6 +47,9 @@ static const struct {
         const char *path;
         const char *target;
 } rcnd_table[] = {
+        /* SUSE style boot.d */
+        { "boot.d", SPECIAL_SYSINIT_TARGET },
+
         /* Standard SysV runlevels for start-up */
         { "rc1.d",  SPECIAL_RESCUE_TARGET     },
         { "rc2.d",  SPECIAL_MULTI_USER_TARGET },
@@ -73,6 +76,7 @@ typedef struct SysvStub {
         bool has_lsb;
         bool reload;
         bool loaded;
+        bool early;
 } SysvStub;
 
 static void free_sysvstub(SysvStub *s) {
@@ -179,6 +183,12 @@ static int generate_unit_file(SysvStub *s) {
         if (s->description)
                 fprintf(f, "Description=%s\n", s->description);
 
+        if (s->early) {
+                fprintf(f, "DefaultDependencies=no\n");
+                fprintf(f, "Conflicts=%s\n", SPECIAL_SHUTDOWN_TARGET);
+                fprintf(f, "Before=%s\n", SPECIAL_SHUTDOWN_TARGET);
+        }
+
         STRV_FOREACH(p, s->before)
                 fprintf(f, "Before=%s\n", *p);
         STRV_FOREACH(p, s->after)
@@ -240,6 +250,10 @@ static bool usage_contains_reload(const char *line) {
 static char *sysv_translate_name(const char *name) {
         _cleanup_free_ char *c = NULL;
         char *res;
+
+        if (startswith(name, "boot."))
+                /* Drop SuSE-style boot. prefix */
+                name += 5;
 
         c = strdup(name);
         if (!c)
@@ -316,6 +330,11 @@ static int sysv_translate_facility(SysvStub *s, unsigned line, const char *name,
 
                 return 1;
         }
+
+        /* Strip "boot." prefix from file name for comparison (Suse specific) */
+        e = startswith(filename, "boot.");
+        if (e)
+                filename += 5;
 
         /* Strip ".sh" suffix from file name for comparison */
         filename_no_sh = strdupa(filename);
@@ -698,6 +717,9 @@ static int fix_order(SysvStub *s, Hashmap *all_services) {
                 if (other->sysv_start_priority < 0)
                         continue;
 
+                if (s->early != other->early)
+                        continue;
+
                 /* If both units have modern headers we don't care
                  * about the priorities */
                 if (s->has_lsb && other->has_lsb)
@@ -818,6 +840,7 @@ static int enumerate_sysv(const LookupPaths *lp, Hashmap *all_services) {
                         service->sysv_start_priority = -1;
                         service->name = name;
                         service->path = fpath;
+                        service->early = !!startswith(de->d_name, "boot.");
                         name = fpath = NULL;
 
                         r = hashmap_put(all_services, service->name, service);
