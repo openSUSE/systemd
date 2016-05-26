@@ -2770,8 +2770,8 @@ EXTRA_DIST += \
 rootsymlink_generator_SOURCES = \
 	src/udev/rootsymlink_generator/rootsymlink_generator.c
 
-rootsymlink_generator_CFLAGS = \
-	$(AM_CFLAGS)
+rootsymlink_generator_LDADD = \
+	libsystemd-shared.la
 
 udevlibexec_PROGRAMS += \
 	rootsymlink-generator

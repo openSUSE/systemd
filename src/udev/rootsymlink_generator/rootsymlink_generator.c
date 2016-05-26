@@ -16,56 +16,56 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <sys/stat.h>
 #include <sys/types.h>
-#include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
-#define BUFFER_SIZE     128
+#include "util.h"
+#include "mkdir.h"
+#include "path-util.h"
 
-#define _ROOTDEV_	"/"
-#define _RUN_PATH_	"/run/udev"
-#define _FILE_		"10-root-symlink.rules"
+int main(int argc, char **argv) {
+        _cleanup_fclose_ FILE *f = NULL;
+        const char *rule_path = "/run/udev/rules.d/10-root-symlink.rules";
+        struct stat root_stat;
+        int root_major, root_minor;
 
-int main(void)
-{
-	struct stat statbuf;
-	char *udev_rule;
+        log_set_target(LOG_TARGET_AUTO);
+        log_parse_environment();
+        log_open();
 
-	if (stat(_ROOTDEV_, &statbuf) != 0)
-		return 0;
+        if (argc > 1) {
+                log_error("This program takes no arguments.");
+                return EXIT_FAILURE;
+        }
 
-	if (major(statbuf.st_dev) > 0) {
-		int fd = -1;
+        umask(0022);
 
-		if (mkdir(_RUN_PATH_, 0755) != 0 && errno != EEXIST)
-			return errno;
+        if (stat("/", &root_stat) != 0) {
+                log_debug("Failed to stat '/': %m");
+                return EXIT_SUCCESS;
+        }
 
-		udev_rule = calloc(BUFFER_SIZE, 1);
-		if (!udev_rule)
-			return ENOMEM;
+        root_major = major(root_stat.st_dev);
+        root_minor = minor(root_stat.st_dev);
+        if (root_major <= 0)
+                return EXIT_SUCCESS;
 
-		snprintf(udev_rule, sizeof(_RUN_PATH_) + 10, "%s/rules.d/", _RUN_PATH_);
-		if (mkdir(udev_rule, 0755) == 0 || errno == EEXIST) {
-			char buf[BUFFER_SIZE];
+        mkdir_parents(rule_path, 0755);
 
-			strcat(udev_rule, _FILE_);
-			if ((fd = open(udev_rule, O_CREAT|O_WRONLY|O_TRUNC, 0644)) == -1)
-				return errno;
+        f = fopen(rule_path, "wxe");
+        if (!f) {
+                log_error("Failed to create udev rule file %s: %m", rule_path);
+                return EXIT_FAILURE;
+        }
 
-			snprintf(buf, BUFFER_SIZE, "ACTION==\"add|change\", SUBSYSTEM==\"block\", ENV{MAJOR}==\"%d\", ENV{MINOR}==\"%d\", SYMLINK+=\"root\"\n",
-				 major(statbuf.st_dev), minor(statbuf.st_dev));
+        fprintf(f,
+                "ACTION==\"add|change\","
+                "SUBSYSTEM==\"block\","
+                "ENV{MAJOR}==\"%d\","
+                "ENV{MINOR}==\"%d\","
+                "SYMLINK+=\"root\"\n",
+                root_major, root_minor);
 
-			if (write(fd, buf, strlen(buf)) == -1)
-				return errno;
-
-			if (close(fd) == -1)
-				return errno;
-		}
-	}
-
-	return 0;
+        return EXIT_SUCCESS;
 }
