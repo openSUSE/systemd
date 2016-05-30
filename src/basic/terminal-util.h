@@ -79,6 +79,7 @@ unsigned lines(void);
 void columns_lines_cache_reset(int _unused_ signum);
 
 bool on_tty(void);
+bool terminal_is_dumb(void);
 bool colors_enabled(void);
 
 static inline const char *ansi_underline(void) {

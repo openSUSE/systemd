@@ -58,7 +58,7 @@ int pager_open(bool jump_to_end) {
         if (pager_pid > 0)
                 return 1;
 
-        if (!on_tty())
+        if (terminal_is_dumb())
                 return 0;
 
         pager = getenv("SYSTEMD_PAGER");
