@@ -1549,7 +1549,6 @@ bool fstype_is_network(const char *fstype) {
                 "ncp\0"
                 "nfs\0"
                 "nfs4\0"
-                "afs\0"
                 "gfs\0"
                 "gfs2\0";
 
