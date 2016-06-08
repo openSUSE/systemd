@@ -100,7 +100,7 @@ int manager_handle_action(
         }
 
         /* If the key handling is inhibited, don't do anything */
-        if (inhibit_key > 0) {
+        if (!ignore_inhibited && inhibit_key > 0) {
                 if (inhibit_key == INHIBIT_HANDLE_POWER_KEY) {
                         int fd;
                         fd = open("/run/systemd/acpi-shutdown", O_CREAT|O_WRONLY|O_TRUNC, S_IRUSR);
