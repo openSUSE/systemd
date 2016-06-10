@@ -38,6 +38,7 @@
 #include "io-util.h"
 #include "parse-util.h"
 #include "path-util.h"
+#include "proc-cmdline.h"
 #include "process-util.h"
 #include "socket-util.h"
 #include "stat-util.h"
@@ -779,7 +780,18 @@ bool tty_is_vc_resolve(const char *tty) {
 const char *default_term_for_tty(const char *tty) {
         assert(tty);
 
-        return tty_is_vc_resolve(tty) ? "TERM=linux" : "TERM=vt220";
+        if (tty_is_vc_resolve(tty))
+                return "TERM=linux";
+
+#if defined (__s390__) || defined (__s390x__)
+        if (tty_is_console(tty)) {
+                _cleanup_free_ char *mode = NULL;
+
+                get_proc_cmdline_key("conmode=", &mode);
+                return streq_ptr(mode, "3270") ? "TERM=ibm327x" : "TERM=dumb";
+        }
+#endif
+        return "TERM=vt220";
 }
 
 int fd_columns(int fd) {
@@ -1197,6 +1209,14 @@ bool terminal_is_dumb(void) {
         if (!e)
                 return true;
 
+#if defined (__s390__) || defined (__s390x__)
+        if (startswith(e, "ibm3")) {
+                _cleanup_free_ char *mode = NULL;
+
+                get_proc_cmdline_key("conmode=", &mode);
+                return !streq_ptr(mode, "3270");
+        }
+#endif
         return streq(e, "dumb");
 }
 
