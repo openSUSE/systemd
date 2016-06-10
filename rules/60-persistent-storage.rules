@@ -55,6 +55,10 @@ KERNEL=="msblk[0-9]|mspblk[0-9]", SUBSYSTEMS=="memstick", ATTRS{name}=="?*", ATT
   ENV{ID_NAME}="$attr{name}", ENV{ID_SERIAL}="$attr{serial}", SYMLINK+="disk/by-id/memstick-$env{ID_NAME}_$env{ID_SERIAL}"
 KERNEL=="msblk[0-9]p[0-9]|mspblk[0-9]p[0-9]", ENV{ID_NAME}=="?*", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/memstick-$env{ID_NAME}_$env{ID_SERIAL}-part%n"
 
+# XenLinux based kernels did respect the vdev= name in domU.cfg, while pvops enforces xvd
+KERNEL=="xvd*[!0-9]", ATTRS{blkfront/backend_dev}=="hd[a-d]", SYMLINK+="$attr{blkfront/backend_dev}"
+KERNEL=="xvd*[0-9]",  ATTRS{blkfront/backend_dev}=="hd[a-d]", SYMLINK+="$attr{blkfront/backend_dev}%n"
+
 # by-path
 ENV{DEVTYPE}=="disk", DEVPATH!="*/virtual/*", IMPORT{builtin}="path_id"
 ENV{DEVTYPE}=="disk", ENV{ID_PATH}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH}"
