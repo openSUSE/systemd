@@ -1705,12 +1705,16 @@ static int verify_shutdown_creds(
                 const char *action,
                 const char *action_multiple_sessions,
                 const char *action_ignore_inhibit,
+                bool is_sleep,
                 sd_bus_error *error) {
 
         _cleanup_(sd_bus_creds_unrefp) sd_bus_creds *creds = NULL;
         bool multiple_sessions, blocked;
+        bool shutdown_through_acpi;
         uid_t uid;
         int r;
+        int fd;
+        struct stat buf;
 
         assert(m);
         assert(message);
@@ -1732,7 +1736,15 @@ static int verify_shutdown_creds(
         multiple_sessions = r > 0;
         blocked = manager_is_inhibited(m, w, INHIBIT_BLOCK, NULL, false, true, uid, NULL);
 
-        if (multiple_sessions && action_multiple_sessions) {
+        fd = open("/run/systemd/acpi-shutdown", O_NOFOLLOW | O_PATH | O_CLOEXEC);
+        if (fd >= 0) {
+                shutdown_through_acpi = ((fstat(fd, &buf) == 0) && (time(NULL) - buf.st_mtime <= 65) && !is_sleep);
+                unlink("/run/systemd/acpi-shutdown");
+                close(fd);
+        } else
+                shutdown_through_acpi = false;
+
+        if (multiple_sessions && action_multiple_sessions && !shutdown_through_acpi) {
                 r = bus_verify_polkit_async(message, CAP_SYS_BOOT, action_multiple_sessions, NULL, interactive, UID_INVALID, &m->polkit_registry, error);
                 if (r < 0)
                         return r;
@@ -1740,7 +1752,7 @@ static int verify_shutdown_creds(
                         return 1; /* No authorization for now, but the async polkit stuff will call us again when it has it */
         }
 
-        if (blocked && action_ignore_inhibit) {
+        if (blocked && action_ignore_inhibit && !shutdown_through_acpi) {
                 r = bus_verify_polkit_async(message, CAP_SYS_BOOT, action_ignore_inhibit, NULL, interactive, UID_INVALID, &m->polkit_registry, error);
                 if (r < 0)
                         return r;
@@ -1748,7 +1760,7 @@ static int verify_shutdown_creds(
                         return 1; /* No authorization for now, but the async polkit stuff will call us again when it has it */
         }
 
-        if (!multiple_sessions && !blocked && action) {
+        if (!multiple_sessions && !blocked && action && !shutdown_through_acpi) {
                 r = bus_verify_polkit_async(message, CAP_SYS_BOOT, action, NULL, interactive, UID_INVALID, &m->polkit_registry, error);
                 if (r < 0)
                         return r;
@@ -1796,7 +1808,7 @@ static int method_do_shutdown_or_sleep(
         }
 
         r = verify_shutdown_creds(m, message, w, interactive, action, action_multiple_sessions,
-                                  action_ignore_inhibit, error);
+                                  action_ignore_inhibit, sleep_verb != NULL, error);
         if (r != 0)
                 return r;
 
@@ -1990,7 +2002,7 @@ static int method_schedule_shutdown(sd_bus_message *message, void *userdata, sd_
                 return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Unsupported shutdown type");
 
         r = verify_shutdown_creds(m, message, INHIBIT_SHUTDOWN, false,
-                                  action, action_multiple_sessions, action_ignore_inhibit, error);
+                                  action, action_multiple_sessions, action_ignore_inhibit, false, error);
         if (r != 0)
                 return r;
 
