@@ -7735,6 +7735,8 @@ int main(int argc, char*argv[]) {
         }
 
 finish:
+        release_busses();
+
         pager_close();
         ask_password_agent_close();
         polkit_agent_close();
@@ -7745,8 +7747,6 @@ finish:
 
         strv_free(arg_wall);
         free(arg_root);
-
-        release_busses();
 
         /* Note that we return r here, not EXIT_SUCCESS, so that we can implement the LSB-like return codes */
 
