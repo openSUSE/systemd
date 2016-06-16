@@ -26,6 +26,7 @@
 #include "bus-util.h"
 #include "conf-parser.h"
 #include "formats-util.h"
+#include "fs-util.h"
 #include "logind-action.h"
 #include "process-util.h"
 #include "sleep-config.h"
@@ -88,6 +89,9 @@ int manager_handle_action(
 
         /* If the key handling is inhibited, don't do anything */
         if (!ignore_inhibited && inhibit_key > 0) {
+                if (inhibit_key == INHIBIT_HANDLE_POWER_KEY)
+                        (void) touch("/run/systemd/acpi-shutdown");
+
                 if (manager_is_inhibited(m, inhibit_key, INHIBIT_BLOCK, NULL, true, false, 0, NULL)) {
                         log_debug("Refusing operation, %s is inhibited.", inhibit_what_to_string(inhibit_key));
                         return 0;
