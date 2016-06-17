@@ -45,6 +45,7 @@
 #include "util.h"
 
 typedef enum RunlevelType {
+        RUNLEVEL_SYSINIT,
         RUNLEVEL_UP,
         RUNLEVEL_DOWN
 } RunlevelType;
@@ -54,6 +55,9 @@ static const struct {
         const char *target;
         const RunlevelType type;
 } rcnd_table[] = {
+        /* SUSE style boot.d */
+        { "boot.d", SPECIAL_SYSINIT_TARGET,   RUNLEVEL_SYSINIT },
+
         /* Standard SysV runlevels for start-up */
         { "rc1.d",  SPECIAL_RESCUE_TARGET,     RUNLEVEL_UP },
         { "rc2.d",  SPECIAL_MULTI_USER_TARGET, RUNLEVEL_UP },
@@ -88,6 +92,7 @@ typedef struct SysvStub {
         bool has_lsb;
         bool reload;
         bool loaded;
+        bool early;
 } SysvStub;
 
 static void free_sysvstub(SysvStub *s) {
@@ -204,6 +209,9 @@ static int generate_unit_file(SysvStub *s) {
         if (s->description)
                 fprintf(f, "Description=%s\n", s->description);
 
+        if (s->early)
+                fprintf(f, "DefaultDependencies=no\n");
+
         if (!isempty(before))
                 fprintf(f, "Before=%s\n", before);
         if (!isempty(after))
@@ -261,6 +269,10 @@ static char *sysv_translate_name(const char *name) {
         _cleanup_free_ char *c = NULL;
         char *res;
 
+        if (startswith(name, "boot."))
+                /* Drop SuSE-style boot. prefix */
+                name += 5;
+
         c = strdup(name);
         if (!c)
                 return NULL;
@@ -292,6 +304,7 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
                 "remote_fs",            SPECIAL_REMOTE_FS_TARGET,
                 "syslog",               NULL,
                 "time",                 SPECIAL_TIME_SYNC_TARGET,
+                "all",                  SPECIAL_DEFAULT_TARGET,
         };
 
         char *filename_no_sh, *e, *m;
@@ -303,6 +316,7 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
         assert(filename);
         assert(ret);
 
+        n = *name == '+' ? ++name   : name;
         n = *name == '$' ? name + 1 : name;
 
         for (i = 0; i < ELEMENTSOF(table); i += 2) {
@@ -327,10 +341,15 @@ static int sysv_translate_facility(const char *name, const char *filename, char 
         if (*name == '$')  {
                 r = unit_name_build(n, NULL, ".target", ret);
                 if (r < 0)
-                        return log_error_errno(r, "Failed to build name: %m");
+                        return log_error_errno(r, "Failed to build name for '%s': %m", name);
 
                 return r;
         }
+
+        /* Strip "boot." prefix from file name for comparison (Suse specific) */
+        e = startswith(filename, "boot.");
+        if (e)
+                filename += 5;
 
         /* Strip ".sh" suffix from file name for comparison */
         filename_no_sh = strdupa(filename);
@@ -427,7 +446,7 @@ static int handle_dependencies(SysvStub *s, unsigned line, const char *full_text
 
         for (;;) {
                 _cleanup_free_ char *word = NULL, *m = NULL;
-                bool is_before;
+                bool is_before, is_wanted;
 
                 r = extract_first_word(&text, &word, NULL, EXTRACT_QUOTES|EXTRACT_RELAX);
                 if (r < 0)
@@ -440,6 +459,7 @@ static int handle_dependencies(SysvStub *s, unsigned line, const char *full_text
                         continue;
 
                 is_before = startswith_no_case(full_text, "X-Start-Before:");
+                is_wanted = startswith_no_case(full_text, "Required-Start:");
 
                 if (streq(m, SPECIAL_NETWORK_ONLINE_TARGET) && !is_before) {
                         /* the network-online target is special, as it needs to be actively pulled in */
@@ -448,8 +468,13 @@ static int handle_dependencies(SysvStub *s, unsigned line, const char *full_text
                                 return log_oom();
 
                         r = strv_extend(&s->wants, m);
-                } else
+                } else {
                         r = strv_extend(is_before ? &s->before : &s->after, m);
+
+                        if (is_wanted)
+                                r = strv_extend(&s->wants, m);
+                }
+
                 if (r < 0)
                         return log_oom();
         }
@@ -717,6 +742,9 @@ static int fix_order(SysvStub *s, Hashmap *all_services) {
                 if (other->sysv_start_priority < 0)
                         continue;
 
+                if (s->early != other->early)
+                        continue;
+
                 /* If both units have modern headers we don't care
                  * about the priorities */
                 if (s->has_lsb && other->has_lsb)
@@ -880,9 +908,11 @@ static int set_dependencies_from_rcnd(const LookupPaths *lp, Hashmap *all_servic
                                         continue;
                                 }
 
+                                service->early = IN_SET(rcnd_table[i].type, RUNLEVEL_SYSINIT);
+
                                 if (de->d_name[0] == 'S')  {
 
-                                        if (rcnd_table[i].type == RUNLEVEL_UP)
+                                        if (IN_SET(rcnd_table[i].type, RUNLEVEL_UP, RUNLEVEL_SYSINIT))
                                                 service->sysv_start_priority = MAX(a*10 + b, service->sysv_start_priority);
 
                                         r = set_ensure_allocated(&runlevel_services[i], NULL);
@@ -898,7 +928,11 @@ static int set_dependencies_from_rcnd(const LookupPaths *lp, Hashmap *all_servic
                                         }
 
                                 } else if (de->d_name[0] == 'K' &&
-                                           (rcnd_table[i].type == RUNLEVEL_DOWN)) {
+                                           IN_SET(rcnd_table[i].type, RUNLEVEL_DOWN, RUNLEVEL_SYSINIT)) {
+
+                                        /* Early boot services want to be stopped lately
+                                         * unless user explicitly asked to stop it with
+                                         * the default shutdown.target */
 
                                         r = set_ensure_allocated(&shutdown_services, NULL);
                                         if (r < 0) {

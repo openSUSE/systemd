@@ -88,6 +88,15 @@ static bool mount_is_network(const MountParameters *p) {
         return mount_needs_network(p->options, p->fstype);
 }
 
+static bool mount_is_loop(const MountParameters *p) {
+        assert(p);
+
+        if (fstab_test_option(p->options, "loop\0"))
+                return true;
+
+        return false;
+}
+
 static bool mount_is_bind(const MountParameters *p) {
         assert(p);
 
@@ -104,6 +113,14 @@ static bool mount_is_auto(const MountParameters *p) {
         assert(p);
 
         return !fstab_test_option(p->options, "noauto\0");
+}
+
+static bool mount_is_automount(const MountParameters *p) {
+        assert(p);
+
+        return fstab_test_option(p->options,
+                                 "comment=systemd.automount\0"
+                                 "x-systemd.automount\0");
 }
 
 static bool needs_quota(const MountParameters *p) {
@@ -265,12 +282,12 @@ static int mount_add_mount_links(Mount *m) {
         }
 
         /* Adds in links to other mount points that might be needed
-         * for the source path (if this is a bind mount) to be
+         * for the source path (if this is a bind mount or a loop mount) to be
          * available. */
         pm = get_mount_parameters_fragment(m);
         if (pm && pm->what &&
             path_is_absolute(pm->what) &&
-            !mount_is_network(pm)) {
+            (mount_is_bind(pm) || mount_is_loop(pm) || !mount_is_network(pm))) {
 
                 r = unit_require_mounts_for(UNIT(m), pm->what);
                 if (r < 0)
@@ -332,7 +349,8 @@ static int mount_add_device_links(Mount *m) {
         if (path_equal(m->where, "/"))
                 return 0;
 
-        if (mount_is_auto(p) && UNIT(m)->manager->running_as == MANAGER_SYSTEM)
+        if (mount_is_auto(p) && !mount_is_automount(p) &&
+            UNIT(m)->manager->running_as == MANAGER_SYSTEM)
                 device_wants_mount = true;
 
         r = unit_add_node_link(UNIT(m), p->what, device_wants_mount);

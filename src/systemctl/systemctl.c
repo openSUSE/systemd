@@ -103,6 +103,7 @@ static bool arg_no_block = false;
 static bool arg_no_legend = false;
 static bool arg_no_pager = false;
 static bool arg_no_wtmp = false;
+static bool arg_no_sync = false;
 static bool arg_no_wall = false;
 static bool arg_no_reload = false;
 static bool arg_show_types = false;
@@ -350,6 +351,11 @@ static bool output_show_unit(const UnitInfo *u, char **patterns) {
         if (arg_all)
                 return true;
 
+        if (!strv_isempty(arg_states))
+                return true;
+
+        /* By default show all units except the ones in inactive
+         * state and with no pending job */
         if (u->job_id > 0)
                 return true;
 
@@ -5394,6 +5400,7 @@ static int enable_unit(int argc, char *argv[], void *userdata) {
         UnitFileChange *changes = NULL;
         unsigned n_changes = 0;
         int carries_install_info = -1;
+        bool ignore_carries_install_info = false;
         int r;
 
         if (!argv[1])
@@ -5409,8 +5416,11 @@ static int enable_unit(int argc, char *argv[], void *userdata) {
 
         /* If the operation was fully executed by the SysV compat,
          * let's finish early */
-        if (strv_isempty(names))
-                return 0;
+        if (strv_isempty(names)) {
+                if (arg_no_reload || install_client_side())
+                        return 0;
+                return daemon_reload(argc, argv, userdata);
+        }
 
         if (install_client_side()) {
                 if (streq(verb, "enable")) {
@@ -5425,7 +5435,6 @@ static int enable_unit(int argc, char *argv[], void *userdata) {
                         r = unit_file_link(arg_scope, arg_runtime, arg_root, names, arg_force, &changes, &n_changes);
                 else if (streq(verb, "preset")) {
                         r = unit_file_preset(arg_scope, arg_runtime, arg_root, names, arg_preset_mode, arg_force, &changes, &n_changes);
-                        carries_install_info = r;
                 } else if (streq(verb, "mask"))
                         r = unit_file_mask(arg_scope, arg_runtime, arg_root, names, arg_force, &changes, &n_changes);
                 else if (streq(verb, "unmask"))
@@ -5445,7 +5454,7 @@ static int enable_unit(int argc, char *argv[], void *userdata) {
         } else {
                 _cleanup_bus_message_unref_ sd_bus_message *reply = NULL, *m = NULL;
                 _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
-                int expect_carries_install_info = false;
+                bool expect_carries_install_info = false;
                 bool send_force = true, send_preset_mode = false;
                 const char *method;
                 sd_bus *bus;
@@ -5476,6 +5485,7 @@ static int enable_unit(int argc, char *argv[], void *userdata) {
                                 method = "PresetUnitFiles";
 
                         expect_carries_install_info = true;
+                        ignore_carries_install_info = true;
                 } else if (streq(verb, "mask"))
                         method = "MaskUnitFiles";
                 else if (streq(verb, "unmask")) {
@@ -5535,7 +5545,7 @@ static int enable_unit(int argc, char *argv[], void *userdata) {
                         r = 0;
         }
 
-        if (carries_install_info == 0)
+        if (carries_install_info == 0 && !ignore_carries_install_info)
                 log_warning("The unit files have no [Install] section. They are not meant to be enabled\n"
                             "using systemctl.\n"
                             "Possible reasons for having this kind of units are:\n"
@@ -6865,6 +6875,7 @@ static int halt_parse_argv(int argc, char *argv[]) {
                 { "force",     no_argument,       NULL, 'f'         },
                 { "wtmp-only", no_argument,       NULL, 'w'         },
                 { "no-wtmp",   no_argument,       NULL, 'd'         },
+                { "no-sync",   no_argument,       NULL, 'n'         },
                 { "no-wall",   no_argument,       NULL, ARG_NO_WALL },
                 {}
         };
@@ -6910,13 +6921,16 @@ static int halt_parse_argv(int argc, char *argv[]) {
                         arg_no_wtmp = true;
                         break;
 
+                case 'n':
+                        arg_no_sync = true;
+                        break;
+
                 case ARG_NO_WALL:
                         arg_no_wall = true;
                         break;
 
                 case 'i':
                 case 'h':
-                case 'n':
                         /* Compatibility nops */
                         break;
 
@@ -7430,7 +7444,8 @@ static int halt_now(enum action a) {
         /* The kernel will automaticall flush ATA disks and suchlike
          * on reboot(), but the file systems need to be synce'd
          * explicitly in advance. */
-        (void) sync();
+        if (!arg_no_sync)
+                (void) sync();
 
         /* Make sure C-A-D is handled by the kernel from this point
          * on... */
@@ -7637,6 +7652,31 @@ int main(int argc, char*argv[]) {
          * This becomes relevant for piping output which might be
          * ellipsized. */
         original_stdout_is_tty = isatty(STDOUT_FILENO);
+
+        if (secure_getenv("SYSTEMCTL_OPTIONS") &&
+                        (!program_invocation_short_name ||
+                        (program_invocation_short_name && strstr(program_invocation_short_name, "systemctl")))) {
+                char **parsed_systemctl_options;
+
+                strv_split_extract(&parsed_systemctl_options, getenv("SYSTEMCTL_OPTIONS"),
+                                   WHITESPACE, EXTRACT_QUOTES);
+
+                if (*parsed_systemctl_options && **parsed_systemctl_options) {
+                        char **k,**a;
+                        char **new_argv = new(char*, strv_length(argv) + strv_length(parsed_systemctl_options) + 1);
+                        new_argv[0] = strdup(argv[0]);
+                        for (k = new_argv+1, a = parsed_systemctl_options; *a; k++, a++) {
+                                *k = strdup(*a);
+                        }
+                        for (a = argv+1; *a; k++, a++) {
+                                *k = strdup(*a);
+                        }
+                        *k = NULL;
+                        argv = new_argv;
+                        argc = strv_length(new_argv);
+                        strv_free (parsed_systemctl_options);
+                }
+        }
 
         r = parse_argv(argc, argv);
         if (r <= 0)

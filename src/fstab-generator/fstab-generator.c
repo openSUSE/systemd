@@ -226,6 +226,49 @@ static int write_requires_mounts_for(FILE *f, const char *opts) {
         return 0;
 }
 
+static bool crypttab_noauto(const char *what) {
+        _cleanup_fclose_ FILE *f = NULL;
+        unsigned n = 0;
+
+        f = fopen("/etc/crypttab", "re");
+        if (!f) {
+                if (errno != ENOENT)
+                    log_error("Failed to open /etc/crypttab: %m");
+
+                return false;
+        }
+
+
+        for (;;) {
+                char line[LINE_MAX], *l;
+                _cleanup_free_ char *name = NULL, *device = NULL, *password = NULL, *options = NULL;
+                int k;
+
+                if (!fgets(line, sizeof(line), f))
+                        break;
+
+                n++;
+
+                l = strstrip(line);
+                if (*l == '#' || *l == 0)
+                        continue;
+
+                k = sscanf(l, "%ms %ms %ms %ms", &name, &device, &password, &options);
+                if (k < 2 || k > 4) {
+                        log_error("Failed to parse /etc/crypttab:%u, ignoring.", n);
+                        continue;
+                }
+
+                if (strcmp((what + 12), name) == 0) {
+                        if (options && strstr(options, "noauto"))
+                                return true;
+
+                        return false;
+                }
+        }
+        return false;
+}
+
 static int add_mount(
                 const char *what,
                 const char *where,
@@ -248,6 +291,7 @@ static int add_mount(
         assert(what);
         assert(where);
         assert(opts);
+        assert(post);
         assert(source);
 
         if (streq_ptr(fstype, "autofs"))
@@ -273,6 +317,9 @@ static int add_mount(
                 noauto = nofail = automount = false;
         }
 
+        if (!noauto)
+                noauto = crypttab_noauto(what);
+
         r = unit_name_from_path(where, ".mount", &name);
         if (r < 0)
                 return log_error_errno(r, "Failed to generate unit name: %m");
@@ -297,7 +344,11 @@ static int add_mount(
                 "Documentation=man:fstab(5) man:systemd-fstab-generator(8)\n",
                 source);
 
-        if (post && !noauto && !nofail && !automount)
+        /* nfs bg option has the same functionality like nofail */
+        if (streq_ptr(fstype, "nfs") && strstr(opts, "bg"))
+                nofail=true;
+
+        if (!noauto && !nofail && !automount)
                 fprintf(f, "Before=%s\n", post);
 
         if (!automount && opts) {
@@ -337,8 +388,8 @@ static int add_mount(
         if (r < 0)
                 return log_error_errno(r, "Failed to write unit file %s: %m", unit);
 
-        if (!noauto && post) {
-                lnk = strjoin(arg_dest, "/", post, nofail || automount ? ".wants/" : ".requires/", name, NULL);
+        if (!noauto && !automount) {
+                lnk = strjoin(arg_dest, "/", post, nofail ? ".wants/" : ".requires/", name, NULL);
                 if (!lnk)
                         return log_oom();
 
@@ -368,10 +419,7 @@ static int add_mount(
                         "Documentation=man:fstab(5) man:systemd-fstab-generator(8)\n",
                         source);
 
-                if (post)
-                        fprintf(f,
-                                "Before=%s\n",
-                                post);
+                fprintf(f, "Before=%s\n", post);
 
                 if (opts) {
                         r = write_requires_after(f, opts);

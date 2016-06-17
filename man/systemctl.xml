@@ -877,14 +877,24 @@ kobject-uevent 1 systemd-udevd-kernel.socket systemd-udevd.service
             <para>Set the specified unit properties at runtime where
             this is supported. This allows changing configuration
             parameter properties such as resource control settings at
-            runtime. Not all properties may be changed at runtime, but
-            many resource control settings (primarily those in
-            <citerefentry><refentrytitle>systemd.resource-control</refentrytitle><manvolnum>5</manvolnum></citerefentry>)
-            may. The changes are applied instantly, and stored on disk
-            for future boots, unless <option>--runtime</option> is
-            passed, in which case the settings only apply until the
-            next reboot. The syntax of the property assignment follows
-            closely the syntax of assignments in unit files.</para>
+            runtime.
+            The changes are applied instantly and stored as drop-in files
+            on disk for future boots (See section "Overriding vendor settings"
+            in <citerefentry><refentrytitle>systemd.unit</refentrytitle><manvolnum>5</manvolnum></citerefentry>
+            for details about drop-in files).
+            If the option <option>--runtime</option> is passed, the drop-in
+            creation is suppressed and the settings only apply until the next
+            reboot.
+            The syntax of the property assignment follows closely the syntax
+            of assignments in unit files.</para>
+
+            <para>Available properties are: CPUAccounting, CPUShares,
+            StartupCPUShares, CPUQuota, MemoryAccounting, MemoryLimit,
+            TasksAccounting, TasksMax, BlockIOAccounting, BlockIOWeight,
+            StartupBlockIOWeight, BlockIODeviceWeight, BlockIOReadBandwidth,
+            BlockIOWriteBandwidth, DeviceAllow, DevicePolicy, NetClass,
+            Slice and Delegate (See <citerefentry><refentrytitle>systemd.resource-control</refentrytitle><manvolnum>5</manvolnum></citerefentry>
+            for details about these properties).</para>
 
             <para>Example: <command>systemctl set-property foobar.service CPUShares=777</command></para>
 
@@ -1072,22 +1082,22 @@ kobject-uevent 1 systemd-udevd-kernel.socket systemd-udevd.service
           <term><command>preset <replaceable>NAME</replaceable>...</command></term>
 
           <listitem>
-            <para>Reset one or more unit files, as specified on the
-            command line, to the defaults configured in the preset
-            policy files. This has the same effect as
-            <command>disable</command> or <command>enable</command>,
-            depending how the unit is listed in the preset files.</para>
+            <para>Reset the enable/disable status one or more unit files, as specified on
+            the command line, to the defaults configured in the preset policy files. This
+            has the same effect as <command>disable</command> or
+            <command>enable</command>, depending how the unit is listed in the preset
+            files.</para>
 
-            <para>Use <option>--preset-mode=</option> to control
-            whether units shall be enabled and disabled, or only
-            enabled, or only disabled.</para>
+            <para>Use <option>--preset-mode=</option> to control whether units shall be
+            enabled and disabled, or only enabled, or only disabled.</para>
 
-            <para>For more information on the preset policy format,
-            see
+            <para>If the unit carries no install information, it will be silently ignored
+            by this command.</para>
+
+            <para>For more information on the preset policy format, see
             <citerefentry><refentrytitle>systemd.preset</refentrytitle><manvolnum>5</manvolnum></citerefentry>.
-            For more information on the concept of presets, please
-            consult the <ulink
-            url="http://freedesktop.org/wiki/Software/systemd/Preset">Preset</ulink>
+            For more information on the concept of presets, please consult the
+            <ulink url="http://freedesktop.org/wiki/Software/systemd/Preset">Preset</ulink>
             document.</para>
           </listitem>
         </varlistentry>
