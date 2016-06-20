@@ -1359,7 +1359,6 @@ int main(int argc, char *argv[]) {
         saved_argv = argv;
         saved_argc = argc;
 
-        log_show_color(colors_enabled());
         log_set_upgrade_syslog_to_journal(true);
 
         /* Disable the umask logic */
@@ -1370,7 +1369,6 @@ int main(int argc, char *argv[]) {
 
                 /* Running outside of a container as PID 1 */
                 arg_running_as = MANAGER_SYSTEM;
-                make_null_stdio();
                 log_set_target(LOG_TARGET_KMSG);
                 log_open();
 
@@ -1469,11 +1467,18 @@ int main(int argc, char *argv[]) {
 
         /* We expect the environment to be set correctly if run inside a
          * container. */
-        if (getpid() == 1 && detect_container() <= 0)
+        if (getpid() == 1 && detect_container() <= 0) {
                 if (fixup_environment() < 0) {
                         error_message = "Failed to fix up PID1 environment";
                         goto finish;
                 }
+
+                /* Try to figure out if we can use colors with the console. No
+                 * need to do that for user instances since they never log
+                 * into the console. */
+                log_show_color(colors_enabled());
+                make_null_stdio();
+        }
 
         /* Initialize default unit */
         r = free_and_strdup(&arg_default_unit, SPECIAL_DEFAULT_TARGET);
