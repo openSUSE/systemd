@@ -17,7 +17,7 @@ Before=shutdown.target
 Environment=HOME=/root
 ExecStartPre=-/usr/bin/plymouth quit
 ExecStartPre=-/usr/bin/plymouth --wait
-ExecStartPre=-/bin/echo -e 'Welcome to rescue mode! Type "systemctl default" or ^D to enter default mode.\\nType "journalctl -xb" to view system logs. Type "systemctl reboot" to reboot.'
+ExecStartPre=-/bin/echo -e 'You are in rescue mode. After logging in, type "journalctl -xb" to view\\nsystem logs, "systemctl reboot" to reboot, "systemctl default" or ^D to\\nboot into default mode.'
 ExecStart=-/bin/sh -c "/usr/sbin/sulogin; @SYSTEMCTL@ --fail --no-block default"
 Type=idle
 StandardInput=tty-force
