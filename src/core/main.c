@@ -1465,13 +1465,14 @@ int main(int argc, char *argv[]) {
                 kernel_timestamp = DUAL_TIMESTAMP_NULL;
         }
 
-        /* We expect the environment to be set correctly if run inside a
-         * container. */
-        if (getpid() == 1 && detect_container() <= 0) {
-                if (fixup_environment() < 0) {
-                        error_message = "Failed to fix up PID1 environment";
-                        goto finish;
-                }
+        if (getpid() == 1) {
+                /* We expect the environment to be set correctly
+                 * if run inside a container. */
+                if (detect_container() <= 0)
+                        if (fixup_environment() < 0) {
+                                error_message = "Failed to fix up PID1 environment";
+                                goto finish;
+                        }
 
                 /* Try to figure out if we can use colors with the console. No
                  * need to do that for user instances since they never log
