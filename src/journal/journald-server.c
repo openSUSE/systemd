@@ -2157,8 +2157,8 @@ int server_init(Server *s) {
         if (r < 0)
                 return r;
 
-        /* Unless we got *some* sockets and not audit, open audit socket */
-        if (s->audit_fd >= 0 || no_sockets) {
+        /* Suse: disable audit messages in journal entirely. */
+        if (false && no_sockets) {
                 r = server_open_audit(s);
                 if (r < 0)
                         return r;
