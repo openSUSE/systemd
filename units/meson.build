@@ -108,8 +108,6 @@ units = [
          'sysinit.target.wants/'],
         ['systemd-journal-gatewayd.socket',     'ENABLE_REMOTE HAVE_MICROHTTPD'],
         ['systemd-journal-remote.socket',       'ENABLE_REMOTE HAVE_MICROHTTPD'],
-        ['systemd-journald-audit.socket',       '',
-         'sockets.target.wants/'],
         ['systemd-journald-dev-log.socket',     '',
          'sockets.target.wants/'],
         ['systemd-journald.socket',             '',
