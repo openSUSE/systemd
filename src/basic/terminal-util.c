@@ -38,6 +38,7 @@
 #include "io-util.h"
 #include "parse-util.h"
 #include "path-util.h"
+#include "proc-cmdline.h"
 #include "process-util.h"
 #include "socket-util.h"
 #include "stat-util.h"
@@ -147,14 +148,14 @@ int ask_char(char *ret, const char *replies, const char *text, ...) {
                 char c;
                 bool need_nl = true;
 
-                if (on_tty())
+                if (colors_enabled())
                         fputs(ANSI_HIGHLIGHT, stdout);
 
                 va_start(ap, text);
                 vprintf(text, ap);
                 va_end(ap);
 
-                if (on_tty())
+                if (colors_enabled())
                         fputs(ANSI_NORMAL, stdout);
 
                 fflush(stdout);
@@ -191,14 +192,14 @@ int ask_string(char **ret, const char *text, ...) {
                 char line[LINE_MAX];
                 va_list ap;
 
-                if (on_tty())
+                if (colors_enabled())
                         fputs(ANSI_HIGHLIGHT, stdout);
 
                 va_start(ap, text);
                 vprintf(text, ap);
                 va_end(ap);
 
-                if (on_tty())
+                if (colors_enabled())
                         fputs(ANSI_NORMAL, stdout);
 
                 fflush(stdout);
@@ -779,7 +780,18 @@ bool tty_is_vc_resolve(const char *tty) {
 const char *default_term_for_tty(const char *tty) {
         assert(tty);
 
-        return tty_is_vc_resolve(tty) ? "TERM=linux" : "TERM=vt220";
+        if (tty_is_vc_resolve(tty))
+                return "TERM=linux";
+
+#if defined (__s390__) || defined (__s390x__)
+        if (tty_is_console(tty)) {
+                _cleanup_free_ char *mode = NULL;
+
+                get_proc_cmdline_key("conmode=", &mode);
+                return streq_ptr(mode, "3270") ? "TERM=ibm327x" : "TERM=dumb";
+        }
+#endif
+        return "TERM=vt220";
 }
 
 int fd_columns(int fd) {
@@ -1185,4 +1197,41 @@ int open_terminal_in_namespace(pid_t pid, const char *name, int mode) {
                 return -EIO;
 
         return receive_one_fd(pair[0], 0);
+}
+
+bool terminal_is_dumb(void) {
+        const char *e;
+
+        if (!on_tty())
+                return true;
+
+        e = getenv("TERM");
+        if (!e)
+                return true;
+
+#if defined (__s390__) || defined (__s390x__)
+        if (startswith(e, "ibm3")) {
+                _cleanup_free_ char *mode = NULL;
+
+                get_proc_cmdline_key("conmode=", &mode);
+                return !streq_ptr(mode, "3270");
+        }
+#endif
+        return streq(e, "dumb");
+}
+
+bool colors_enabled(void) {
+        static int enabled = -1;
+
+        if (_unlikely_(enabled < 0)) {
+                const char *colors;
+
+                colors = getenv("SYSTEMD_COLORS");
+                if (colors)
+                        enabled = parse_boolean(colors) != 0;
+                else
+                        enabled = !terminal_is_dumb();
+        }
+
+        return enabled;
 }
