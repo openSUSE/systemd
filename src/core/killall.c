@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include "alloc-util.h"
+#include "def.h"
 #include "dirent-util.h"
 #include "fd-util.h"
 #include "formats-util.h"
@@ -35,8 +36,6 @@
 #include "string-util.h"
 #include "terminal-util.h"
 #include "util.h"
-
-#define TIMEOUT_USEC (10 * USEC_PER_SEC)
 
 static bool ignore_proc(pid_t pid) {
         _cleanup_fclose_ FILE *f = NULL;
@@ -87,7 +86,7 @@ static void wait_for_children(Set *pids, sigset_t *mask) {
         if (set_isempty(pids))
                 return;
 
-        until = now(CLOCK_MONOTONIC) + TIMEOUT_USEC;
+        until = now(CLOCK_MONOTONIC) + DEFAULT_TIMEOUT_USEC;
         for (;;) {
                 struct timespec ts;
                 int k;
