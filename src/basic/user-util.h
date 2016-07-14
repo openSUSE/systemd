@@ -70,3 +70,8 @@ int take_etc_passwd_lock(const char *root);
 
 #define PTR_TO_GID(p) ((gid_t) (((uintptr_t) (p))-1))
 #define GID_TO_PTR(u) ((void*) (((uintptr_t) (u))+1))
+
+bool valid_user_group_name(const char *u);
+bool valid_user_group_name_or_id(const char *u);
+bool valid_gecos(const char *d);
+bool valid_home(const char *p);
