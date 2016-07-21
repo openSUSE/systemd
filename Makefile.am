@@ -238,6 +238,7 @@ AM_CPPFLAGS = \
 	-I $(top_srcdir)/src/libsystemd/sd-network \
 	-I $(top_srcdir)/src/libsystemd/sd-hwdb \
 	-I $(top_srcdir)/src/libsystemd/sd-device \
+	-I $(top_srcdir)/src/libsystemd/sd-id128 \
 	-I $(top_srcdir)/src/libsystemd-network \
 	$(OUR_CPPFLAGS)
 
@@ -1767,7 +1768,7 @@ test_fs_util_SOURCES = \
 	src/test/test-fs-util.c
 
 test_fs_util_LDADD = \
-	libbasic.la
+	libshared.la
 
 test_string_util_SOURCES = \
 	src/test/test-string-util.c
@@ -3038,6 +3039,8 @@ libsystemd_internal_la_SOURCES = \
 	src/libsystemd/sd-netlink/local-addresses.h \
 	src/libsystemd/sd-netlink/local-addresses.c \
 	src/libsystemd/sd-id128/sd-id128.c \
+	src/libsystemd/sd-id128/id128-util.h \
+	src/libsystemd/sd-id128/id128-util.c \
 	src/libsystemd/sd-daemon/sd-daemon.c \
 	src/libsystemd/sd-login/sd-login.c \
 	src/libsystemd/sd-path/sd-path.c \

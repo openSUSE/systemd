@@ -65,6 +65,7 @@
 #include "fs-util.h"
 #include "gpt.h"
 #include "hostname-util.h"
+#include "id128-util.h"
 #include "log.h"
 #include "loopback-setup.h"
 #include "machine-image.h"
