@@ -87,8 +87,6 @@ static void unmount_autofs(Automount *a) {
         if (a->pipe_fd < 0)
                 return;
 
-        automount_send_ready(a, -EHOSTDOWN);
-
         a->pipe_event_source = sd_event_source_unref(a->pipe_event_source);
 
         close_nointr_nofail(a->pipe_fd);
@@ -98,8 +96,11 @@ static void unmount_autofs(Automount *a) {
          * around */
         if (a->where &&
             (UNIT(a)->manager->exit_code != MANAGER_RELOAD &&
-             UNIT(a)->manager->exit_code != MANAGER_REEXECUTE))
+             UNIT(a)->manager->exit_code != MANAGER_REEXECUTE)) {
+                automount_send_ready(a, -EHOSTDOWN);
+
                 repeat_unmount(a->where);
+        }
 }
 
 static void automount_done(Unit *u) {
