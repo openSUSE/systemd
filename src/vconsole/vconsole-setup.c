@@ -122,12 +122,12 @@ static int toggle_utf8_sysfs(bool utf8) {
 
 static int keyboard_load_and_wait(const char *vc, const char *map, const char *map_toggle, bool utf8) {
         const char *args[8];
-        int i = 0, r;
+        int i = 0;
         pid_t pid;
 
         /* An empty map means kernel map */
         if (isempty(map))
-                return 1;
+                return 0;
 
         args[i++] = KBD_LOADKEYS;
         args[i++] = "-q";
@@ -152,34 +152,31 @@ static int keyboard_load_and_wait(const char *vc, const char *map, const char *m
                 _exit(EXIT_FAILURE);
         }
 
-        r = wait_for_terminate_and_warn(KBD_LOADKEYS, pid, true);
-        if (r < 0)
-                return r;
-
-        return r == 0;
+        return wait_for_terminate_and_warn(KBD_LOADKEYS, pid, true);
 }
 
 static int font_load_and_wait(const char *vc, const char *font, const char *map, const char *unimap) {
         const char *args[9];
-        int i = 0, r;
+        int i = 0;
         pid_t pid;
 
-        /* An empty font means kernel font */
-        if (isempty(font))
-                return 1;
+        /* Any part can be set independently */
+        if (isempty(font) && isempty(map) && isempty(unimap))
+                return 0;
 
         args[i++] = KBD_SETFONT;
         args[i++] = "-C";
         args[i++] = vc;
-        args[i++] = font;
-        if (map) {
+        if (!isempty(map)) {
                 args[i++] = "-m";
                 args[i++] = map;
         }
-        if (unimap) {
+        if (!isempty(unimap)) {
                 args[i++] = "-u";
                 args[i++] = unimap;
         }
+        if (!isempty(font))
+                args[i++] = font;
         args[i++] = NULL;
 
         pid = fork();
@@ -194,11 +191,7 @@ static int font_load_and_wait(const char *vc, const char *font, const char *map,
                 _exit(EXIT_FAILURE);
         }
 
-        r = wait_for_terminate_and_warn(KBD_SETFONT, pid, true);
-        if (r < 0)
-                return r;
-
-        return r == 0;
+        return wait_for_terminate_and_warn(KBD_SETFONT, pid, true);
 }
 
 static int load_compose_table_and_wait(const char *vc, const char *compose_table) {
@@ -422,9 +415,9 @@ int main(int argc, char **argv) {
         toggle_utf8_sysfs(utf8);
         toggle_utf8(fd, utf8);
 
-        font_ok = font_load_and_wait(vc, vc_font, vc_font_map, vc_font_unimap) > 0;
-        keyboard_ok = keyboard_load_and_wait(vc, vc_keymap, vc_keymap_toggle, utf8) > 0;
-        composetable_ok = load_compose_table_and_wait(vc, vc_compose_table) >= 0;
+        font_ok = font_load_and_wait(vc, vc_font, vc_font_map, vc_font_unimap) == 0;
+        keyboard_ok = keyboard_load_and_wait(vc, vc_keymap, vc_keymap_toggle, utf8) == 0;
+        composetable_ok = load_compose_table_and_wait(vc, vc_compose_table) == 0;
 
         /* Only copy the font when we executed setfont successfully */
         if (font_copy && font_ok)
