@@ -16,4 +16,3 @@ ConditionKernelCommandLine=resume
 [Service]
 Type=oneshot
 ExecStart=@rootlibexecdir@/systemd-sleep hibernate
-ExecStopPost=@rootbindir@/systemd-sleep-grub post
