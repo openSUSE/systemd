@@ -88,7 +88,7 @@ int manager_handle_action(
         }
 
         /* If the key handling is inhibited, don't do anything */
-        if (!ignore_inhibited && inhibit_key > 0) {
+        if (inhibit_key > 0) {
                 if (inhibit_key == INHIBIT_HANDLE_POWER_KEY)
                         (void) touch("/run/systemd/acpi-shutdown");
 
