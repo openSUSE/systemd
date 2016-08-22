@@ -532,6 +532,12 @@ dist_systemunit_DATA += \
 dist_systemunit_DATA_busnames += \
 	units/busnames.target
 
+if HAVE_SYSV_COMPAT
+dist_systemunit_DATA += \
+	units/var-run.mount \
+	units/var-lock.mount
+endif
+
 nodist_systemunit_DATA = \
 	units/getty@.service \
 	units/serial-getty@.service \
@@ -2484,6 +2490,18 @@ systemd_delta_LDADD = \
 	libshared.la
 
 # ------------------------------------------------------------------------------
+if HAVE_SYSV_COMPAT
+systemd_insserv_generator_SOURCES = \
+	src/insserv-generator/insserv-generator.c
+
+systemd_insserv_generator_LDADD = \
+	libsystemd-internal.la
+
+systemgenerator_PROGRAMS += \
+	systemd-insserv-generator
+endif
+
+# ------------------------------------------------------------------------------
 systemd_getty_generator_SOURCES = \
 	src/getty-generator/getty-generator.c
 
@@ -3524,11 +3542,13 @@ dist_udevrules_DATA += \
 	rules/60-persistent-alsa.rules \
 	rules/60-persistent-storage.rules \
 	rules/60-serial.rules \
+	rules/60-ssd-scheduler.rules \
 	rules/64-btrfs.rules \
 	rules/70-mouse.rules \
 	rules/75-net-description.rules \
 	rules/78-sound-card.rules \
-	rules/80-net-setup-link.rules
+	rules/80-net-setup-link.rules \
+	rules/80-hotplug-cpu-mem.rules
 
 nodist_udevrules_DATA += \
 	rules/99-systemd.rules
@@ -3791,6 +3811,16 @@ ata_id_LDADD = \
 
 udevlibexec_PROGRAMS += \
 	ata_id
+
+# ------------------------------------------------------------------------------
+path_id_compat_SOURCES = \
+	src/udev/path_id_compat/path_id_compat.c
+
+path_id_compat_LDADD = \
+	libshared.la
+
+udevlibexec_PROGRAMS += \
+	path_id_compat
 
 # ------------------------------------------------------------------------------
 cdrom_id_SOURCES = \
@@ -6052,6 +6082,9 @@ GRAPHICAL_TARGET_WANTS += \
 	systemd-update-utmp-runlevel.service
 RESCUE_TARGET_WANTS += \
 	systemd-update-utmp-runlevel.service
+LOCAL_FS_TARGET_WANTS += \
+	var-run.mount \
+	var-lock.mount
 endif
 
 SYSINIT_TARGET_WANTS += \

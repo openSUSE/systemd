@@ -212,8 +212,7 @@ AS_CASE([$CC], [*clang*],
         ])])
 
 AS_CASE([$CFLAGS], [*-O[[12345sz\ ]]*],
-        [CC_CHECK_FLAGS_APPEND([with_cflags], [CFLAGS], [\
-               -flto])],
+        [AC_MSG_RESULT([skipping -flto, improving debuggability])],
         [AC_MSG_RESULT([skipping -flto, optimization not enabled])])
 AC_SUBST([OUR_CFLAGS], "$with_cflags $sanitizer_cflags")
 
@@ -501,6 +500,22 @@ if test "x$enable_apparmor" != "xno"; then
         fi
 fi
 AM_CONDITIONAL(HAVE_APPARMOR, [test "$have_apparmor" = "yes"])
+
+have_adm_group=no
+AC_ARG_ENABLE(adm-group, AS_HELP_STRING([--disable-adm-group], [disable adm group]))
+AS_IF([test "x$enable_adm_group" != "xno"], [
+        AC_DEFINE(ENABLE_ADM_GROUP, 1, [Define if the ACL for adm group should be enabled])
+        have_adm_group=yes
+        M4_DEFINES="$M4_DEFINES -DENABLE_ADM_GROUP"
+])
+
+have_wheel_group=no
+AC_ARG_ENABLE(wheel-group, AS_HELP_STRING([--disable-wheel-group], [disable wheel group]))
+AS_IF([test "x$enable_wheel_group" != "xno"], [
+        AC_DEFINE(ENABLE_WHEEL_GROUP, 1, [Define if the ACL for wheel group should be enabled])
+        have_wheel_group=yes
+        M4_DEFINES="$M4_DEFINES -DENABLE_WHEEL_GROUP"
+])
 
 
 AC_ARG_WITH(debug-shell,
@@ -1592,6 +1607,8 @@ AC_MSG_RESULT([
         Zsh completions dir:     ${with_zshcompletiondir}
         Extra start script:      ${RC_LOCAL_SCRIPT_PATH_START}
         Extra stop script:       ${RC_LOCAL_SCRIPT_PATH_STOP}
+        Adm group:               ${have_adm_group}
+        Wheel group:             ${have_wheel_group}
         Debug shell:             ${SUSHELL} @ ${DEBUGTTY}
         TTY GID:                 ${TTY_GID}
         Maximum System UID:      ${SYSTEM_UID_MAX}

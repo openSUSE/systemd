@@ -541,7 +541,7 @@ static void display(Hashmap *a) {
 
         assert(a);
 
-        if (on_tty())
+        if (!terminal_is_dumb())
                 fputs(ANSI_HOME_CLEAR, stdout);
 
         array = alloca(sizeof(Group*) * hashmap_size(a));

@@ -38,10 +38,12 @@
 #include "io-util.h"
 #include "parse-util.h"
 #include "path-util.h"
+#include "proc-cmdline.h"
 #include "process-util.h"
 #include "socket-util.h"
 #include "stat-util.h"
 #include "string-util.h"
+#include "strv.h"
 #include "terminal-util.h"
 #include "time-util.h"
 #include "util.h"
@@ -146,14 +148,14 @@ int ask_char(char *ret, const char *replies, const char *text, ...) {
                 char c;
                 bool need_nl = true;
 
-                if (on_tty())
+                if (colors_enabled())
                         fputs(ANSI_HIGHLIGHT, stdout);
 
                 va_start(ap, text);
                 vprintf(text, ap);
                 va_end(ap);
 
-                if (on_tty())
+                if (colors_enabled())
                         fputs(ANSI_NORMAL, stdout);
 
                 fflush(stdout);
@@ -190,14 +192,14 @@ int ask_string(char **ret, const char *text, ...) {
                 char line[LINE_MAX];
                 va_list ap;
 
-                if (on_tty())
+                if (colors_enabled())
                         fputs(ANSI_HIGHLIGHT, stdout);
 
                 va_start(ap, text);
                 vprintf(text, ap);
                 va_end(ap);
 
-                if (on_tty())
+                if (colors_enabled())
                         fputs(ANSI_NORMAL, stdout);
 
                 fflush(stdout);
@@ -700,6 +702,64 @@ char *resolve_dev_console(char **active) {
         return tty;
 }
 
+int get_kernel_consoles(char ***consoles) {
+        _cleanup_strv_free_ char **con = NULL;
+        _cleanup_free_ char *line = NULL;
+        const char *active;
+        int r;
+
+        assert(consoles);
+
+        r = read_one_line_file("/sys/class/tty/console/active", &line);
+        if (r < 0)
+                return r;
+
+        active = line;
+        for (;;) {
+                _cleanup_free_ char *tty = NULL;
+                char *path;
+
+                r = extract_first_word(&active, &tty, NULL, 0);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        break;
+
+                if (streq(tty, "tty0")) {
+                        tty = mfree(tty);
+                        r = read_one_line_file("/sys/class/tty/tty0/active", &tty);
+                        if (r < 0)
+                                return r;
+                }
+
+                path = strappend("/dev/", tty);
+                if (!path)
+                        return -ENOMEM;
+
+                if (access(path, F_OK) < 0) {
+                        log_debug_errno(errno, "Console device %s is not accessible, skipping: %m", path);
+                        free(path);
+                        continue;
+                }
+
+                r = strv_consume(&con, path);
+                if (r < 0)
+                        return r;
+        }
+
+        if (strv_isempty(con)) {
+                log_debug("No devices found for system console");
+
+                r = strv_extend(&con, "/dev/console");
+                if (r < 0)
+                        return r;
+        }
+
+        *consoles = con;
+        con = NULL;
+        return 0;
+}
+
 bool tty_is_vc_resolve(const char *tty) {
         _cleanup_free_ char *active = NULL;
 
@@ -720,7 +780,18 @@ bool tty_is_vc_resolve(const char *tty) {
 const char *default_term_for_tty(const char *tty) {
         assert(tty);
 
-        return tty_is_vc_resolve(tty) ? "TERM=linux" : "TERM=vt220";
+        if (tty_is_vc_resolve(tty))
+                return "TERM=linux";
+
+#if defined (__s390__) || defined (__s390x__)
+        if (tty_is_console(tty)) {
+                _cleanup_free_ char *mode = NULL;
+
+                get_proc_cmdline_key("conmode=", &mode);
+                return streq_ptr(mode, "3270") ? "TERM=ibm327x" : "TERM=dumb";
+        }
+#endif
+        return "TERM=vt220";
 }
 
 int fd_columns(int fd) {
@@ -1126,4 +1197,40 @@ int open_terminal_in_namespace(pid_t pid, const char *name, int mode) {
                 return -EIO;
 
         return receive_one_fd(pair[0], 0);
+}
+
+static bool getenv_terminal_is_dumb(void) {
+        const char *e;
+
+        e = getenv("TERM");
+        if (!e)
+                return true;
+
+        return streq(e, "dumb");
+}
+
+bool terminal_is_dumb(void) {
+        if (!on_tty())
+                return true;
+
+        return getenv_terminal_is_dumb();
+}
+
+bool colors_enabled(void) {
+        static int enabled = -1;
+
+        if (_unlikely_(enabled < 0)) {
+                const char *colors;
+
+                colors = getenv("SYSTEMD_COLORS");
+                if (colors)
+                        enabled = parse_boolean(colors) != 0;
+                else if (getpid() == 1)
+                        /* PID1 outputs to the console without holding it open all the time */
+                        enabled = !getenv_terminal_is_dumb();
+                else
+                        enabled = !terminal_is_dumb();
+        }
+
+        return enabled;
 }

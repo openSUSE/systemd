@@ -3524,23 +3524,11 @@ int unit_kill_context(
 
                 } else if (r > 0) {
 
-                        /* FIXME: For now, on the legacy hierarchy, we
-                         * will not wait for the cgroup members to die
-                         * if we are running in a container or if this
-                         * is a delegation unit, simply because cgroup
-                         * notification is unreliable in these
-                         * cases. It doesn't work at all in
-                         * containers, and outside of containers it
-                         * can be confused easily by left-over
-                         * directories in the cgroup -- which however
-                         * should not exist in non-delegated units. On
-                         * the unified hierarchy that's different,
-                         * there we get proper events. Hence rely on
-                         * them.*/
+                        /* We prefer waiting in some cases rather than
+                         * immediatly sending SIGKILL to all user
+                         * units (where delegate=yes) ! */
 
-                        if  (cg_unified() > 0 ||
-                             (detect_container() == 0 && !unit_cgroup_delegate(u)))
-                                wait_for_exit = true;
+                        wait_for_exit = true;
 
                         if (c->send_sighup && k != KILL_KILL) {
                                 set_free(pid_set);

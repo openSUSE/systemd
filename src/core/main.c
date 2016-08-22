@@ -408,6 +408,15 @@ static int parse_proc_cmdline_item(const char *key, const char *value) {
                 target = runlevel_to_target(key);
                 if (target)
                         return free_and_strdup(&arg_default_unit, target);
+
+        } else if (streq(key, "systemd.default_timeout_start_sec") && value) {
+
+                r = parse_sec(value, &arg_default_timeout_start_usec);
+                if (r < 0)
+                        log_warning_errno(r, "Failed to parse default start timeout: %s, ignoring.", value);
+
+                if (arg_default_timeout_start_usec <= 0)
+                        arg_default_timeout_start_usec = USEC_INFINITY;
         }
 
         return 0;
@@ -1202,10 +1211,15 @@ static int status_welcome(void) {
         if (r < 0 && r != -ENOENT)
                 log_warning_errno(r, "Failed to read os-release file: %m");
 
-        return status_printf(NULL, false, false,
-                             "\nWelcome to \x1B[%sm%s\x1B[0m!\n",
-                             isempty(ansi_color) ? "1" : ansi_color,
-                             isempty(pretty_name) ? "Linux" : pretty_name);
+        if (log_get_show_color())
+                return status_printf(NULL, false, false,
+                                     "\nWelcome to \x1B[%sm%s\x1B[0m!\n",
+                                     isempty(ansi_color) ? "1" : ansi_color,
+                                     isempty(pretty_name) ? "Linux" : pretty_name);
+        else
+                return status_printf(NULL, false, false,
+                                     "\nWelcome to %s!\n",
+                                     isempty(pretty_name) ? "Linux" : pretty_name);
 }
 
 static int write_container_id(void) {
@@ -1254,6 +1268,35 @@ static int bump_unix_max_dgram_qlen(void) {
                                       "Failed to bump AF_UNIX datagram queue length, ignoring: %m");
 
         return 1;
+}
+
+static int fixup_environment(void) {
+        _cleanup_free_ char *term = NULL;
+        int r;
+
+        /* When started as PID1, the kernel uses /dev/console
+         * for our stdios and uses TERM=linux whatever the
+         * backend device used by the console. We try to make
+         * a better guess here since some consoles might not
+         * have support for color mode for example.
+         *
+         * However if TERM was configured through the kernel
+         * command line then leave it alone. */
+
+        r = get_proc_cmdline_key("TERM=", &term);
+        if (r < 0)
+                return r;
+
+        if (r == 0) {
+                term = strdup(default_term_for_tty("/dev/console") + 5);
+                if (!term)
+                        return -errno;
+        }
+
+        if (setenv("TERM", term, 1) < 0)
+                return -errno;
+
+        return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -1316,7 +1359,6 @@ int main(int argc, char *argv[]) {
         saved_argv = argv;
         saved_argc = argc;
 
-        log_show_color(isatty(STDERR_FILENO) > 0);
         log_set_upgrade_syslog_to_journal(true);
 
         /* Disable the umask logic */
@@ -1327,7 +1369,6 @@ int main(int argc, char *argv[]) {
 
                 /* Running outside of a container as PID 1 */
                 arg_running_as = MANAGER_SYSTEM;
-                make_null_stdio();
                 log_set_target(LOG_TARGET_KMSG);
                 log_open();
 
@@ -1422,6 +1463,22 @@ int main(int argc, char *argv[]) {
                 /* clear the kernel timestamp,
                  * because we are not PID 1 */
                 kernel_timestamp = DUAL_TIMESTAMP_NULL;
+        }
+
+        if (getpid() == 1) {
+                /* We expect the environment to be set correctly
+                 * if run inside a container. */
+                if (detect_container() <= 0)
+                        if (fixup_environment() < 0) {
+                                error_message = "Failed to fix up PID1 environment";
+                                goto finish;
+                        }
+
+                /* Try to figure out if we can use colors with the console. No
+                 * need to do that for user instances since they never log
+                 * into the console. */
+                log_show_color(colors_enabled());
+                make_null_stdio();
         }
 
         /* Initialize default unit */
@@ -1934,10 +1991,6 @@ finish:
                         args[i++] = "--deserialize";
                         args[i++] = sfd;
                         args[i++] = NULL;
-
-                        /* do not pass along the environment we inherit from the kernel or initrd */
-                        if (switch_root_dir)
-                                (void) clearenv();
 
                         assert(i <= args_size);
                         (void) execv(args[0], (char* const*) args);

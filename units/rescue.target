@@ -10,6 +10,7 @@ Description=Rescue Mode
 Documentation=man:systemd.special(7)
 Requires=sysinit.target rescue.service
 After=sysinit.target rescue.service
+Conflicts=getty.target
 AllowIsolate=yes
 
 [Install]
