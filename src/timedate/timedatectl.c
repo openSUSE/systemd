@@ -36,7 +36,6 @@
 #include "build.h"
 #include "strv.h"
 #include "pager.h"
-#include "time-dst.h"
 
 static bool arg_no_pager = false;
 static bool arg_ask_password = true;
@@ -76,34 +75,12 @@ typedef struct StatusInfo {
         bool ntp_synced;
 } StatusInfo;
 
-static const char *jump_str(int delta_minutes, char *s, size_t size) {
-        if (delta_minutes == 60)
-                return "one hour forward";
-        if (delta_minutes == -60)
-                return "one hour backwards";
-        if (delta_minutes < 0) {
-                snprintf(s, size, "%i minutes backwards", -delta_minutes);
-                return s;
-        }
-        if (delta_minutes > 0) {
-                snprintf(s, size, "%i minutes forward", delta_minutes);
-                return s;
-        }
-        return "";
-}
-
 static void print_status_info(const StatusInfo *i) {
         char a[FORMAT_TIMESTAMP_MAX];
-        char b[FORMAT_TIMESTAMP_MAX];
-        char s[32];
         struct tm tm;
         time_t sec;
         bool have_time = false;
         _cleanup_free_ char *zc = NULL, *zn = NULL;
-        time_t t, tc, tn;
-        int dn = 0;
-        bool is_dstc = false, is_dstn = false;
-        int r;
 
         assert(i);
 
@@ -159,42 +136,6 @@ static void print_status_info(const StatusInfo *i) {
                i->ntp_capable ? yes_no(i->ntp_enabled) : "n/a",
                yes_no(i->ntp_synced),
                yes_no(i->rtc_local));
-
-        r = time_get_dst(sec, "/etc/localtime",
-                         &tc, &zc, &is_dstc,
-                         &tn, &dn, &zn, &is_dstn);
-        if (r < 0)
-                printf("      DST active: %s\n", "n/a");
-        else if (have_time) {
-                printf("      DST active: %s\n", yes_no(is_dstc));
-
-                t = tc - 1;
-                zero(tm);
-                assert_se(strftime(a, sizeof(a), "%a %Y-%m-%d %H:%M:%S %Z", localtime_r(&t, &tm)) > 0);
-                char_array_0(a);
-
-                zero(tm);
-                assert_se(strftime(b, sizeof(b), "%a %Y-%m-%d %H:%M:%S %Z", localtime_r(&tc, &tm)) > 0);
-                char_array_0(b);
-                printf(" Last DST change: DST %s at\n"
-                       "                  %s\n"
-                       "                  %s\n",
-                       is_dstc ? "began" : "ended", a, b);
-
-                t = tn - 1;
-                zero(tm);
-                assert_se(strftime(a, sizeof(a), "%a %Y-%m-%d %H:%M:%S %Z", localtime_r(&t, &tm)) > 0);
-                char_array_0(a);
-
-                zero(tm);
-                assert_se(strftime(b, sizeof(b), "%a %Y-%m-%d %H:%M:%S %Z", localtime_r(&tn, &tm)) > 0);
-                char_array_0(b);
-                printf(" Next DST change: DST %s (the clock jumps %s) at\n"
-                       "                  %s\n"
-                       "                  %s\n",
-                       is_dstn ? "begins" : "ends", jump_str(dn, s, sizeof(s)), a, b);
-        } else
-                printf("      DST active: %s\n", yes_no(is_dstc));
 
         if (i->rtc_local)
                 fputs("\n" ANSI_HIGHLIGHT_ON

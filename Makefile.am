@@ -747,8 +747,6 @@ libsystemd_shared_la_SOURCES = \
 	src/shared/spawn-polkit-agent.h \
 	src/shared/hwclock.c \
 	src/shared/hwclock.h \
-	src/shared/time-dst.c \
-	src/shared/time-dst.h \
 	src/shared/calendarspec.c \
 	src/shared/calendarspec.h \
 	src/shared/fileio.c \
@@ -999,8 +997,6 @@ libsystemd_core_la_SOURCES = \
 	src/core/machine-id-setup.h \
 	src/core/mount-setup.c \
 	src/core/mount-setup.h \
-	src/core/mount-iface.c \
-	src/core/mount-iface.h \
 	src/core/loopback-setup.h \
 	src/core/loopback-setup.c \
 	src/core/condition.c \
