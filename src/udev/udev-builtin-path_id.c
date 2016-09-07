@@ -585,7 +585,7 @@ static int builtin_path_id(struct udev_device *dev, int argc, char *argv[], bool
          * devices, they might have entire buses behind it which
          * do not get unique IDs only by using the parent device.
          */
-        if (!some_transport && streq(udev_device_get_subsystem(dev), "block")) {
+        if (!some_transport && streq_ptr(udev_device_get_subsystem(dev), "block")) {
                 free(path);
                 path = NULL;
         }

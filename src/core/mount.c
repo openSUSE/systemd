@@ -36,7 +36,6 @@
 #include "mkdir.h"
 #include "path-util.h"
 #include "mount-setup.h"
-#include "mount-iface.h"
 #include "unit-name.h"
 #include "dbus-mount.h"
 #include "special.h"
@@ -1437,9 +1436,8 @@ static int mount_setup_unit(
         _cleanup_free_ char *e = NULL, *w = NULL, *o = NULL, *f = NULL;
         bool load_extras = false;
         MountParameters *p;
-        bool delete, changed = false, isnetwork;
+        bool delete, changed = false;
         Unit *u;
-        char *c;
         int r;
 
         assert(m);
@@ -1463,8 +1461,6 @@ static int mount_setup_unit(
         e = unit_name_from_path(where, ".mount");
         if (!e)
                 return -ENOMEM;
-
-        isnetwork = fstype_is_network(fstype);
 
         u = manager_get_unit(m, e);
         if (!u) {
@@ -1494,7 +1490,7 @@ static int mount_setup_unit(
                 if (m->running_as == SYSTEMD_SYSTEM) {
                         const char* target;
 
-                        target = isnetwork ? SPECIAL_REMOTE_FS_TARGET : SPECIAL_LOCAL_FS_TARGET;
+                        target = fstype_is_network(fstype) ? SPECIAL_REMOTE_FS_TARGET : SPECIAL_LOCAL_FS_TARGET;
 
                         r = unit_add_dependency_by_name(u, UNIT_BEFORE, target, NULL, true);
                         if (r < 0)
@@ -1571,32 +1567,6 @@ static int mount_setup_unit(
                         goto fail;
         }
 
-        if (isnetwork && (c = strrchr(p->what, ':')) && *(c+1) == '/') {
-                _cleanup_free_ char *opt = strdup(p->options);
-                char *addr;
-
-                if (opt && (addr = strstr(opt, ",addr="))) {
-                        char *colon, *iface;
-
-                        addr += 6;
-                        if ((colon = strchr(addr, ',')))
-                                *colon = '\0';
-
-                        iface = host2iface(addr);
-                        if (iface) {
-                                _cleanup_free_ char* target = NULL;
-                                if (asprintf(&target, "sys-subsystem-net-devices-%s.device", iface) < 0)
-                                        log_oom();
-                                else {
-                                        r = unit_add_dependency_by_name(u, UNIT_AFTER, target, NULL, true);
-                                        if (r < 0)
-                                                log_error_unit(u->id, "Failed to add dependency on %s, ignoring: %s",
-                                                               target, strerror(-r));
-                                }
-                        }
-                }
-        }
-
         if (changed)
                 unit_add_to_dbus_queue(u);
 
@@ -1668,7 +1638,6 @@ static int mount_load_proc_self_mountinfo(Manager *m, bool set_flags) {
                 if (k < 0)
                         r = k;
         }
-        freeroutes();        /* Just in case of using the routing table with host2iface() */
 
         return r;
 }
