@@ -1231,10 +1231,15 @@ static int service_spawn(
                 r = getpeername(s->socket_fd, &sa.sa, &salen);
                 if (r < 0) {
                         r = -errno;
-                        goto fail;
+
+                        /* ENOTCONN is legitimate if the endpoint disappeared on shutdown.
+                         * This connection is over, but the socket unit lives on. */
+                        if (r != -ENOTCONN ||
+                            (c != s->exec_command[SERVICE_EXEC_STOP] && c != s->exec_command[SERVICE_EXEC_STOP_POST]))
+                                goto fail;
                 }
 
-                if (IN_SET(sa.sa.sa_family, AF_INET, AF_INET6)) {
+                if (r == 0 && IN_SET(sa.sa.sa_family, AF_INET, AF_INET6)) {
                         _cleanup_free_ char *addr = NULL;
                         char *t;
                         int port;
