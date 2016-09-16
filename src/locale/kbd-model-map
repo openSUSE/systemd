@@ -52,7 +52,7 @@ ro-cedilla		ro	pc105		cedilla		terminate:ctrl_alt_bksp
 ie			ie	pc105		-		terminate:ctrl_alt_bksp
 et			ee	pc105		-		terminate:ctrl_alt_bksp
 sk-qwerty		sk	pc105		-		terminate:ctrl_alt_bksp,qwerty
-sk-qwertz		sk	pc105		-		terminate:ctrl_alt_bksp
+sk-qwertz		sk,us	pc105		-		terminate:ctrl_alt_bksp,grp:shift_toggle
 fr-latin9		fr	pc105		latin9		terminate:ctrl_alt_bksp
 fr_CH-latin1		ch	pc105		fr		terminate:ctrl_alt_bksp
 cf			ca	pc105		-		terminate:ctrl_alt_bksp
@@ -65,4 +65,14 @@ kazakh			kz,us	pc105		-		terminate:ctrl_alt_bksp,grp:shifts_toggle,grp_led:scrol
 lt.baltic		lt	pc105		-		terminate:ctrl_alt_bksp
 lt.l4                  lt	pc105		-		terminate:ctrl_alt_bksp
 lt			lt	pc105		-		terminate:ctrl_alt_bksp
-khmer			kh,us	pc105		-		terminate:ctrl_alt_bksp
+khmer			kh,us	pc105		-		terminate:ctrl_alt_bksp,grp:alt_shift_toggle
+# Additional layouts offered by YaST
+Pl02			pl	pc105		-		terminate:ctrl_alt_bksp
+arabic			ara,us	pc105		-		terminate:ctrl_alt_bksp,grp:shift_toggle
+cn-latin1		ca	pc105		multix		terminate:ctrl_alt_bksp
+cz-lat2-us		cz,us	pc105		qwerty,basic	terminate:ctrl_alt_bksp,grp:shift_toggle
+es-cp850		es	pc105		-		terminate:ctrl_alt_bksp
+korean			kr	pc105		-		terminate:ctrl_alt_bksp
+lt.std			lt	pc105		std		terminate:ctrl_alt_bksp
+no-latin1		no	pc105		-		terminate:ctrl_alt_bksp
+ruwin_alt-UTF-8		us,ru	pc105		,winkeys	terminate:ctrl_alt_bksp,grp:ctrl_shift_toggle,grp_led:scroll
