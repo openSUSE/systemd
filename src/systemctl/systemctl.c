@@ -4874,6 +4874,7 @@ static int enable_unit(sd_bus *bus, char **args) {
         UnitFileChange *changes = NULL;
         unsigned n_changes = 0;
         int carries_install_info = -1;
+        bool ignore_carries_install_info = false;
         int r;
 
         if (!args[1])
@@ -4905,7 +4906,6 @@ static int enable_unit(sd_bus *bus, char **args) {
                         r = unit_file_link(arg_scope, arg_runtime, arg_root, names, arg_force, &changes, &n_changes);
                 else if (streq(verb, "preset")) {
                         r = unit_file_preset(arg_scope, arg_runtime, arg_root, names, arg_force, &changes, &n_changes);
-                        carries_install_info = r;
                 } else if (streq(verb, "mask"))
                         r = unit_file_mask(arg_scope, arg_runtime, arg_root, names, arg_force, &changes, &n_changes);
                 else if (streq(verb, "unmask"))
@@ -4923,9 +4923,9 @@ static int enable_unit(sd_bus *bus, char **args) {
 
                 r = 0;
         } else {
-                _cleanup_bus_message_unref_ sd_bus_message *reply = NULL, *m = NULL;
-                _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
-                int expect_carries_install_info = false;
+                _cleanup_(sd_bus_message_unrefp) sd_bus_message *reply = NULL, *m = NULL;
+                _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+                bool expect_carries_install_info = false;
                 bool send_force = true;
                 const char *method;
 
@@ -4943,6 +4943,7 @@ static int enable_unit(sd_bus *bus, char **args) {
                 else if (streq(verb, "preset")) {
                         method = "PresetUnitFiles";
                         expect_carries_install_info = true;
+                        ignore_carries_install_info = true;
                 } else if (streq(verb, "mask"))
                         method = "MaskUnitFiles";
                 else if (streq(verb, "unmask")) {
@@ -4998,9 +4999,10 @@ static int enable_unit(sd_bus *bus, char **args) {
                         r = 0;
         }
 
-        if (carries_install_info == 0)
-                log_warning("The unit files have no [Install] section. They are not meant to be enabled\n"
-                            "using systemctl.\n"
+        if (carries_install_info == 0 && !ignore_carries_install_info)
+                log_warning("The unit files have no installation config (WantedBy, RequiredBy, Also, Alias\n"
+                            "settings in the [Install] section, and DefaultInstance for template units).\n"
+                            "This means they are not meant to be enabled using systemctl.\n"
                             "Possible reasons for having this kind of units are:\n"
                             "1) A unit may be statically enabled by being symlinked from another unit's\n"
                             "   .wants/ or .requires/ directory.\n"
