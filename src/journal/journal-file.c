@@ -107,7 +107,7 @@ int journal_file_set_offline(JournalFile *f) {
 
         fsync(f->fd);
 
-        f->header->state = STATE_OFFLINE;
+        f->header->state = f->archive ? STATE_ARCHIVED : STATE_OFFLINE;
 
         fsync(f->fd);
 
@@ -119,8 +119,13 @@ void journal_file_close(JournalFile *f) {
 
 #ifdef HAVE_GCRYPT
         /* Write the final tag */
-        if (f->seal && f->writable)
-                journal_file_append_tag(f);
+        if (f->seal && f->writable) {
+                int r;
+
+                r = journal_file_append_tag(f);
+                if (r < 0)
+                        log_error_errno(r, "Failed to append tag when closing journal: %m");
+        }
 #endif
 
         /* Sync everything to disk, before we mark the file offline */
@@ -1012,6 +1017,12 @@ static int journal_file_append_data(
         if (r < 0)
                 return r;
 
+#ifdef HAVE_GCRYPT
+        r = journal_file_hmac_put_object(f, OBJECT_DATA, o, p);
+        if (r < 0)
+                return r;
+#endif
+
         /* The linking might have altered the window, so let's
          * refresh our pointer */
         r = journal_file_move_to_object(f, OBJECT_DATA, p, &o);
@@ -1035,12 +1046,6 @@ static int journal_file_append_data(
                 o->data.next_field_offset = fo->field.head_data_offset;
                 fo->field.head_data_offset = le64toh(p);
         }
-
-#ifdef HAVE_GCRYPT
-        r = journal_file_hmac_put_object(f, OBJECT_DATA, o, p);
-        if (r < 0)
-                return r;
-#endif
 
         if (ret)
                 *ret = o;
@@ -2681,7 +2686,13 @@ int journal_file_rotate(JournalFile **f, bool compress, bool seal) {
         if (r < 0)
                 return -errno;
 
-        old_file->header->state = STATE_ARCHIVED;
+        /* Set as archive so offlining commits w/state=STATE_ARCHIVED.
+         * Previously we would set old_file->header->state to STATE_ARCHIVED directly here,
+         * but journal_file_set_offline() short-circuits when state != STATE_ONLINE, which
+         * would result in the rotated journal never getting fsync() called before closing.
+         * Now we simply queue the archive state by setting an archive bit, leaving the state
+         * as STATE_ONLINE so proper offlining occurs. */
+        old_file->archive = true;
 
         /* Currently, btrfs is not very good with out write patterns
          * and fragments heavily. Let's defrag our journal files when

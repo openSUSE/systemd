@@ -1535,14 +1535,14 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t 
                 Unit *u;
 
                 n = recvmsg(m->notify_fd, &msghdr, MSG_DONTWAIT);
-                if (n <= 0) {
-                        if (n == 0)
-                                return -EIO;
-
-                        if (errno == EAGAIN || errno == EINTR)
-                                break;
-
-                        return -errno;
+                if (n < 0) {
+                        if (!IN_SET(errno, EAGAIN, EINTR))
+                                log_error("Failed to receive notification message: %m");
+                        break;
+                }
+                if (n == 0) {
+                        log_debug("Got zero-length notification message. Ignoring.");
+                        break;
                 }
 
                 if (msghdr.msg_controllen < CMSG_LEN(sizeof(struct ucred)) ||

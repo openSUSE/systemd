@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include <stddef.h>
 #include <sys/epoll.h>
+#include <sys/statvfs.h>
 
 #include "socket-util.h"
 #include "path-util.h"
@@ -310,6 +311,7 @@ void server_process_native_file(
 
         struct stat st;
         _cleanup_free_ void *p = NULL;
+        struct statvfs vfs;
         ssize_t n;
         int r;
 
@@ -367,6 +369,34 @@ void server_process_native_file(
 
         if (st.st_size > ENTRY_SIZE_MAX) {
                 log_error("File passed too large. Ignoring.");
+                return;
+        }
+
+        if (fstatvfs(fd, &vfs) < 0) {
+                log_error("Failed to stat file system of passed file, ignoring: %m");
+                return;
+        }
+
+        /* Refuse operating on file systems that have
+         * mandatory locking enabled, see:
+         *
+         * https://github.com/systemd/systemd/issues/1822
+         */
+        if (vfs.f_flag & ST_MANDLOCK) {
+                log_error("Received file descriptor from file system with mandatory locking enable, refusing.");
+                return;
+        }
+
+        /* Make the fd non-blocking. On regular files this has
+         * the effect of bypassing mandatory locking. Of
+         * course, this should normally not be necessary given
+         * the check above, but let's better be safe than
+         * sorry, after all NFS is pretty confusing regarding
+         * file system flags, and we better don't trust it,
+         * and so is SMB. */
+        r = fd_nonblock(fd, true);
+        if (r < 0) {
+                log_error("Failed to make fd non-blocking, ignoring: %m");
                 return;
         }
 
