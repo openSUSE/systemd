@@ -124,7 +124,7 @@ void journal_file_close(JournalFile *f) {
 
                 r = journal_file_append_tag(f);
                 if (r < 0)
-                        log_error_errno(r, "Failed to append tag when closing journal: %m");
+                        log_error("Failed to append tag when closing journal: %s", strerror(-r));
         }
 #endif
 
