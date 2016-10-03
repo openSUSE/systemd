@@ -1501,13 +1501,12 @@ static unsigned manager_dispatch_dbus_queue(Manager *m) {
         return n;
 }
 
-static void manager_invoke_notify_message(Manager *m, Unit *u, pid_t pid, const char *buf, size_t n, FDSet *fds) {
+static void manager_invoke_notify_message(Manager *m, Unit *u, pid_t pid, const char *buf, FDSet *fds) {
         _cleanup_strv_free_ char **tags = NULL;
 
         assert(m);
         assert(u);
         assert(buf);
-        assert(n > 0);
 
         tags = strv_split(buf, "\n\r");
         if (!tags) {
@@ -1517,8 +1516,14 @@ static void manager_invoke_notify_message(Manager *m, Unit *u, pid_t pid, const 
 
         if (UNIT_VTABLE(u)->notify_message)
                 UNIT_VTABLE(u)->notify_message(u, pid, tags, fds);
-        else
-                log_unit_debug(u, "Got notification message for unit. Ignoring.");
+        else if (_unlikely_(log_get_max_level() >= LOG_DEBUG)) {
+                _cleanup_free_ char *x = NULL, *y = NULL;
+
+                x = cescape(buf);
+                if (x)
+                        y = ellipsize(x, 20, 90);
+                log_unit_debug(u, "Got notification message \"%s\", ignoring.", strnull(y));
+        }
 }
 
 static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t revents, void *userdata) {
@@ -1560,10 +1565,14 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t 
 
         n = recvmsg(m->notify_fd, &msghdr, MSG_DONTWAIT|MSG_CMSG_CLOEXEC);
         if (n < 0) {
-                if (errno == EAGAIN || errno == EINTR)
-                        return 0;
+                if (!IN_SET(errno, EAGAIN, EINTR))
+                        log_error("Failed to receive notification message: %m");
 
-                return -errno;
+                /* It's not an option to return an error here since it
+                 * would disable the notification handler entirely. Services
+                 * wouldn't be able to send the WATCHDOG message for
+                 * example... */
+                return 0;
         }
 
         CMSG_FOREACH(cmsg, &msghdr) {
@@ -1586,7 +1595,8 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t 
                 r = fdset_new_array(&fds, fd_array, n_fds);
                 if (r < 0) {
                         close_many(fd_array, n_fds);
-                        return log_oom();
+                        log_oom();
+                        return 0;
                 }
         }
 
@@ -1600,25 +1610,27 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t 
                 return 0;
         }
 
+        /* The message should be a string. Here we make sure it's NUL-terminated,
+         * but only the part until first NUL will be used anyway. */
         buf[n] = 0;
 
         /* Notify every unit that might be interested, but try
          * to avoid notifying the same one multiple times. */
         u1 = manager_get_unit_by_pid_cgroup(m, ucred->pid);
         if (u1) {
-                manager_invoke_notify_message(m, u1, ucred->pid, buf, n, fds);
+                manager_invoke_notify_message(m, u1, ucred->pid, buf, fds);
                 found = true;
         }
 
         u2 = hashmap_get(m->watch_pids1, PID_TO_PTR(ucred->pid));
         if (u2 && u2 != u1) {
-                manager_invoke_notify_message(m, u2, ucred->pid, buf, n, fds);
+                manager_invoke_notify_message(m, u2, ucred->pid, buf, fds);
                 found = true;
         }
 
         u3 = hashmap_get(m->watch_pids2, PID_TO_PTR(ucred->pid));
         if (u3 && u3 != u2 && u3 != u1) {
-                manager_invoke_notify_message(m, u3, ucred->pid, buf, n, fds);
+                manager_invoke_notify_message(m, u3, ucred->pid, buf, fds);
                 found = true;
         }
 
