@@ -1536,9 +1536,19 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t 
 
                 n = recvmsg(m->notify_fd, &msghdr, MSG_DONTWAIT);
                 if (n < 0) {
-                        if (!IN_SET(errno, EAGAIN, EINTR))
-                                log_error("Failed to receive notification message: %m");
-                        break;
+                        if (IN_SET(errno, EAGAIN, EINTR))
+                                break; /* Spurious wakeup, try again */
+
+                        /* If this is any other, real error, then
+                         * let's stop processing this socket. This of
+                         * course means we won't take notification
+                         * messages anymore, but that's still better
+                         * than busy looping around this:  being woken
+                         * up over and over again but being unable to
+                         * actually read the message off the
+                         * socket. */
+                        log_error("Failed to receive notification message: %m");
+                        return -errno;
                 }
                 if (n == 0) {
                         log_debug("Got zero-length notification message. Ignoring.");
