@@ -597,10 +597,7 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                             !path_startswith(parent, root))
                                 continue;
 
-                        /* fbui: was originally "free_and_replace(done, parent);" */
-                        free(done);
-                        done = parent;
-                        parent = NULL;
+                        free_and_replace(done, parent);
 
                         fd_parent = openat(fd, "..", O_CLOEXEC|O_NOFOLLOW|O_PATH);
                         if (fd_parent < 0)
