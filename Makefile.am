@@ -982,7 +982,9 @@ libbasic_la_SOURCES = \
 	src/basic/khash.h \
 	src/basic/khash.c \
 	src/basic/journal-importer.h \
-	src/basic/journal-importer.c
+	src/basic/journal-importer.c \
+	src/basic/bpf-program.h \
+	src/basic/bpf-program.c
 
 nodist_libbasic_la_SOURCES = \
 	src/basic/errno-from-name.h \

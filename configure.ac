@@ -333,7 +333,8 @@ AC_CHECK_DECLS([
         keyctl,
         LO_FLAGS_PARTSCAN,
         copy_file_range,
-        explicit_bzero],
+        explicit_bzero,
+        bpf],
         [], [], [[
 #include <sys/types.h>
 #include <unistd.h>

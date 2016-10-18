@@ -435,6 +435,8 @@ foreach ident : [
         ['copy_file_range',   '''#define _GNU_SOURCE
                                  #include <sys/syscall.h>
                                  #include <unistd.h>'''],
+        ['bpf',               '''#include <sys/syscall.h>
+                                 #include <unistd.h>'''],
         ['explicit_bzero' ,   '''#include <string.h>'''],
 ]
 
