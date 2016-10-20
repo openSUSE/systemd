@@ -1253,6 +1253,7 @@ static void item_free(Item *i) {
         free(i->uid_path);
         free(i->gid_path);
         free(i->description);
+        free(i->home);
         free(i);
 }
 
