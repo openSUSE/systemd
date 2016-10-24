@@ -1534,11 +1534,21 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t 
                 struct ucred *ucred;
                 Unit *u;
 
-                n = recvmsg(m->notify_fd, &msghdr, MSG_DONTWAIT);
+                n = recvmsg(m->notify_fd, &msghdr, MSG_DONTWAIT|MSG_TRUNC);
                 if (n < 0) {
-                        if (!IN_SET(errno, EAGAIN, EINTR))
-                                log_error("Failed to receive notification message: %m");
-                        break;
+                        if (IN_SET(errno, EAGAIN, EINTR))
+                                break; /* Spurious wakeup, try again */
+
+                        /* If this is any other, real error, then
+                         * let's stop processing this socket. This of
+                         * course means we won't take notification
+                         * messages anymore, but that's still better
+                         * than busy looping around this:  being woken
+                         * up over and over again but being unable to
+                         * actually read the message off the
+                         * socket. */
+                        log_error("Failed to receive notification message: %m");
+                        return -errno;
                 }
                 if (n == 0) {
                         log_debug("Got zero-length notification message. Ignoring.");
@@ -1555,7 +1565,11 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t 
 
                 ucred = (struct ucred*) CMSG_DATA(&control.cmsghdr);
 
-                assert((size_t) n < sizeof(buf));
+                if ((size_t) n >= sizeof(buf) || (msghdr.msg_flags & MSG_TRUNC)) {
+                        log_warning("Received notify message exceeded maximum size. Ignoring.");
+                        return 0;
+                }
+
                 buf[n] = 0;
 
                 u = manager_get_unit_by_pid(m, ucred->pid);
@@ -1686,13 +1700,17 @@ static int manager_dispatch_signal_fd(sd_event_source *source, int fd, uint32_t 
         for (;;) {
                 n = read(m->signal_fd, &sfsi, sizeof(sfsi));
                 if (n != sizeof(sfsi)) {
+                        if (n >= 0) {
+                                log_warning("Truncated read from signal fd (%zu bytes)!", n);
+                                return 0;
+                        }
 
-                        if (n >= 0)
-                                return -EIO;
-
-                        if (errno == EINTR || errno == EAGAIN)
+                        if (IN_SET(errno, EINTR, EAGAIN))
                                 break;
 
+                        /* We return an error here, which will kill this handler,
+                         * to avoid a busy loop on read error. */
+                        log_error("Reading from signal fd failed: %m");
                         return -errno;
                 }
 
