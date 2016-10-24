@@ -1728,7 +1728,7 @@ static int list_jobs(sd_bus *bus, char **args) {
                 return bus_log_parse_error(r);
 
         output_jobs_list(jobs, c, skipped);
-        return r;
+        return 0;
 }
 
 static int cancel_job(sd_bus *bus, char **args) {
