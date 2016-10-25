@@ -79,7 +79,7 @@ static int parse_file(Hashmap *sysctl_options, const char *path, bool ignore_eno
         }
 
         log_debug("Parsing %s", path);
-        while (!feof(f)) {
+        for (;;) {
                 char l[LINE_MAX], *p, *value, *new_value, *property, *existing;
                 void *v;
                 int k;
