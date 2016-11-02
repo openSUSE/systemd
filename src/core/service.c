@@ -1293,7 +1293,7 @@ static int service_spawn(
         exec_params.fd_names = fd_names;
         exec_params.n_fds = n_fds;
         exec_params.environment = final_env;
-        exec_params.confirm_spawn = UNIT(s)->manager->confirm_spawn;
+        exec_params.confirm_spawn = manager_get_confirm_spawn(UNIT(s)->manager);
         exec_params.cgroup_supported = UNIT(s)->manager->cgroup_supported;
         exec_params.cgroup_path = path;
         exec_params.cgroup_delegate = s->cgroup_context.delegate;

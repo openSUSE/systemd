@@ -219,7 +219,6 @@ struct ExecParameters {
         bool apply_chroot:1;
         bool apply_tty_stdin:1;
 
-        bool confirm_spawn:1;
         bool selinux_context_net:1;
 
         bool cgroup_delegate:1;
@@ -227,6 +226,8 @@ struct ExecParameters {
         const char *cgroup_path;
 
         const char *runtime_prefix;
+
+        const char *confirm_spawn;
 
         usec_t watchdog_usec;
 

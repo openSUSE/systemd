@@ -245,7 +245,7 @@ struct Manager {
         uint8_t return_value;
 
         ShowStatus show_status;
-        bool confirm_spawn;
+        char *confirm_spawn;
         bool no_console_output;
 
         ExecOutput default_std_output, default_std_error;
@@ -379,3 +379,5 @@ int manager_update_failed_units(Manager *m, Unit *u, bool failed);
 
 const char *manager_state_to_string(ManagerState m) _const_;
 ManagerState manager_state_from_string(const char *s) _pure_;
+
+const char *manager_get_confirm_spawn(Manager *m);
