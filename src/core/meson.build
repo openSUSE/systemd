@@ -111,6 +111,8 @@ libcore_la_sources = '''
         show-status.h
         emergency-action.c
         emergency-action.h
+        ip-address-access.c
+        ip-address-access.h
 '''.split()
 
 load_fragment_gperf_gperf = custom_target(

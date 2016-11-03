@@ -1334,7 +1334,9 @@ libcore_la_SOURCES = \
 	src/core/show-status.c \
 	src/core/show-status.h \
 	src/core/emergency-action.c \
-	src/core/emergency-action.h
+	src/core/emergency-action.h \
+	src/core/ip-address-access.c \
+	src/core/ip-address-access.h
 
 nodist_libcore_la_SOURCES = \
 	src/core/load-fragment-gperf.c \
