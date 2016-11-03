@@ -1600,6 +1600,7 @@ tests += \
 	test-time \
 	test-clock \
 	test-hashmap \
+	test-bpf \
 	test-set \
 	test-bitmap \
 	test-list \
@@ -2215,6 +2216,14 @@ nodist_test_hashmap_SOURCES = \
 test_hashmap_SOURCES = \
 	src/test/test-hashmap.c \
 	src/test/test-hashmap-plain.c
+
+test_bpf_SOURCES = \
+	src/test/test-bpf.c \
+	src/test/test-helper.c
+
+test_bpf_LDADD = \
+	libcore.la \
+	libsystemd-shared.la
 
 test_hashmap_LDADD = \
 	libsystemd-shared.la
