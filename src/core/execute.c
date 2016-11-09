@@ -1329,6 +1329,10 @@ static int apply_address_families(const Unit* u, const ExecContext *c) {
         Iterator i;
         int r;
 
+#if defined(__i386__)
+        return 0;
+#endif
+
         assert(c);
 
         if (skip_seccomp_unavailable(u, "RestrictAddressFamilies="))
