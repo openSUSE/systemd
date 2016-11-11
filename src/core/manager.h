@@ -28,6 +28,7 @@
 #include "cgroup-util.h"
 #include "fdset.h"
 #include "hashmap.h"
+#include "ip-address-access.h"
 #include "list.h"
 #include "ratelimit.h"
 
