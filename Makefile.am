@@ -1336,7 +1336,9 @@ libcore_la_SOURCES = \
 	src/core/emergency-action.c \
 	src/core/emergency-action.h \
 	src/core/ip-address-access.c \
-	src/core/ip-address-access.h
+	src/core/ip-address-access.h \
+	src/core/bpf-firewall.c \
+	src/core/bpf-firewall.h
 
 nodist_libcore_la_SOURCES = \
 	src/core/load-fragment-gperf.c \
