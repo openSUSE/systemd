@@ -647,7 +647,7 @@ enum {
         CONFIRM_EXECUTE = 1,
 };
 
-static int ask_for_confirmation(const char *vc, const char *cmdline) {
+static int ask_for_confirmation(const char *vc, Unit *u, const char *cmdline) {
         int saved_stdout = -1, saved_stdin = -1, r;
         _cleanup_free_ char *e = NULL;
         char c;
@@ -667,7 +667,7 @@ static int ask_for_confirmation(const char *vc, const char *cmdline) {
         }
 
         for (;;) {
-                r = ask_char(&c, "yfsh", "Execute %s? [y, f, s – h for help] ", e);
+                r = ask_char(&c, "yfshi", "Execute %s? [y, f, s – h for help] ", e);
                 if (r < 0) {
                         write_confirm_error_fd(r, STDOUT_FILENO);
                         r = CONFIRM_EXECUTE;
@@ -682,9 +682,16 @@ static int ask_for_confirmation(const char *vc, const char *cmdline) {
                 case 'h':
                         printf("  f - fail, don't execute the command and pretend it failed\n"
                                "  h - help\n"
+                               "  i - info, show a short summary of the unit\n"
                                "  s - skip, don't execute the command and pretend it succeeded\n"
                                "  y - yes, execute the command\n");
                         continue;
+                case 'i':
+                        printf("  Description: %s\n"
+                               "  Unit:        %s\n"
+                               "  Command:     %s\n",
+                               u->id, u->description, cmdline);
+                        continue; /* ask again */
                 case 's':
                         printf("Skipping execution.\n");
                         r = CONFIRM_PRETEND_SUCCESS;
@@ -1550,7 +1557,7 @@ static int exec_child(
                         return -ENOMEM;
                 }
 
-                r = ask_for_confirmation(vc, cmdline);
+                r = ask_for_confirmation(vc, unit, cmdline);
                 if (r != CONFIRM_EXECUTE) {
                         if (r == CONFIRM_PRETEND_SUCCESS) {
                                 *exit_status = EXIT_SUCCESS;
