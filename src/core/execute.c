@@ -659,6 +659,12 @@ static int ask_for_confirmation(const char *vc, Unit *u, const char *cmdline) {
                 return CONFIRM_EXECUTE;
         }
 
+        /* confirm_spawn might have been disabled while we were sleeping. */
+        if (manager_is_confirm_spawn_disabled(u->manager)) {
+                r = 1;
+                goto restore_stdio;
+        }
+
         e = ellipsize(cmdline, 60, 100);
         if (!e) {
                 log_oom();
@@ -667,7 +673,7 @@ static int ask_for_confirmation(const char *vc, Unit *u, const char *cmdline) {
         }
 
         for (;;) {
-                r = ask_char(&c, "yfshiDj", "Execute %s? [y, f, s – h for help] ", e);
+                r = ask_char(&c, "yfshiDjc", "Execute %s? [y, f, s – h for help] ", e);
                 if (r < 0) {
                         write_confirm_error_fd(r, STDOUT_FILENO);
                         r = CONFIRM_EXECUTE;
@@ -675,6 +681,11 @@ static int ask_for_confirmation(const char *vc, Unit *u, const char *cmdline) {
                 }
 
                 switch (c) {
+                case 'c':
+                        printf("Resuming normal execution.\n");
+                        manager_disable_confirm_spawn();
+                        r = 1;
+                        break;
                 case 'D':
                         unit_dump(u, stdout, "  ");
                         continue; /* ask again */
@@ -683,7 +694,8 @@ static int ask_for_confirmation(const char *vc, Unit *u, const char *cmdline) {
                         r = CONFIRM_PRETEND_FAILURE;
                         break;
                 case 'h':
-                        printf("  D - dump, show the state of the unit\n"
+                        printf("  c - continue, proceed without asking anymore\n"
+                               "  D - dump, show the state of the unit\n"
                                "  f - fail, don't execute the command and pretend it failed\n"
                                "  h - help\n"
                                "  i - info, show a short summary of the unit\n"
@@ -1555,7 +1567,7 @@ static int exec_child(
 
         exec_context_tty_reset(context);
 
-        if (params->confirm_spawn) {
+        if (!manager_is_confirm_spawn_disabled(unit->manager)) {
                 const char *vc = params->confirm_spawn;
                 _cleanup_free_ char *cmdline = NULL;
 
