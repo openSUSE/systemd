@@ -1441,6 +1441,17 @@ void unit_status_emit_starting_stopping_reloading(Unit *u, JobType t) {
         unit_status_print_starting_stopping(u, t);
 }
 
+bool unit_shall_confirm_spawn(Unit *u) {
+
+        if (manager_is_confirm_spawn_disabled(u->manager))
+                return false;
+
+        /* For some reasons units remaining in the same process group
+         * as PID 1 fail to acquire the console even if it's not used
+         * by any process. So skip the confirmation question for them. */
+        return !unit_get_exec_context(u)->same_pgrp;
+}
+
 /* Errors:
  *         -EBADR:     This unit type does not support starting.
  *         -EALREADY:  Unit is already started.
@@ -2840,7 +2851,7 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
         }
 }
 
-int unit_add_node_link(Unit *u, const char *what, bool wants) {
+int unit_add_node_link(Unit *u, const char *what, bool wants, UnitDependency dep) {
         Unit *device;
         _cleanup_free_ char *e = NULL;
         int r;
@@ -2867,7 +2878,9 @@ int unit_add_node_link(Unit *u, const char *what, bool wants) {
         if (r < 0)
                 return r;
 
-        r = unit_add_two_dependencies(u, UNIT_AFTER, u->manager->running_as == MANAGER_SYSTEM ? UNIT_BINDS_TO : UNIT_WANTS, device, true);
+        r = unit_add_two_dependencies(u, UNIT_AFTER,
+                                      u->manager->running_as == MANAGER_SYSTEM ? dep : UNIT_WANTS,
+                                      device, true);
         if (r < 0)
                 return r;
 

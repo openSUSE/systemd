@@ -972,7 +972,7 @@ static int system_journal_open(Server *s, bool flush_requested) {
                 r = journal_file_open_reliably(fn, O_RDWR|O_CREAT, 0640, s->compress, s->seal, &s->system_metrics, s->mmap, NULL, &s->system_journal);
                 if (r >= 0) {
                         server_fix_perms(s, s->system_journal, 0);
-                        (void) determine_space_for(s, &s->system_metrics, "/var/log/journal/", "System journal", true, true, NULL, NULL);
+                        (void) determine_space_for(s, &s->system_metrics, "/var/log/journal/", "System journal", false, true, NULL, NULL);
                 } else if (r < 0) {
                         if (r != -ENOENT && r != -EROFS)
                                 log_warning_errno(r, "Failed to open system journal: %m");
@@ -1019,6 +1019,17 @@ static int system_journal_open(Server *s, bool flush_requested) {
                         (void) determine_space_for(s, &s->runtime_metrics, "/run/log/journal/", "Runtime journal", true, true, NULL, NULL);
                 }
         }
+
+        /* Make sure to emit the persistent space status message after
+         * opening the runtime journal otherwise this message will end
+         * up in the persistent journal before the entries from /run
+         * are flushed thus breaking the ordering.
+         *
+         * This can happen when restarting the journal and in the same
+         * time switching from volatile to persistent mode. */
+        if (s->system_journal)
+                /* Only emit the status space message. */
+                determine_space(s, true, false, NULL, NULL);
 
         return r;
 }

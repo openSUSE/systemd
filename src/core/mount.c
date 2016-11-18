@@ -353,7 +353,7 @@ static int mount_add_device_links(Mount *m) {
             UNIT(m)->manager->running_as == MANAGER_SYSTEM)
                 device_wants_mount = true;
 
-        r = unit_add_node_link(UNIT(m), p->what, device_wants_mount);
+        r = unit_add_node_link(UNIT(m), p->what, device_wants_mount, m->from_fragment ? UNIT_BINDS_TO : UNIT_REQUIRES);
         if (r < 0)
                 return r;
 
@@ -750,7 +750,7 @@ static int mount_spawn(Mount *m, ExecCommand *c, pid_t *_pid) {
                 goto fail;
 
         exec_params.environment = UNIT(m)->manager->environment;
-        exec_params.confirm_spawn = UNIT(m)->manager->confirm_spawn;
+        exec_params.confirm_spawn = manager_get_confirm_spawn(UNIT(m)->manager);
         exec_params.cgroup_supported = UNIT(m)->manager->cgroup_supported;
         exec_params.cgroup_path = UNIT(m)->cgroup_path;
         exec_params.cgroup_delegate = m->cgroup_context.delegate;

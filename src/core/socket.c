@@ -289,7 +289,7 @@ static int socket_add_device_link(Socket *s) {
                 return 0;
 
         t = strjoina("/sys/subsystem/net/devices/", s->bind_to_device);
-        return unit_add_node_link(UNIT(s), t, false);
+        return unit_add_node_link(UNIT(s), t, false, UNIT_BINDS_TO);
 }
 
 static int socket_add_default_dependencies(Socket *s) {
@@ -1539,7 +1539,7 @@ static int socket_spawn(Socket *s, ExecCommand *c, pid_t *_pid) {
 
         exec_params.argv = argv;
         exec_params.environment = UNIT(s)->manager->environment;
-        exec_params.confirm_spawn = UNIT(s)->manager->confirm_spawn;
+        exec_params.confirm_spawn = manager_get_confirm_spawn(UNIT(s)->manager);
         exec_params.cgroup_supported = UNIT(s)->manager->cgroup_supported;
         exec_params.cgroup_path = UNIT(s)->cgroup_path;
         exec_params.cgroup_delegate = s->cgroup_context.delegate;

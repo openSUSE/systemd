@@ -366,7 +366,7 @@ int mount_all(const char *dest,
                         if (mount_table[k].fatal)
                                 return log_error_errno(errno, "mount(%s) failed: %m", where);
 
-                        log_warning_errno(errno, "mount(%s) failed, ignoring: %m", where);
+                        log_debug_errno(errno, "mount(%s) failed, ignoring: %m", where);
                 }
         }
 
