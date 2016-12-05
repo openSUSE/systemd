@@ -2616,6 +2616,25 @@ static int determine_names(void) {
         return 0;
 }
 
+static int chase_symlinks_and_update(char **p) {
+        char *chased;
+        int r;
+
+        assert(p);
+
+        if (!*p)
+                return 0;
+
+        r = chase_symlinks(*p, NULL, &chased);
+        if (r < 0)
+                return log_error_errno(r, "Failed to resolve path %s: %m", *p);
+
+        free(*p);
+        *p = chased;
+
+        return 0;
+}
+
 static int determine_uid_shift(const char *directory) {
         int r;
 
@@ -4090,6 +4109,10 @@ int main(int argc, char *argv[]) {
                 if (arg_ephemeral) {
                         _cleanup_free_ char *np = NULL;
 
+                        r = chase_symlinks_and_update(&arg_directory);
+                        if (r < 0)
+                                goto finish;
+
                         /* If the specified path is a mount point we
                          * generate the new snapshot immediately
                          * inside it under a random name. However if
@@ -4140,6 +4163,10 @@ int main(int argc, char *argv[]) {
                         }
 
                         if (arg_template) {
+                                r = chase_symlinks_and_update(&arg_template);
+                                if (r < 0)
+                                        goto finish;
+
                                 r = btrfs_subvol_snapshot(arg_template, arg_directory, (arg_read_only ? BTRFS_SNAPSHOT_READ_ONLY : 0) | BTRFS_SNAPSHOT_FALLBACK_COPY | BTRFS_SNAPSHOT_RECURSIVE | BTRFS_SNAPSHOT_QUOTA);
                                 if (r == -EEXIST) {
                                         if (!arg_quiet)
@@ -4152,6 +4179,10 @@ int main(int argc, char *argv[]) {
                                                 log_info("Populated %s from template %s.", arg_directory, arg_template);
                                 }
                         }
+
+                        r = chase_symlinks_and_update(&arg_directory);
+                        if (r < 0)
+                                goto finish;
                 }
 
                 if (arg_start_mode == START_BOOT) {
@@ -4176,6 +4207,10 @@ int main(int argc, char *argv[]) {
 
                 assert(arg_image);
                 assert(!arg_template);
+
+                r = chase_symlinks_and_update(&arg_image);
+                if (r < 0)
+                        goto finish;
 
                 r = image_path_lock(arg_image, (arg_read_only ? LOCK_SH : LOCK_EX) | LOCK_NB, &tree_global_lock, &tree_local_lock);
                 if (r == -EBUSY) {

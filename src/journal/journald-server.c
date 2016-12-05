@@ -144,7 +144,7 @@ static int cache_space_refresh(Server *s, JournalStorage *storage) {
 
         ts = now(CLOCK_MONOTONIC);
 
-        if (space->timestamp + RECHECK_SPACE_USEC > ts)
+        if (space->timestamp != 0 && space->timestamp + RECHECK_SPACE_USEC > ts)
                 return 0;
 
         r = determine_path_usage(s, storage->path, &vfs_used, &vfs_avail);
@@ -2013,8 +2013,8 @@ int server_init(Server *s) {
         if (r < 0)
                 return r;
 
-        /* Unless we got *some* sockets and not audit, open audit socket */
-        if (s->audit_fd >= 0 || no_sockets) {
+        /* Suse: disable audit messages in journal entirely. */
+        if (false && no_sockets) {
                 r = server_open_audit(s);
                 if (r < 0)
                         return r;

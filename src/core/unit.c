@@ -1515,6 +1515,17 @@ int unit_start_limit_test(Unit *u) {
         return emergency_action(u->manager, u->start_limit_action, u->reboot_arg, "unit failed");
 }
 
+bool unit_shall_confirm_spawn(Unit *u) {
+
+        if (manager_is_confirm_spawn_disabled(u->manager))
+                return false;
+
+        /* For some reasons units remaining in the same process group
+         * as PID 1 fail to acquire the console even if it's not used
+         * by any process. So skip the confirmation question for them. */
+        return !unit_get_exec_context(u)->same_pgrp;
+}
+
 /* Errors:
  *         -EBADR:      This unit type does not support starting.
  *         -EALREADY:   Unit is already started.
@@ -3835,23 +3846,11 @@ int unit_kill_context(
 
                 } else if (r > 0) {
 
-                        /* FIXME: For now, on the legacy hierarchy, we
-                         * will not wait for the cgroup members to die
-                         * if we are running in a container or if this
-                         * is a delegation unit, simply because cgroup
-                         * notification is unreliable in these
-                         * cases. It doesn't work at all in
-                         * containers, and outside of containers it
-                         * can be confused easily by left-over
-                         * directories in the cgroup — which however
-                         * should not exist in non-delegated units. On
-                         * the unified hierarchy that's different,
-                         * there we get proper events. Hence rely on
-                         * them.*/
+                        /* We prefer waiting in some cases rather than
+                         * immediatly sending SIGKILL to all user
+                         * units (where delegate=yes) ! */
 
-                        if  (cg_unified(SYSTEMD_CGROUP_CONTROLLER) > 0 ||
-                             (detect_container() == 0 && !unit_cgroup_delegate(u)))
-                                wait_for_exit = true;
+                        wait_for_exit = true;
 
                         if (send_sighup) {
                                 set_free(pid_set);

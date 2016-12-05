@@ -142,6 +142,7 @@ static const char *arg_kill_who = NULL;
 static int arg_signal = SIGTERM;
 static char *arg_root = NULL;
 static usec_t arg_when = 0;
+static char *argv_cmdline = NULL;
 static enum action {
         _ACTION_INVALID,
         ACTION_SYSTEMCTL,
@@ -5584,6 +5585,13 @@ static int switch_root(int argc, char *argv[], void *userdata) {
                         init = NULL;
         }
 
+        /* Instruct PID1 to exclude us from its killing spree applied during
+         * the transition from the initrd to the main system otherwise we would
+         * exit with a failure status even though the switch to the new root
+         * has succeed. */
+        if (in_initrd())
+                argv_cmdline[0] = '@';
+
         r = acquire_bus(BUS_MANAGER, &bus);
         if (r < 0)
                 return r;
@@ -6376,7 +6384,7 @@ static int unit_is_enabled(int argc, char *argv[], void *userdata) {
 
                         r = unit_file_get_state(arg_scope, arg_root, *name, &state);
                         if (r < 0)
-                                return log_error_errno(state, "Failed to get unit file state for %s: %m", *name);
+                                return log_error_errno(r, "Failed to get unit file state for %s: %m", *name);
 
                         if (IN_SET(state,
                                    UNIT_FILE_ENABLED,
@@ -8324,6 +8332,8 @@ static int logind_cancel_shutdown(void) {
 int main(int argc, char*argv[]) {
         int r;
 
+        argv_cmdline = argv[0];
+
         setlocale(LC_ALL, "");
         log_parse_environment();
         log_open();
@@ -8333,6 +8343,31 @@ int main(int argc, char*argv[]) {
          * This becomes relevant for piping output which might be
          * ellipsized. */
         original_stdout_is_tty = isatty(STDOUT_FILENO);
+
+        if (secure_getenv("SYSTEMCTL_OPTIONS") &&
+                        (!program_invocation_short_name ||
+                        (program_invocation_short_name && strstr(program_invocation_short_name, "systemctl")))) {
+                char **parsed_systemctl_options;
+
+                strv_split_extract(&parsed_systemctl_options, getenv("SYSTEMCTL_OPTIONS"),
+                                   WHITESPACE, EXTRACT_QUOTES);
+
+                if (*parsed_systemctl_options && **parsed_systemctl_options) {
+                        char **k,**a;
+                        char **new_argv = new(char*, strv_length(argv) + strv_length(parsed_systemctl_options) + 1);
+                        new_argv[0] = strdup(argv[0]);
+                        for (k = new_argv+1, a = parsed_systemctl_options; *a; k++, a++) {
+                                *k = strdup(*a);
+                        }
+                        for (a = argv+1; *a; k++, a++) {
+                                *k = strdup(*a);
+                        }
+                        *k = NULL;
+                        argv = new_argv;
+                        argc = strv_length(new_argv);
+                        strv_free (parsed_systemctl_options);
+                }
+        }
 
         r = parse_argv(argc, argv);
         if (r <= 0)
