@@ -99,6 +99,7 @@
 #include <unistd.h>
 #include <linux/pci_regs.h>
 
+#include "dirent-util.h"
 #include "fd-util.h"
 #include "fileio.h"
 #include "string-util.h"
@@ -236,7 +237,7 @@ static int dev_pci_slot(struct udev_device *dev, struct netnames *names) {
                 goto out;
         }
 
-        for (dent = readdir(dir); dent != NULL; dent = readdir(dir)) {
+        FOREACH_DIRENT_ALL(dent, dir, break) {
                 int i;
                 char *rest;
                 char *address;

@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include "alloc-util.h"
+#include "dirent-util.h"
 #include "fd-util.h"
 #include "formats-util.h"
 #include "killall.h"
@@ -160,7 +161,7 @@ static int killall(int sig, Set *pids, bool send_sighup) {
         if (!dir)
                 return -errno;
 
-        while ((d = readdir(dir))) {
+        FOREACH_DIRENT_ALL(d, dir, break) {
                 pid_t pid;
                 int r;
 
