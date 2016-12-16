@@ -5,7 +5,7 @@ SUBSYSTEM=="cpu", ACTION=="add", TEST=="online", ATTR{online}=="0", \
  ATTR{online}="1"
 
 # Hotplug physical memory
-SUBSYSTEM=="memory", ACTION=="add", TEST=="state", ATTR{state}=="offline", \
+SUBSYSTEM=="memory", ACTION=="add", PROGRAM="/usr/bin/systemd-detect-virt", RESULT!="zvm", ATTR{state}=="offline", \
  ATTR{state}="online", TAG+="tmpfs"
 
 # See bnc#869603
