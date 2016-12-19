@@ -1309,12 +1309,15 @@ static int setup_resolv_conf(const char *dest) {
         /* Fix resolv.conf, if possible */
         where = prefix_roota(dest, "/etc/resolv.conf");
 
-        if (access("/usr/lib/systemd/resolv.conf", F_OK) >= 0) {
+        if (access("/run/systemd/resolve/resolv.conf", F_OK) >= 0 &&
+                        access("/usr/lib/systemd/resolv.conf", F_OK) >= 0) {
                 /* resolved is enabled on the host. In this, case bind mount its static resolv.conf file into the
                  * container, so that the container can use the host's resolver. Given that network namespacing is
                  * disabled it's only natural of the container also uses the host's resolver. It also has the big
                  * advantage that the container will be able to follow the host's DNS server configuration changes
                  * transparently. */
+
+                (void) touch(where);
 
                 r = mount_verbose(LOG_WARNING, "/usr/lib/systemd/resolv.conf", where, NULL, MS_BIND, NULL);
                 if (r >= 0)
