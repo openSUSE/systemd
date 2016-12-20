@@ -493,6 +493,9 @@ static int run_gdb(sd_journal *j) {
         close_nointr_nofail(fd);
         fd = -1;
 
+        /* Don't interfere with gdb and its handling of SIGINT. */
+        (void) ignore_signals(SIGINT, -1);
+
         pid = fork();
         if (pid < 0) {
                 log_error("Failed to fork(): %m");
@@ -514,6 +517,8 @@ static int run_gdb(sd_journal *j) {
         r = st.si_code == CLD_EXITED ? st.si_status : 255;
 
 finish:
+        (void) default_signals(SIGINT, -1);
+
         unlink(path);
         return r;
 }
