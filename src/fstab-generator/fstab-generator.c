@@ -449,8 +449,6 @@ static int parse_fstab(const char *prefix, bool initrd) {
 
                         if (initrd) {
                                 post = SPECIAL_INITRD_FS_TARGET;
-                        } else if (mount_in_initrd(me)) {
-                                post = SPECIAL_INITRD_ROOT_FS_TARGET;
                         } else if (mount_is_network(me)) {
                                 post = SPECIAL_REMOTE_FS_TARGET;
                         } else {
