@@ -784,13 +784,21 @@ int udev_monitor_send_device(struct udev_monitor *udev_monitor,
          * If we send to a multicast group, we will get
          * ECONNREFUSED, which is expected.
          */
-        if (destination != NULL)
+        if (destination)
                 smsg.msg_name = &destination->snl;
         else
                 smsg.msg_name = &udev_monitor->snl_destination;
         smsg.msg_namelen = sizeof(struct sockaddr_nl);
         count = sendmsg(udev_monitor->sock, &smsg, 0);
-        udev_dbg(udev_monitor->udev, "passed %zi bytes to netlink monitor %p\n", count, udev_monitor);
+        if (count < 0) {
+                if (!destination && errno == ECONNREFUSED) {
+                        udev_dbg(udev_monitor->udev, "passed device to netlink monitor %p", udev_monitor);
+                        return 0;
+                } else
+                        return -errno;
+        }
+
+        udev_dbg(udev_monitor->udev, "passed %zi byte device to netlink monitor %p", count, udev_monitor);
         return count;
 }
 

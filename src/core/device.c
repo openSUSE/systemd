@@ -296,6 +296,37 @@ static int device_add_udev_wants(Unit *u, struct udev_device *dev) {
         return 0;
 }
 
+static bool device_is_bound_by_mounts(Unit *d, struct udev_device *dev) {
+        const char *bound_by;
+        int r = false;
+
+        assert(d);
+        assert(dev);
+
+        bound_by = udev_device_get_property_value(dev, "SYSTEMD_MOUNT_DEVICE_BOUND");
+        if (bound_by)
+                r = parse_boolean(bound_by) > 0;
+
+        DEVICE(d)->bind_mounts = r;
+        return r;
+}
+
+static int device_upgrade_mount_deps(Unit *u) {
+        Unit *other;
+        Iterator i;
+        int r;
+
+        SET_FOREACH(other, u->dependencies[UNIT_REQUIRED_BY], i) {
+                if (other->type != UNIT_MOUNT)
+                        continue;
+
+                r = unit_add_dependency(other, UNIT_BINDS_TO, u, true);
+                if (r < 0)
+                        return r;
+        }
+        return 0;
+}
+
 static int device_setup_unit(Manager *m, struct udev_device *dev, const char *path, bool main) {
         _cleanup_free_ char *e = NULL;
         const char *sysfs;
@@ -353,6 +384,14 @@ static int device_setup_unit(Manager *m, struct udev_device *dev, const char *pa
          * for the main object */
         if (main)
                 (void) device_add_udev_wants(u, dev);
+
+        /* So the user wants the mount units to be bound to the device but a
+         * mount unit might has been seen by systemd before the device appears
+         * on its radar. In this case the device unit is partially initialized
+         * and includes the deps on the mount unit but at that time the "bind
+         * mounts" flag wasn't not present. Fix this up now. */
+        if (dev && device_is_bound_by_mounts(u, dev))
+                device_upgrade_mount_deps(u);
 
         /* Note that this won't dispatch the load queue, the caller
          * has to do that if needed and appropriate */
@@ -817,6 +856,14 @@ static const char* const device_state_table[_DEVICE_STATE_MAX] = {
 };
 
 DEFINE_STRING_TABLE_LOOKUP(device_state, DeviceState);
+
+bool device_shall_be_bound_by(Unit *device, Unit *u) {
+
+        if (u->type != UNIT_MOUNT)
+                return false;
+
+        return DEVICE(device)->bind_mounts;
+}
 
 const UnitVTable device_vtable = {
         .object_size = sizeof(Device),

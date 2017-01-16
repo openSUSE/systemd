@@ -328,7 +328,7 @@ static int mount_add_device_links(Mount *m) {
 
         assert(m);
 
-        p = get_mount_parameters_fragment(m);
+        p = get_mount_parameters(m);
         if (!p)
                 return 0;
 
@@ -348,7 +348,7 @@ static int mount_add_device_links(Mount *m) {
             UNIT(m)->manager->running_as == SYSTEMD_SYSTEM)
                 device_wants_mount = true;
 
-        r = unit_add_node_link(UNIT(m), p->what, device_wants_mount);
+        r = unit_add_node_link(UNIT(m), p->what, device_wants_mount, m->from_fragment ? UNIT_BINDS_TO : UNIT_REQUIRES);
         if (r < 0)
                 return r;
 

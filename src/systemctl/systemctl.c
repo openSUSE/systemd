@@ -1275,6 +1275,7 @@ static int list_dependencies_get_dependencies(sd_bus *bus, const char *name, cha
                                        "Requisite\0"
                                        "RequisiteOverridable\0"
                                        "Wants\0"
+                                       "ConsistsOf\0"
                                        "BindsTo\0",
                 [DEPENDENCY_REVERSE] = "RequiredBy\0"
                                        "RequiredByOverridable\0"
@@ -1356,7 +1357,7 @@ static int list_dependencies_get_dependencies(sd_bus *bus, const char *name, cha
         if (r < 0)
                 return bus_log_parse_error(r);
 
-        *deps = ret;
+        *deps = strv_uniq(ret);
         ret = NULL;
 
         return 0;
