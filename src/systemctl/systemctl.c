@@ -4852,7 +4852,6 @@ static int show_one(
 
         _cleanup_(sd_bus_message_unrefp) sd_bus_message *reply = NULL;
         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
-        _cleanup_set_free_ Set *found_properties = NULL;
         _cleanup_(unit_status_info_free) UnitStatusInfo info = {
                 .memory_current = (uint64_t) -1,
                 .memory_high = CGROUP_LIMIT_MAX,
@@ -4928,14 +4927,6 @@ static int show_one(
                         return bus_log_parse_error(r);
 
                 if (show_properties) {
-                        r = set_ensure_allocated(&found_properties, &string_hash_ops);
-                        if (r < 0)
-                                return log_oom();
-
-                        r = set_put(found_properties, name);
-                        if (r < 0 && r != EEXIST)
-                                return log_oom();
-
                         r = print_property(name, reply, contents);
                 } else
                         r = status_property(name, reply, &info, contents);
@@ -4958,17 +4949,7 @@ static int show_one(
                 return bus_log_parse_error(r);
 
         r = 0;
-        if (show_properties) {
-                char **pp;
-                int not_found_level = streq(verb, "show") ? LOG_DEBUG : LOG_WARNING;
-
-                STRV_FOREACH(pp, arg_properties)
-                        if (!set_contains(found_properties, *pp)) {
-                                log_full(not_found_level, "Property %s does not exist.", *pp);
-                                r = -ENXIO;
-                        }
-
-        } else if (streq(verb, "help"))
+        if (streq(verb, "help"))
                 show_unit_help(&info);
         else if (streq(verb, "status")) {
                 print_status_info(bus, &info, ellipsized);
