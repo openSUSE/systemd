@@ -946,6 +946,9 @@ finish:
         dispatch_message_real(s, iovec, n, m, ucred, tv, label, label_len, unit_id, priority, object_pid);
 }
 
+static bool flushed_flag_is_set(void) {
+        return access("/run/systemd/journal/flushed", F_OK) >= 0;
+}
 
 static int system_journal_open(Server *s, bool flush_requested) {
         const char *fn;
@@ -953,8 +956,7 @@ static int system_journal_open(Server *s, bool flush_requested) {
 
         if (!s->system_journal &&
             (s->storage == STORAGE_PERSISTENT || s->storage == STORAGE_AUTO) &&
-            (flush_requested
-             || access("/run/systemd/journal/flushed", F_OK) >= 0)) {
+            (flush_requested || flushed_flag_is_set())) {
 
                 /* If in auto mode: first try to create the machine
                  * path, but not the prefix.
@@ -1034,7 +1036,7 @@ static int system_journal_open(Server *s, bool flush_requested) {
         return r;
 }
 
-int server_flush_to_var(Server *s) {
+int server_flush_to_var(Server *s, bool require_flag_file) {
         sd_id128_t machine;
         sd_journal *j = NULL;
         char ts[FORMAT_TIMESPAN_MAX];
@@ -1044,11 +1046,13 @@ int server_flush_to_var(Server *s) {
 
         assert(s);
 
-        if (s->storage != STORAGE_AUTO &&
-            s->storage != STORAGE_PERSISTENT)
+        if (!IN_SET(s->storage, STORAGE_AUTO, STORAGE_PERSISTENT))
                 return 0;
 
         if (!s->runtime_journal)
+                return 0;
+
+        if (require_flag_file && !flushed_flag_is_set())
                 return 0;
 
         (void) system_journal_open(s, true);
@@ -1258,7 +1262,7 @@ static int dispatch_sigusr1(sd_event_source *es, const struct signalfd_siginfo *
 
         log_info("Received request to flush runtime journal from PID " PID_FMT, si->ssi_pid);
 
-        server_flush_to_var(s);
+        server_flush_to_var(s, false);
         server_sync(s);
         server_vacuum(s, false, false);
 
