@@ -1329,7 +1329,11 @@ static int apply_address_families(const Unit* u, const ExecContext *c) {
         Iterator i;
         int r;
 
-#if defined(__i386__)
+#if !defined(__x86_64__)
+        /* Temporarly disable RestrictAddressFamilies on all
+         * architectures but x86_64. This is currently broken but
+         * should be fixed once v233 will be released.
+         * See issue #4575 and bsc#1023460 for details. */
         return 0;
 #endif
 
