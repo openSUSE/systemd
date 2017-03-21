@@ -15,8 +15,7 @@ Before=shutdown.target
 
 [Service]
 Environment=HOME=/root
-ExecStartPre=-/usr/bin/plymouth quit
-ExecStartPre=-/usr/bin/plymouth --wait
+ExecStartPre=-/bin/sh -c "[ -x /usr/bin/plymouth ] && /usr/bin/plymouth --wait quit"
 ExecStartPre=-/bin/echo -e 'You are in rescue mode. After logging in, type "journalctl -xb" to view\\nsystem logs, "systemctl reboot" to reboot, "systemctl default" or ^D to\\nboot into default mode.'
 ExecStart=-/bin/sh -c "/usr/sbin/sulogin; @SYSTEMCTL@ --fail --no-block default"
 Type=idle
