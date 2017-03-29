@@ -495,12 +495,12 @@ static int mount_fix_timeouts(Mount *m) {
                                 if (startswith(w, "mount.timeout=")) {
                                         if (t)
                                                 free(t);
-                                        t = strdup(w + 14);
+                                        t = strndup(w + 14, l - 14);
                                 } else if (startswith(w, "rd.timeout=")) {
                                         if (in_initrd()) {
                                                 if (t)
                                                         free(t);
-                                                t = strdup(w + 11);
+                                                t = strndup(w + 11, l - 11);
                                         }
                                 }
                         }
@@ -510,14 +510,15 @@ static int mount_fix_timeouts(Mount *m) {
                 return 0;
 
         r = parse_sec(t, &u);
-        free(t);
 
         if (r < 0) {
                 log_warning_unit(UNIT(m)->id,
                                  "Failed to parse timeout for %s, ignoring: %s",
-                                 m->where, timeout);
+                                 m->where, t);
+                free(t);
                 return r;
         }
+        free(t);
 
         SET_FOREACH(other, UNIT(m)->dependencies[UNIT_AFTER], i) {
                 if (other->type != UNIT_DEVICE)
