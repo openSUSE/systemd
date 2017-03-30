@@ -495,12 +495,12 @@ static int mount_fix_timeouts(Mount *m) {
                                 if (startswith(w, "mount.timeout=")) {
                                         if (t)
                                                 free(t);
-                                        t = strdup(w + 14);
+                                        t = strndup(w + 14, l - 14);
                                 } else if (startswith(w, "rd.timeout=")) {
                                         if (in_initrd()) {
                                                 if (t)
                                                         free(t);
-                                                t = strdup(w + 11);
+                                                t = strndup(w + 11, l - 11);
                                         }
                                 }
                         }
