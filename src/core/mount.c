@@ -515,7 +515,7 @@ static int mount_fix_timeouts(Mount *m) {
                 log_warning_unit(UNIT(m)->id,
                                  "Failed to parse timeout for %s, ignoring: %s",
                                  m->where, t);
-                return r;
+                return 0;
         }
 
         SET_FOREACH(other, UNIT(m)->dependencies[UNIT_AFTER], i) {
