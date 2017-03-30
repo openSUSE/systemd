@@ -456,7 +456,7 @@ static int mount_fix_timeouts(Mount *m) {
         Unit *other;
         Iterator i;
         usec_t u;
-        char *t = NULL;
+        _cleanup_free_ char *t = NULL;
         int r;
 
         assert(m);
@@ -510,7 +510,6 @@ static int mount_fix_timeouts(Mount *m) {
                 return 0;
 
         r = parse_sec(t, &u);
-        free(t);
 
         if (r < 0) {
                 log_warning_unit(UNIT(m)->id,
