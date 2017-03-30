@@ -309,6 +309,10 @@
                                         <para>Configures the device timeout
                                         logic at boot. For details, see
                                         <citerefentry><refentrytitle>systemd-fstab-generator</refentrytitle><manvolnum>8</manvolnum></citerefentry>.</para>
+                                        <para>Please note that these options
+                                        are deprecated and
+                                        <varname>systemd.default_timeout_start_sec=</varname>
+                                        should be used instead.</para>
                                 </listitem>
                         </varlistentry>
 

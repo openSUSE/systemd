@@ -480,6 +480,7 @@ static int mount_fix_timeouts(Mount *m) {
                 if (!t)
                         return -ENOMEM;
         } else {
+                static bool warn_once = true;
                 _cleanup_free_ char *line = NULL;
                 char *w, *state;
                 size_t l;
@@ -504,6 +505,12 @@ static int mount_fix_timeouts(Mount *m) {
                                         }
                                 }
                         }
+                }
+                if (t && warn_once) {
+                        log_info("Kernel command line parameters mount.timeout= and "
+                                 "rd.timeout= are deprecated, please consider using "
+                                 "systemd.default_timeout_start_sec= instead.");
+                        warn_once = false;
                 }
         }
         if (!t)
