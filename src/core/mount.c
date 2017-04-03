@@ -456,7 +456,7 @@ static int mount_fix_timeouts(Mount *m) {
         Unit *other;
         Iterator i;
         usec_t u;
-        char *t = NULL;
+        _cleanup_free_ char *t = NULL;
         int r;
 
         assert(m);
@@ -480,6 +480,7 @@ static int mount_fix_timeouts(Mount *m) {
                 if (!t)
                         return -ENOMEM;
         } else {
+                static bool warn_once = true;
                 _cleanup_free_ char *line = NULL;
                 char *w, *state;
                 size_t l;
@@ -495,28 +496,33 @@ static int mount_fix_timeouts(Mount *m) {
                                 if (startswith(w, "mount.timeout=")) {
                                         if (t)
                                                 free(t);
-                                        t = strdup(w + 14);
+                                        t = strndup(w + 14, l - 14);
                                 } else if (startswith(w, "rd.timeout=")) {
                                         if (in_initrd()) {
                                                 if (t)
                                                         free(t);
-                                                t = strdup(w + 11);
+                                                t = strndup(w + 11, l - 11);
                                         }
                                 }
                         }
+                }
+                if (t && warn_once) {
+                        log_info("Kernel command line parameters mount.timeout= and "
+                                 "rd.timeout= are deprecated, please consider using "
+                                 "systemd.default_timeout_start_sec= instead.");
+                        warn_once = false;
                 }
         }
         if (!t)
                 return 0;
 
         r = parse_sec(t, &u);
-        free(t);
 
         if (r < 0) {
                 log_warning_unit(UNIT(m)->id,
                                  "Failed to parse timeout for %s, ignoring: %s",
-                                 m->where, timeout);
-                return r;
+                                 m->where, t);
+                return 0;
         }
 
         SET_FOREACH(other, UNIT(m)->dependencies[UNIT_AFTER], i) {
