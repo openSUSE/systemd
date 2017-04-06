@@ -2618,34 +2618,32 @@ void unit_status_printf(Unit *u, const char *status, const char *unit_status_msg
         REENABLE_WARNING;
 }
 
+static bool fragment_mtime_changed(const char *path, usec_t mtime) {
+        struct stat st;
+
+        if (!path)
+                return false;
+
+        if (stat(path, &st) < 0)
+                /* What, cannot access this anymore? */
+                return true;
+
+        if (mtime > 0 && timespec_load(&st.st_mtim) != mtime)
+                return true;
+
+        return false;
+}
+
 bool unit_need_daemon_reload(Unit *u) {
         _cleanup_strv_free_ char **t = NULL;
         char **path;
-        struct stat st;
         unsigned loaded_cnt, current_cnt;
 
         assert(u);
 
-        if (u->fragment_path) {
-                zero(st);
-                if (stat(u->fragment_path, &st) < 0)
-                        /* What, cannot access this anymore? */
-                        return true;
-
-                if (u->fragment_mtime > 0 &&
-                    timespec_load(&st.st_mtim) != u->fragment_mtime)
-                        return true;
-        }
-
-        if (u->source_path) {
-                zero(st);
-                if (stat(u->source_path, &st) < 0)
-                        return true;
-
-                if (u->source_mtime > 0 &&
-                    timespec_load(&st.st_mtim) != u->source_mtime)
-                        return true;
-        }
+        if (fragment_mtime_changed(u->fragment_path, u->fragment_mtime) ||
+            fragment_mtime_changed(u->source_path, u->source_mtime))
+                return true;
 
         t = unit_find_dropin_paths(u);
         loaded_cnt = strv_length(t);
@@ -2656,21 +2654,15 @@ bool unit_need_daemon_reload(Unit *u) {
                         return false;
 
                 if (strv_overlap(u->dropin_paths, t)) {
-                        STRV_FOREACH(path, u->dropin_paths) {
-                                zero(st);
-                                if (stat(*path, &st) < 0)
+                        STRV_FOREACH(path, u->dropin_paths)
+                                if (fragment_mtime_changed(*path, u->dropin_mtime))
                                         return true;
-
-                                if (u->dropin_mtime > 0 &&
-                                    timespec_load(&st.st_mtim) > u->dropin_mtime)
-                                        return true;
-                        }
 
                         return false;
-                } else
-                        return true;
-        } else
-                return true;
+                }
+        }
+
+        return true;
 }
 
 void unit_reset_failed(Unit *u) {
