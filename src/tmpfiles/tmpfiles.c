@@ -1164,7 +1164,7 @@ static int fd_set_attribute(Item *item, int fd, const char *path, const struct s
 
         r = chattr_fd(procfs_fd, f, item->attribute_mask);
         if (r < 0)
-                log_full_errno(r == -ENOTTY ? LOG_DEBUG : LOG_WARNING,
+                log_full_errno(r == -ENOTTY || r == -EOPNOTSUPP ? LOG_DEBUG : LOG_WARNING,
                                r,
                                "Cannot set file attribute for '%s', value=0x%08x, mask=0x%08x, ignoring: %m",
                                path, item->attribute_value, item->attribute_mask);
