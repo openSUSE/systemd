@@ -139,10 +139,12 @@ static int stdout_stream_log(StdoutStream *s, const char *p) {
 
 static int stdout_stream_line(StdoutStream *s, char *p) {
         int r;
+        char *orig;
 
         assert(s);
         assert(p);
 
+        orig = p;
         p = strstrip(p);
 
         switch (s->state) {
@@ -228,7 +230,7 @@ static int stdout_stream_line(StdoutStream *s, char *p) {
                 return 0;
 
         case STDOUT_STREAM_RUNNING:
-                return stdout_stream_log(s, p);
+                return stdout_stream_log(s, orig);
         }
 
         assert_not_reached("Unknown stream state");
