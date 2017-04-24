@@ -301,7 +301,7 @@ static int add_mount(
               "SourcePath=%s\n",
               source);
 
-        if (post && !noauto && !nofail && !automount) {
+        if (post && !nofail && !automount) {
                 if (!streq(type, "nfs") || (streq(type, "nfs") && !strstr(opts, "bg")))
                         fprintf(f,
                                 "Before=%s\n",
