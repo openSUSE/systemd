@@ -348,7 +348,7 @@ static int add_mount(
         if (streq_ptr(fstype, "nfs") && strstr(opts, "bg"))
                 nofail=true;
 
-        if (!noauto && !nofail && !automount)
+        if (!nofail && !automount)
                 fprintf(f, "Before=%s\n", post);
 
         if (!automount && opts) {
