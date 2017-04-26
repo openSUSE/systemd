@@ -55,6 +55,8 @@ typedef enum CGroupMask {
         _CGROUP_MASK_ALL = CGROUP_CONTROLLER_TO_MASK(_CGROUP_CONTROLLER_MAX) - 1
 } CGroupMask;
 
+#define CGROUP_LIMIT_MAX ((uint64_t) -1)
+
 /* Special values for the cpu.shares attribute */
 #define CGROUP_CPU_SHARES_INVALID ((uint64_t) -1)
 #define CGROUP_CPU_SHARES_MIN UINT64_C(2)
