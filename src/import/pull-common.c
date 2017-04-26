@@ -272,6 +272,7 @@ int pull_make_verification_jobs(
 
         _cleanup_(pull_job_unrefp) PullJob *checksum_job = NULL, *signature_job = NULL;
         int r;
+        const char *chksums = NULL;
 
         assert(ret_checksum_job);
         assert(ret_signature_job);
@@ -281,10 +282,16 @@ int pull_make_verification_jobs(
         assert(glue);
 
         if (verify != IMPORT_VERIFY_NO) {
-                _cleanup_free_ char *checksum_url = NULL;
+                _cleanup_free_ char *checksum_url = NULL, *fn = NULL;
 
-                /* Queue job for the SHA256SUMS file for the image */
-                r = import_url_change_last_component(url, "SHA256SUMS", &checksum_url);
+                /* Queue jobs for the checksum file for the image. */
+                r = import_url_last_component(url, &fn);
+                if (r < 0)
+                        return r;
+
+                chksums = strjoina(fn, ".sha256");
+
+                r = import_url_change_last_component(url, chksums, &checksum_url);
                 if (r < 0)
                         return r;
 
@@ -365,6 +372,15 @@ int pull_verify(PullJob *main_job,
                    line,
                    strlen(line));
 
+        if (!p) {
+                line = strjoina(main_job->checksum, "  ", fn, "\n");
+
+                p = memmem(checksum_job->payload,
+                        checksum_job->payload_size,
+                        line,
+                        strlen(line));
+        }
+
         if (!p || (p != (char*) checksum_job->payload && p[-1] != '\n')) {
                 log_error("DOWNLOAD INVALID: Checksum did not check out, payload has been tampered with.");
                 return -EBADMSG;
@@ -410,6 +426,9 @@ int pull_verify(PullJob *main_job,
 
         if (!signature_job)
                 return 0;
+
+        if (checksum_job->style == VERIFICATION_PER_FILE)
+                signature_job = checksum_job;
 
         assert(signature_job->state == PULL_JOB_DONE);
 
@@ -502,9 +521,11 @@ int pull_verify(PullJob *main_job,
                         cmd[k++] = "--keyring=" VENDOR_KEYRING_PATH;
 
                 cmd[k++] = "--verify";
-                cmd[k++] = sig_file_path;
-                cmd[k++] = "-";
-                cmd[k++] = NULL;
+                if (checksum_job->style == VERIFICATION_PER_DIRECTORY) {
+                        cmd[k++] = sig_file_path;
+                        cmd[k++] = "-";
+                        cmd[k++] = NULL;
+                }
 
                 stdio_unset_cloexec();
 
