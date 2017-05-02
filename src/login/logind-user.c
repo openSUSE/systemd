@@ -28,6 +28,7 @@
 #include "bus-common-errors.h"
 #include "bus-error.h"
 #include "bus-util.h"
+#include "cgroup-util.h"
 #include "clean-ipc.h"
 #include "conf-parser.h"
 #include "escape.h"
@@ -891,5 +892,50 @@ int config_parse_tmpfs_size(
                 *sz = PAGE_ALIGN((size_t) k);
         }
 
+        return 0;
+}
+
+int config_parse_user_tasks_max(
+                const char* unit,
+                const char *filename,
+                unsigned line,
+                const char *section,
+                unsigned section_line,
+                const char *lvalue,
+                int ltype,
+                const char *rvalue,
+                void *data,
+                void *userdata) {
+
+        uint64_t *m = data;
+        uint64_t k;
+        int r;
+
+        assert(filename);
+        assert(lvalue);
+        assert(rvalue);
+        assert(data);
+
+        /* For an empty input do not touch the result and keep the default value */
+        if (isempty(rvalue))
+                return 0;
+
+        if (streq(rvalue, "infinity")) {
+                *m = CGROUP_LIMIT_MAX;
+                return 0;
+        }
+
+        r = safe_atou64(rvalue, &k);
+        if (r < 0) {
+                log_syntax(unit, LOG_ERR, filename, line, r, "Failed to parse tasks maximum, ignoring: %s", rvalue);
+                return 0;
+        }
+
+        if (k <= 0 || k >= UINT64_MAX) {
+                log_syntax(unit, LOG_ERR, filename, line, 0, "Tasks maximum out of range, ignoring: %s", rvalue);
+                return 0;
+        }
+
+        *m = k;
         return 0;
 }

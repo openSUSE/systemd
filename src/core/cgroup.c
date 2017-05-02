@@ -485,7 +485,7 @@ void cgroup_context_apply(CGroupContext *c, CGroupMask mask, const char *path, u
 
         if ((mask & CGROUP_MASK_PIDS) && !is_root) {
 
-                if (c->tasks_max != (uint64_t) -1) {
+                if (c->tasks_max != CGROUP_LIMIT_MAX) {
                         char buf[DECIMAL_STR_MAX(uint64_t) + 2];
 
                         sprintf(buf, "%" PRIu64 "\n", c->tasks_max);
