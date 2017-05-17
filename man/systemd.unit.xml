@@ -714,11 +714,14 @@
 
       <varlistentry>
         <term><varname>JobTimeoutSec=</varname></term>
+        <term><varname>JobRunningTimeoutSec=</varname></term>
         <term><varname>JobTimeoutAction=</varname></term>
         <term><varname>JobTimeoutRebootArgument=</varname></term>
 
         <listitem><para>When a job for this unit is queued, a time-out
-        may be configured. If this time limit is reached, the job will
+        may be configured. Similarly, <varname>JobRunningTimeoutSec=</varname>
+        starts counting when the queued job is actually started.
+        If either time limit is reached, the job will
         be cancelled, the unit however will not change state or even
         enter the <literal>failed</literal> mode. This value defaults
         to 0 (job timeouts disabled), except for device units. NB:

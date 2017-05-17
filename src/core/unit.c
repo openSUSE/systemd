@@ -1263,6 +1263,9 @@ int unit_load(Unit *u) {
                         goto fail;
                 }
 
+                if (u->job_running_timeout > 0 && u->job_timeout > 0 && u->job_running_timeout > u->job_timeout)
+                        log_unit_warning(u, "JobRunningTimeoutSec= is greater than JobTimeoutSec=, it has no effect.");
+
                 unit_update_cgroup_members_masks(u);
 
                 /* If we are reloading, we need to wait for the deserializer
