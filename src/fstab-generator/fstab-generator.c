@@ -381,6 +381,10 @@ static int add_mount(
         if (r < 0)
                 return r;
 
+        r = generator_write_device_deps(arg_dest, what, where, opts);
+        if (r < 0)
+                return r;
+
         if (!isempty(filtered) && !streq(filtered, "defaults"))
                 fprintf(f, "Options=%s\n", filtered);
 
