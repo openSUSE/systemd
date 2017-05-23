@@ -33,13 +33,8 @@ KERNEL=="sd*[!0-9]|sr*", ENV{ID_SERIAL}!="?*", SUBSYSTEMS=="usb", IMPORT{builtin
 # SCSI devices
 KERNEL=="sd*[!0-9]|sr*", ENV{ID_SERIAL}!="?*", IMPORT{program}="scsi_id --export --whitelisted -d $devnode", ENV{ID_BUS}="scsi"
 KERNEL=="cciss*", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL}!="?*", IMPORT{program}="scsi_id --export --whitelisted -d $devnode", ENV{ID_BUS}="cciss"
-KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL}!="?*", IMPORT{program}="scsi_id --export --whitelisted -d $tempnode", ENV{ID_BUS}="nvme"
-KERNEL=="sd*|sr*|cciss*|nvme*", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/$env{ID_BUS}-$env{ID_SERIAL}"
-KERNEL=="sd*|cciss*|nvme*", ENV{DEVTYPE}=="partition", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/$env{ID_BUS}-$env{ID_SERIAL}-part%n"
-
-# scsi compat links for ATA devices
-KERNEL=="sd*[!0-9]", ENV{ID_BUS}=="ata", PROGRAM="scsi_id --whitelisted --replace-whitespace -p0x80 -d $devnode", RESULT=="?*", ENV{ID_SCSI_COMPAT}="$result", SYMLINK+="disk/by-id/scsi-$env{ID_SCSI_COMPAT}"
-KERNEL=="sd*[0-9]", ENV{ID_SCSI_COMPAT}=="?*", SYMLINK+="disk/by-id/scsi-$env{ID_SCSI_COMPAT}-part%n"
+KERNEL=="sd*|sr*|cciss*", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/$env{ID_BUS}-$env{ID_SERIAL}"
+KERNEL=="sd*|cciss*", ENV{DEVTYPE}=="partition", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/$env{ID_BUS}-$env{ID_SERIAL}-part%n"
 
 # FireWire
 KERNEL=="sd*[!0-9]|sr*", ATTRS{ieee1394_id}=="?*", SYMLINK+="disk/by-id/ieee1394-$attr{ieee1394_id}"
@@ -59,11 +54,6 @@ KERNEL=="msblk[0-9]p[0-9]|mspblk[0-9]p[0-9]", ENV{ID_NAME}=="?*", ENV{ID_SERIAL}
 ENV{DEVTYPE}=="disk", DEVPATH!="*/virtual/*", IMPORT{builtin}="path_id"
 ENV{DEVTYPE}=="disk", ENV{ID_PATH}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH}"
 ENV{DEVTYPE}=="partition", ENV{ID_PATH}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH}-part%n"
-
-# by-path (parent device path, compat version, only for ATA/NVMe/SAS bus)
-ENV{DEVTYPE}=="disk", ENV{ID_BUS}=="ata|nvme|scsi", DEVPATH!="*/virtual/*", IMPORT{program}="path_id_compat %p"
-ENV{DEVTYPE}=="disk", ENV{ID_PATH_COMPAT}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH_COMPAT}"
-ENV{DEVTYPE}=="partition", ENV{ID_PATH_COMPAT}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH_COMPAT}-part%n"
 
 # probe filesystem metadata of optical drives which have a media inserted
 KERNEL=="sr*", ENV{DISK_EJECT_REQUEST}!="?*", ENV{ID_CDROM_MEDIA_TRACK_COUNT_DATA}=="?*", ENV{ID_CDROM_MEDIA_SESSION_LAST_OFFSET}=="?*", \
