@@ -47,9 +47,14 @@ KERNEL=="sd*[!0-9]", ENV{ID_BUS}=="ata", PROGRAM="scsi_id --whitelisted --replac
 KERNEL=="sd*[0-9]", ENV{ID_SCSI_COMPAT}=="?*", SYMLINK+="disk/by-id/scsi-$env{ID_SCSI_COMPAT}-part%n"
 
 # by-path (parent device path, compat version, only for ATA/NVMe/SAS bus) (bnc#916420)
-ENV{DEVTYPE}=="disk", ENV{ID_BUS}=="ata|nvme|scsi", DEVPATH!="*/virtual/*", IMPORT{program}="path_id_compat %p"
-ENV{DEVTYPE}=="disk", ENV{ID_PATH_COMPAT}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH_COMPAT}"
-ENV{DEVTYPE}=="partition", ENV{ID_PATH_COMPAT}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH_COMPAT}-part%n"
+ENV{DEVTYPE}=="disk", ENV{ID_BUS}=="ata|nvme|scsi", DEVPATH!="*/virtual/*", IMPORT{program}="path_id_compat --compat=1 %p"
+ENV{DEVTYPE}=="disk", ENV{ID_PATH_COMPAT1}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH_COMPAT1}"
+ENV{DEVTYPE}=="partition", ENV{ID_PATH_COMPAT1}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH_COMPAT1}-part%n"
+
+# This restores the symlinks for SAS disks removed by 66bba0e701b95dc42e (bsc#1040153)
+ENV{DEVTYPE}=="disk", ENV{ID_BUS}=="ata|nvme|scsi", DEVPATH!="*/virtual/*", IMPORT{program}="path_id_compat --compat=2 %p"
+ENV{DEVTYPE}=="disk", ENV{ID_PATH_COMPAT2}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH_COMPAT2}"
+ENV{DEVTYPE}=="partition", ENV{ID_PATH_COMPAT2}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH_COMPAT2}-part%n"
 
 #
 # Generation #2
