@@ -454,7 +454,7 @@ void dns_transaction_process_reply(DnsTransaction *t, DnsPacket *p) {
         }
 
         /* Only consider responses with equivalent query section to the request */
-        if (p->question->n_keys != 1 || dns_resource_key_equal(p->question->keys[0], t->key) <= 0) {
+        if (!p->question || p->question->n_keys != 1 || dns_resource_key_equal(p->question->keys[0], t->key) <= 0) {
                 dns_transaction_complete(t, DNS_TRANSACTION_INVALID_REPLY);
                 return;
         }
