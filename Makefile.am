@@ -2665,7 +2665,6 @@ nodist_systemunit_DATA += \
 
 nodist_tmpfiles_DATA = \
 	tmpfiles.d/systemd.conf \
-	tmpfiles.d/systemd-remote.conf \
 	tmpfiles.d/etc.conf
 
 dist_tmpfiles_DATA = \
@@ -2680,6 +2679,11 @@ dist_tmpfiles_DATA = \
 if HAVE_SYSV_COMPAT
 dist_tmpfiles_DATA += \
 	tmpfiles.d/legacy.conf
+endif
+
+if HAVE_REMOTE
+nodist_tmpfiles_DATA += \
+	tmpfiles.d/systemd-remote.conf
 endif
 
 SYSINIT_TARGET_WANTS += \
@@ -4309,13 +4313,6 @@ EXTRA_DIST += \
 	units/systemd-journal-remote.service.in \
 	src/journal-remote/journal-remote.conf.in \
 	src/journal-remote/log-generator.py
-endif
-
-if HAVE_REMOTE
-if ENABLE_TMPFILES
-dist_tmpfiles_DATA += \
-	tmpfiles.d/systemd-remote.conf
-endif
 endif
 
 # using _CFLAGS = in the conditional below would suppress AM_CFLAGS
