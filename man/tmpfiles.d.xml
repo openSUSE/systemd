@@ -620,7 +620,11 @@ L     /tmp/foobar -    -    -    -   /dev/null</programlisting>
       <varname>a</varname> and <varname>A</varname>, determines ACL
       attributes to be set. For <varname>h</varname> and
       <varname>H</varname>, determines the file attributes to
-      set. Ignored for all other lines.</para>
+      set.
+      For <varname>x</varname> and <varname>X</varname> a comma separated list of usernames.
+      If given, only paths belonging to these users will be
+      excluded during directory cleanup.
+      Ignored for all other lines.</para>
     </refsect2>
 
   </refsect1>

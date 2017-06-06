@@ -442,6 +442,12 @@ userenvgenerator_PROGRAMS = \
 	30-systemd-environment-d-generator
 endif
 
+rootlibexec_SCRIPTS = \
+	src/sulogin-shell/systemd-sulogin-shell
+
+EXTRA_DIST += \
+	src/sulogin-shell/systemd-sulogin-shell.in
+
 dist_bashcompletion_data = \
 	shell-completion/bash/busctl \
 	shell-completion/bash/journalctl \
@@ -550,6 +556,12 @@ dist_systemunit_DATA += \
 
 dist_systemunit_DATA_busnames += \
 	units/busnames.target
+
+if HAVE_SYSV_COMPAT
+dist_systemunit_DATA += \
+	units/var-run.mount \
+	units/var-lock.mount
+endif
 
 nodist_systemunit_DATA = \
 	units/getty@.service \
@@ -2675,6 +2687,11 @@ dist_tmpfiles_DATA += \
 	tmpfiles.d/legacy.conf
 endif
 
+if HAVE_REMOTE
+nodist_tmpfiles_DATA += \
+	tmpfiles.d/systemd-remote.conf
+endif
+
 SYSINIT_TARGET_WANTS += \
 	systemd-tmpfiles-setup-dev.service \
 	systemd-tmpfiles-setup.service
@@ -2692,6 +2709,7 @@ endif
 
 EXTRA_DIST += \
 	tmpfiles.d/systemd.conf.m4 \
+	tmpfiles.d/systemd-remote.conf.m4 \
 	tmpfiles.d/etc.conf.m4 \
 	units/systemd-tmpfiles-setup-dev.service.in \
 	units/systemd-tmpfiles-setup.service.in \
@@ -2821,6 +2839,18 @@ systemd_delta_SOURCES = \
 
 systemd_delta_LDADD = \
 	libsystemd-shared.la
+
+# ------------------------------------------------------------------------------
+if HAVE_SYSV_COMPAT
+systemd_insserv_generator_SOURCES = \
+	src/insserv-generator/insserv-generator.c
+
+systemd_insserv_generator_LDADD = \
+	libsystemd-shared.la
+
+systemgenerator_PROGRAMS += \
+	systemd-insserv-generator
+endif
 
 # ------------------------------------------------------------------------------
 systemd_getty_generator_SOURCES = \
@@ -3829,12 +3859,14 @@ dist_udevrules_DATA += \
 	rules/60-persistent-storage.rules \
 	rules/60-sensor.rules \
 	rules/60-serial.rules \
+	rules/60-ssd-scheduler.rules \
 	rules/64-btrfs.rules \
 	rules/70-mouse.rules \
 	rules/70-touchpad.rules \
 	rules/75-net-description.rules \
 	rules/78-sound-card.rules \
-	rules/80-net-setup-link.rules
+	rules/80-net-setup-link.rules \
+	rules/80-hotplug-cpu-mem.rules
 
 nodist_udevrules_DATA += \
 	rules/99-systemd.rules
@@ -4273,11 +4305,6 @@ systemd_journal_remote_CFLAGS = \
 
 systemd_journal_remote_LDADD += \
 	$(MICROHTTPD_LIBS)
-
-if ENABLE_TMPFILES
-dist_tmpfiles_DATA += \
-	tmpfiles.d/systemd-remote.conf
-endif
 
 if HAVE_GNUTLS
 systemd_journal_remote_LDADD += \
@@ -6341,6 +6368,10 @@ src/core/%.systemd: src/core/%.systemd.in
 src/%.policy.in: src/%.policy.in.in
 	$(SED_PROCESS)
 
+src/sulogin-shell/%: src/sulogin-shell/%.in
+	$(SED_PROCESS)
+	$(AM_V_GEN)chmod +x $@
+
 shell-completion/%: shell-completion/%.in
 	$(SED_PROCESS)
 
@@ -6384,7 +6415,9 @@ nodist_polkitpolicy_DATA = \
 	$(polkitpolicy_files) \
 	$(polkitpolicy_in_in_files:.policy.in.in=.policy)
 polkitrules_DATA = $(polkitrules_files)
+if ENABLE_POLKIT_PKLA
 polkitpkla_DATA = $(polkitpkla_files)
+endif
 endif
 
 EXTRA_DIST += \
@@ -6478,6 +6511,9 @@ GRAPHICAL_TARGET_WANTS += \
 	systemd-update-utmp-runlevel.service
 RESCUE_TARGET_WANTS += \
 	systemd-update-utmp-runlevel.service
+LOCAL_FS_TARGET_WANTS += \
+	var-run.mount \
+	var-lock.mount
 endif
 
 SYSINIT_TARGET_WANTS += \

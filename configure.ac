@@ -1074,6 +1074,11 @@ if test "x$enable_sysusers" != "xno"; then
 fi
 AM_CONDITIONAL(ENABLE_SYSUSERS, [test "$have_sysusers" = "yes"])
 
+AC_ARG_ENABLE(gshadow, AS_HELP_STRING([--disable-gshadow], [disable shadow group support]))
+AS_IF([test "x${enable_gshadow}" != "xno"], [
+        AC_DEFINE(ENABLE_GSHADOW, 1, [shadow group support is enabled])
+])
+
 # ------------------------------------------------------------------------------
 have_firstboot=no
 AC_ARG_ENABLE(firstboot, AS_HELP_STRING([--disable-firstboot], [disable firstboot support]))
@@ -1228,8 +1233,14 @@ AC_ARG_ENABLE(polkit, AS_HELP_STRING([--disable-polkit], [disable PolicyKit supp
 if test "x$enable_polkit" != "xno"; then
         AC_DEFINE(ENABLE_POLKIT, 1, [Define if PolicyKit support is to be enabled])
         have_polkit=yes
+
+        # also enable support for *.pkla files on old polkit
+        PKG_CHECK_MODULES(POLKIT, [ polkit-gobject-1 < 0.106 ],
+                           [polkit_pkla=yes],
+                           [polkit_pkla=no])
 fi
 AM_CONDITIONAL(ENABLE_POLKIT, [test "x$have_polkit" = "xyes"])
+AM_CONDITIONAL(ENABLE_POLKIT_PKLA, [test "x$polkit_pkla" = "xyes"])
 
 # ------------------------------------------------------------------------------
 have_resolved=no
@@ -1700,7 +1711,7 @@ AC_MSG_RESULT([
         default DNS servers:               ${DNS_SERVERS}
         default DNSSEC mode:               ${DEFAULT_DNSSEC_MODE}
         coredump:                          ${have_coredump}
-        polkit:                            ${have_polkit}
+        polkit:                            ${have_polkit} (legacy pkla support: ${polkit_pkla})
         efi:                               ${have_efi}
         gnuefi:                            ${have_gnuefi}
         efi arch:                          ${EFI_ARCH}

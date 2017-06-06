@@ -44,6 +44,7 @@
 #include "terminal-util.h"
 #include "util.h"
 #include "virt.h"
+#include "strv.h"
 
 static bool is_vconsole(int fd) {
         unsigned char data[1];
@@ -197,6 +198,72 @@ static int font_load_and_wait(const char *vc, const char *font, const char *map,
         return wait_for_terminate_and_warn(KBD_SETFONT, pid, true);
 }
 
+static int load_compose_table_and_wait(const char *vc, const char *compose_table) {
+        const char *args[1024];
+        int i = 0, j = 0, r;
+        pid_t pid;
+        char **strv_compose_table = NULL;
+        char *to_free[1024];
+
+        if (isempty(compose_table)) {
+                /* An empty map means no compose table*/
+                return 0;
+        }
+
+        args[i++] = KBD_LOADKEYS;
+        args[i++] = "-q";
+        args[i++] = "-C";
+        args[i++] = vc;
+
+        strv_compose_table = strv_split(compose_table, WHITESPACE);
+        if (strv_compose_table) {
+                bool compose_loaded = false;
+                bool compose_clear = false;
+                char **name;
+                char *arg;
+
+                STRV_FOREACH (name, strv_compose_table) {
+                        if (streq(*name,"-c") || streq(*name,"clear")) {
+                                compose_clear = true;
+                                continue;
+                        }
+                        if (!compose_loaded) {
+                                if (compose_clear)
+                                        args[i++] = "-c";
+                        }
+                        if (asprintf(&arg, "compose.%s",*name) < 0)
+                                return log_oom();
+
+                        compose_loaded = true;
+                        args[i++] = to_free[j++] = arg;
+                        assert(i < 1024);
+                }
+                strv_free(strv_compose_table);
+        }
+        args[i++] = NULL;
+
+        if ((pid = fork()) < 0) {
+                log_error("Failed to fork: %m");
+                return -errno;
+        } else if (pid == 0) {
+
+                (void) reset_all_signal_handlers();
+                (void) reset_signal_mask();
+
+                execv(args[0], (char **) args);
+                _exit(EXIT_FAILURE);
+        }
+
+        r = wait_for_terminate_and_warn(KBD_LOADKEYS, pid, true);
+        if (r < 0)
+                return r;
+
+        for (i=0 ; i < j ; i++)
+                free (to_free[i]);
+
+        return 0;
+}
+
 /*
  * A newly allocated VT uses the font from the active VT. Here
  * we update all possibly already allocated VTs with the configured
@@ -325,9 +392,10 @@ int main(int argc, char **argv) {
         const char *vc;
         _cleanup_free_ char
                 *vc_keymap = NULL, *vc_keymap_toggle = NULL,
-                *vc_font = NULL, *vc_font_map = NULL, *vc_font_unimap = NULL;
+                *vc_font = NULL, *vc_font_map = NULL, *vc_font_unimap = NULL,
+                *vc_compose_table = NULL;
         _cleanup_close_ int fd = -1;
-        bool utf8, font_copy = false, font_ok, keyboard_ok;
+        bool utf8, font_copy = false, font_ok, keyboard_ok, composetable_ok;
         int r = EXIT_FAILURE;
 
         log_set_target(LOG_TARGET_AUTO);
@@ -366,6 +434,25 @@ int main(int argc, char **argv) {
 
         utf8 = is_locale_utf8();
 
+        /* Systemd default conf files have precedence over SuSE
+         * specific ones */
+        r = parse_env_file("/etc/sysconfig/console", NEWLINE,
+                           "CONSOLE_FONT", &vc_font,
+                           "CONSOLE_SCREENMAP", &vc_font_map,
+                           "CONSOLE_UNICODEMAP", &vc_font_unimap,
+                           NULL);
+
+        if (r < 0 && r != -ENOENT)
+                log_warning_errno(r, "Failed to read /etc/sysconfig/console: %m");
+
+        r = parse_env_file("/etc/sysconfig/keyboard", NEWLINE,
+                           "KEYTABLE", &vc_keymap,
+                           "COMPOSETABLE", &vc_compose_table,
+                           NULL);
+
+        if (r < 0 && r != -ENOENT)
+                log_warning_errno(r, "Failed to read /etc/sysconfig/keyboard: %m");
+
         r = parse_env_file("/etc/vconsole.conf", NEWLINE,
                            "KEYMAP", &vc_keymap,
                            "KEYMAP_TOGGLE", &vc_keymap_toggle,
@@ -399,6 +486,7 @@ int main(int argc, char **argv) {
         toggle_utf8(vc, fd, utf8);
         font_ok = font_load_and_wait(vc, vc_font, vc_font_map, vc_font_unimap) == 0;
         keyboard_ok = keyboard_load_and_wait(vc, vc_keymap, vc_keymap_toggle, utf8) == 0;
+        composetable_ok = load_compose_table_and_wait(vc, vc_compose_table) == 0;
 
         if (font_copy) {
                 if (font_ok)
@@ -407,5 +495,5 @@ int main(int argc, char **argv) {
                         log_warning("Setting source virtual console failed, ignoring remaining ones");
         }
 
-        return font_ok && keyboard_ok ? EXIT_SUCCESS : EXIT_FAILURE;
+        return font_ok && keyboard_ok && composetable_ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

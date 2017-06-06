@@ -38,4 +38,5 @@ SystemCallFilter=~@clock @cpu-emulation @debug @keyring @module @mount @obsolete
 
 [Install]
 WantedBy=multi-user.target
+Alias=network.service
 Also=systemd-networkd.socket
