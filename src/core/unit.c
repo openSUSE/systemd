@@ -898,9 +898,7 @@ void unit_dump(Unit *u, FILE *f, const char *prefix) {
                 "%s\tTransient: %s\n"
                 "%s\tSlice: %s\n"
                 "%s\tCGroup: %s\n"
-                "%s\tCGroup realized: %s\n"
-                "%s\tCGroup mask: 0x%x\n"
-                "%s\tCGroup members mask: 0x%x\n",
+                "%s\tCGroup realized: %s\n",
                 prefix, u->id,
                 prefix, unit_description(u),
                 prefix, strna(u->instance),
@@ -915,9 +913,18 @@ void unit_dump(Unit *u, FILE *f, const char *prefix) {
                 prefix, yes_no(u->transient),
                 prefix, strna(unit_slice_name(u)),
                 prefix, strna(u->cgroup_path),
-                prefix, yes_no(u->cgroup_realized),
-                prefix, u->cgroup_realized_mask,
-                prefix, u->cgroup_members_mask);
+                prefix, yes_no(u->cgroup_realized));
+
+        if (u->cgroup_realized_mask != 0) {
+                _cleanup_free_ char *s = NULL;
+                (void) cg_mask_to_string(u->cgroup_realized_mask, &s);
+                fprintf(f, "%s\tCGroup mask: %s\n", prefix, strnull(s));
+        }
+        if (u->cgroup_members_mask != 0) {
+                _cleanup_free_ char *s = NULL;
+                (void) cg_mask_to_string(u->cgroup_members_mask, &s);
+                fprintf(f, "%s\tCGroup members mask: %s\n", prefix, strnull(s));
+        }
 
         SET_FOREACH(t, u->names, i)
                 fprintf(f, "%s\tName: %s\n", prefix, t);
@@ -1255,6 +1262,9 @@ int unit_load(Unit *u) {
                         r = -EINVAL;
                         goto fail;
                 }
+
+                if (u->job_running_timeout > 0 && u->job_timeout > 0 && u->job_running_timeout > u->job_timeout)
+                        log_unit_warning(u, "JobRunningTimeoutSec= is greater than JobTimeoutSec=, it has no effect.");
 
                 unit_update_cgroup_members_masks(u);
 
@@ -2539,6 +2549,25 @@ bool unit_can_serialize(Unit *u) {
         return UNIT_VTABLE(u)->serialize && UNIT_VTABLE(u)->deserialize_item;
 }
 
+static int unit_serialize_cgroup_mask(FILE *f, const char *key, CGroupMask mask) {
+        _cleanup_free_ char *s = NULL;
+        int r = 0;
+
+        assert(f);
+        assert(key);
+
+        if (mask != 0) {
+                r = cg_mask_to_string(mask, &s);
+                if (r >= 0) {
+                        fputs(key, f);
+                        fputc('=', f);
+                        fputs(s, f);
+                        fputc('\n', f);
+                }
+        }
+        return r;
+}
+
 int unit_serialize(Unit *u, FILE *f, FDSet *fds, bool serialize_jobs) {
         int r;
 
@@ -2580,6 +2609,7 @@ int unit_serialize(Unit *u, FILE *f, FDSet *fds, bool serialize_jobs) {
         if (u->cgroup_path)
                 unit_serialize_item(u, f, "cgroup", u->cgroup_path);
         unit_serialize_item(u, f, "cgroup-realized", yes_no(u->cgroup_realized));
+        (void) unit_serialize_cgroup_mask(f, "cgroup-realized-mask", u->cgroup_realized_mask);
 
         if (u->cgroup_netclass_id)
                 unit_serialize_item_format(u, f, "netclass-id", "%" PRIu32, u->cgroup_netclass_id);
@@ -2818,6 +2848,14 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
                                 u->cgroup_realized = b;
 
                         continue;
+
+                } else if (streq(l, "cgroup-realized-mask")) {
+
+                        r = cg_mask_from_string(v, &u->cgroup_realized_mask);
+                        if (r < 0)
+                                log_unit_debug(u, "Failed to parse cgroup-realized-mask %s, ignoring.", v);
+                        continue;
+
                 } else if (streq(l, "netclass-id")) {
                         r = safe_atou32(v, &u->cgroup_netclass_id);
                         if (r < 0)

@@ -2346,6 +2346,11 @@ dist_tmpfiles_DATA += \
 	tmpfiles.d/legacy.conf
 endif
 
+if HAVE_REMOTE
+nodist_tmpfiles_DATA += \
+	tmpfiles.d/systemd-remote.conf
+endif
+
 SYSINIT_TARGET_WANTS += \
 	systemd-tmpfiles-setup-dev.service \
 	systemd-tmpfiles-setup.service
@@ -2365,6 +2370,7 @@ endif
 
 EXTRA_DIST += \
 	tmpfiles.d/systemd.conf.m4 \
+	tmpfiles.d/systemd-remote.conf.m4 \
 	tmpfiles.d/etc.conf.m4 \
 	units/systemd-tmpfiles-setup-dev.service.in \
 	units/systemd-tmpfiles-setup.service.in \
@@ -2391,6 +2397,11 @@ nodist_sysusers_DATA = \
 	sysusers.d/systemd.conf \
 	sysusers.d/basic.conf
 
+if HAVE_REMOTE
+nodist_sysusers_DATA += \
+	sysusers.d/systemd-remote.conf
+endif
+
 INSTALL_DIRS += \
 	$(sysusersdir)
 endif
@@ -2398,6 +2409,7 @@ endif
 EXTRA_DIST += \
 	units/systemd-sysusers.service.in \
 	sysusers.d/systemd.conf.m4 \
+	sysusers.d/systemd-remote.conf.m4 \
 	sysusers.d/basic.conf.in
 
 # ------------------------------------------------------------------------------
@@ -3955,16 +3967,6 @@ systemd_journal_remote_CFLAGS = \
 
 systemd_journal_remote_LDADD += \
 	$(MICROHTTPD_LIBS)
-
-if ENABLE_SYSUSERS
-dist_sysusers_DATA += \
-	sysusers.d/systemd-remote.conf
-endif
-
-if ENABLE_TMPFILES
-dist_tmpfiles_DATA += \
-	tmpfiles.d/systemd-remote.conf
-endif
 
 if HAVE_GNUTLS
 systemd_journal_remote_LDADD += \

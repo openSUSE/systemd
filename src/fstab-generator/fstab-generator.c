@@ -348,7 +348,7 @@ static int add_mount(
         if (streq_ptr(fstype, "nfs") && strstr(opts, "bg"))
                 nofail=true;
 
-        if (!noauto && !nofail && !automount)
+        if (!nofail && !automount)
                 fprintf(f, "Before=%s\n", post);
 
         if (!automount && opts) {
@@ -378,6 +378,10 @@ static int add_mount(
                 fprintf(f, "Type=%s\n", fstype);
 
         r = generator_write_timeouts(arg_dest, what, where, opts, &filtered);
+        if (r < 0)
+                return r;
+
+        r = generator_write_device_deps(arg_dest, what, where, opts);
         if (r < 0)
                 return r;
 

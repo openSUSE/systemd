@@ -293,6 +293,7 @@ static int putgrent_with_members(const struct group *gr, FILE *group) {
         return 0;
 }
 
+#ifdef ENABLE_GSHADOW
 static int putsgent_with_members(const struct sgrp *sg, FILE *gshadow) {
         char **a;
 
@@ -342,6 +343,7 @@ static int putsgent_with_members(const struct sgrp *sg, FILE *gshadow) {
 
         return 0;
 }
+#endif
 
 static int sync_rights(FILE *from, FILE *to) {
         struct stat st;
@@ -458,6 +460,7 @@ static int write_files(void) {
                 if (r < 0)
                         goto finish;
 
+#ifdef ENABLE_GSHADOW
                 if (original) {
                         fclose(original);
                         original = NULL;
@@ -523,6 +526,7 @@ static int write_files(void) {
                 r = fflush_and_check(gshadow);
                 if (r < 0)
                         goto finish;
+#endif
         }
 
         if (hashmap_size(todo_uids) > 0) {
