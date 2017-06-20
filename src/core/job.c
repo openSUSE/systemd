@@ -39,6 +39,7 @@
 #include "string-util.h"
 #include "strv.h"
 #include "terminal-util.h"
+#include "time-util.h"
 #include "unit.h"
 #include "virt.h"
 
@@ -927,14 +928,15 @@ static int job_dispatch_timer(sd_event_source *s, uint64_t monotonic, void *user
 
 int job_start_timer(Job *j, bool job_running) {
         int r;
-        usec_t run_begin, timeout_time, old_timeout_time;
+        usec_t timeout_time, old_timeout_time;
 
         if (job_running) {
+                j->begin_running_usec = now(CLOCK_MONOTONIC);
+
                 if (j->unit->job_running_timeout == 0)
                         return 0;
 
-                run_begin = now(CLOCK_MONOTONIC);
-                timeout_time = run_begin + j->unit->job_running_timeout;
+                timeout_time = j->begin_running_usec + j->unit->job_running_timeout;
 
                 if (j->timer_event_source) {
                         /* Update only if JobRunningTimeoutSec= results in earlier timeout */
@@ -1023,6 +1025,8 @@ int job_serialize(Job *j, FILE *f, FDSet *fds) {
 
         if (j->begin_usec > 0)
                 fprintf(f, "job-begin="USEC_FMT"\n", j->begin_usec);
+        if (j->begin_running_usec > 0)
+                fprintf(f, "job-begin-running="USEC_FMT"\n", j->begin_running_usec);
 
         bus_track_serialize(j->clients, f);
 
@@ -1119,6 +1123,14 @@ int job_deserialize(Job *j, FILE *f, FDSet *fds) {
                         else
                                 j->begin_usec = ull;
 
+                } else if (streq(l, "job-begin-running")) {
+                        unsigned long long ull;
+
+                        if (sscanf(v, "%llu", &ull) != 1)
+                                log_debug("Failed to parse job-begin-running value %s", v);
+                        else
+                                j->begin_running_usec = ull;
+
                 } else if (streq(l, "subscribed")) {
 
                         if (strv_extend(&j->deserialized_clients, v) < 0)
@@ -1129,6 +1141,7 @@ int job_deserialize(Job *j, FILE *f, FDSet *fds) {
 
 int job_coldplug(Job *j) {
         int r;
+        usec_t timeout_time = USEC_INFINITY;
 
         assert(j);
 
@@ -1141,7 +1154,18 @@ int job_coldplug(Job *j) {
         if (j->state == JOB_WAITING)
                 job_add_to_run_queue(j);
 
-        if (j->begin_usec == 0 || j->unit->job_timeout == 0)
+        /* Create timer only when job began or began running and the respective timeout is finite.
+         * Follow logic of job_start_timer() if both timeouts are finite */
+        if (j->begin_usec == 0)
+                return 0;
+
+        if (j->unit->job_timeout > 0)
+                timeout_time = j->begin_usec + j->unit->job_timeout;
+
+        if (j->begin_running_usec > 0 && j->unit->job_running_timeout > 0)
+                timeout_time = MIN(timeout_time, j->begin_running_usec + j->unit->job_running_timeout);
+
+        if (timeout_time == USEC_INFINITY)
                 return 0;
 
         if (j->timer_event_source)
@@ -1151,7 +1175,7 @@ int job_coldplug(Job *j) {
                         j->manager->event,
                         &j->timer_event_source,
                         CLOCK_MONOTONIC,
-                        j->begin_usec + j->unit->job_timeout, 0,
+                        timeout_time, 0,
                         job_dispatch_timer, j);
         if (r < 0)
                 log_debug_errno(r, "Failed to restart timeout for job: %m");
