@@ -957,6 +957,7 @@ static void mount_enter_unmounting(Mount *m) {
                              m->control_command,
                              "/bin/umount",
                              m->where,
+                             "-c",
                              NULL)) < 0)
                 goto fail;
 

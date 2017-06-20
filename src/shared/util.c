@@ -30,6 +30,7 @@
 #include <sched.h>
 #include <sys/resource.h>
 #include <linux/sched.h>
+#include <sys/sysmacros.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>

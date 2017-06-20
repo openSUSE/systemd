@@ -522,6 +522,21 @@ char **strv_sort(char **l) {
         return l;
 }
 
+bool strv_equal(char **a, char **b) {
+
+        if (strv_isempty(a))
+                return strv_isempty(b);
+
+        if (strv_isempty(b))
+                return false;
+
+        for ( ; *a || *b; ++a, ++b)
+                if (!streq_ptr(*a, *b))
+                        return false;
+
+        return true;
+}
+
 void strv_print(char **l) {
         char **s;
 
