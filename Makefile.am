@@ -3826,13 +3826,16 @@ udevlibexec_PROGRAMS += \
 
 # ------------------------------------------------------------------------------
 path_id_compat_SOURCES = \
-	src/udev/path_id_compat/path_id_compat.c
+	src/udev/compat/path_id_compat.c
 
 path_id_compat_LDADD = \
 	libshared.la
 
 udevlibexec_PROGRAMS += \
 	path_id_compat
+
+dist_udevrules_DATA += \
+	rules/61-persistent-storage-compat.rules
 
 # ------------------------------------------------------------------------------
 cdrom_id_SOURCES = \

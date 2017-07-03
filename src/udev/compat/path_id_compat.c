@@ -19,6 +19,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -29,9 +30,14 @@
 #include <dirent.h>
 
 #include "libudev.h"
+#include "parse-util.h"
+#include "string-util.h"
 
 #define PATH_SIZE       16384
 #define SYSFS_PATH      "/sys"
+
+static const char *compat_version_str = NULL;
+static unsigned compat_version;
 
 static int path_prepend(char **path, const char *fmt, ...)
 {
@@ -242,7 +248,15 @@ static struct udev_device *handle_scsi_sas(struct udev_device *parent, char **pa
        }
 
        format_lun_number(parent, &lun);
-       path_prepend(path, "sas-phy%d-%s-%s", phy_id, sas_address, lun);
+
+       switch (compat_version) {
+       case 1:
+               path_prepend(path, "sas-phy%d-%s-%s", phy_id, sas_address, lun);
+               break;
+       case 2:
+               path_prepend(path, "sas-%s-%s", sas_address, lun);
+               break;
+       }
 
        if (lun)
                free(lun);
@@ -280,6 +294,9 @@ out:
 
 int main(int argc, char **argv)
 {
+        static const struct option options[] = {
+                { "compat", required_argument, NULL, 'V' },
+        };
         struct udev *udev;
         struct udev_device *dev;
         struct udev_device *parent;
@@ -287,7 +304,28 @@ int main(int argc, char **argv)
         char *path = NULL;
         int rc = 1;
 
-        if (argv[1] == NULL) {
+        for (;;) {
+                int option;
+
+                option = getopt_long(argc, argv, "v:", options, NULL);
+                if (option == -1)
+                        break;
+
+                switch (option) {
+                case 'V':
+                        compat_version_str = optarg;
+                        break;
+                }
+        }
+
+        if (compat_version_str) {
+                if (safe_atou(compat_version_str, &compat_version) < 0) {
+                        fprintf(stderr, "--compat takes an integer.\n");
+                        goto exit2;
+                }
+        }
+
+        if (argv[optind] == NULL) {
                 fprintf(stderr, "No device specified\n");
                 rc = 2;
                 goto exit2;
@@ -297,10 +335,10 @@ int main(int argc, char **argv)
         if (udev == NULL)
                 goto exit2;
 
-        snprintf(syspath, PATH_SIZE, "%s%s", SYSFS_PATH, argv[1]);
+        snprintf(syspath, PATH_SIZE, "%s%s", SYSFS_PATH, argv[optind]);
         dev = udev_device_new_from_syspath(udev, syspath);
         if (dev == NULL) {
-                fprintf(stderr, "unable to access '%s'\n", argv[1]);
+                fprintf(stderr, "unable to access '%s'\n", argv[optind]);
                 rc = 3;
                 goto exit1;
         }
@@ -325,7 +363,7 @@ int main(int argc, char **argv)
         }
 
         if (path != NULL) {
-                printf("ID_PATH_COMPAT=%s\n", path);
+                printf("ID_PATH_COMPAT%s=%s\n", strempty(compat_version_str), path);
                 free(path);
                 rc = 0;
         }
