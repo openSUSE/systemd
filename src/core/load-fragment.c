@@ -1908,13 +1908,13 @@ int config_parse_user_group(
 
                 r = unit_full_printf(u, rvalue, &k);
                 if (r < 0) {
-                        log_syntax(unit, LOG_ERR, filename, line, r, "Failed to resolve unit specifiers in %s, ignoring: %m", rvalue);
-                        return 0;
+                        log_syntax(unit, LOG_ERR, filename, line, r, "Failed to resolve unit specifiers in %s: %m", rvalue);
+                        return r;
                 }
 
                 if (!valid_user_group_name_or_id(k)) {
-                        log_syntax(unit, LOG_ERR, filename, line, 0, "Invalid user/group name or numeric ID, ignoring: %s", k);
-                        return 0;
+                        log_syntax(unit, LOG_ERR, filename, line, 0, "Invalid user/group name or numeric ID: %s", k);
+                        return -EINVAL;
                 }
 
                 n = k;
@@ -1972,19 +1972,19 @@ int config_parse_user_group_strv(
                 if (r == -ENOMEM)
                         return log_oom();
                 if (r < 0) {
-                        log_syntax(unit, LOG_ERR, filename, line, r, "Invalid syntax, ignoring: %s", rvalue);
-                        break;
+                        log_syntax(unit, LOG_ERR, filename, line, r, "Invalid syntax: %s", rvalue);
+                        return r;
                 }
 
                 r = unit_full_printf(u, word, &k);
                 if (r < 0) {
-                        log_syntax(unit, LOG_ERR, filename, line, r, "Failed to resolve unit specifiers in %s, ignoring: %m", word);
-                        continue;
+                        log_syntax(unit, LOG_ERR, filename, line, r, "Failed to resolve unit specifiers in %s: %m", word);
+                        return r;
                 }
 
                 if (!valid_user_group_name_or_id(k)) {
-                        log_syntax(unit, LOG_ERR, filename, line, 0, "Invalid user/group name or numeric ID, ignoring: %s", k);
-                        continue;
+                        log_syntax(unit, LOG_ERR, filename, line, 0, "Invalid user/group name or numeric ID: %s", k);
+                        return -EINVAL;
                 }
 
                 r = strv_push(users, k);
