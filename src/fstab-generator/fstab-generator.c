@@ -355,10 +355,6 @@ static int add_mount(
                 "Documentation=man:fstab(5) man:systemd-fstab-generator(8)\n",
                 source);
 
-        /* nfs bg option has the same functionality like nofail */
-        if (streq_ptr(fstype, "nfs") && strstr(opts, "bg"))
-                nofail=true;
-
         if (!nofail && !automount)
                 fprintf(f, "Before=%s\n", post);
 
