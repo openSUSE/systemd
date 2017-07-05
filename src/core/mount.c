@@ -76,16 +76,20 @@ static char* mount_test_option(const char *haystack, const char *needle) {
         return hasmntopt(&me, needle);
 }
 
+static bool mount_needs_network(const char *options, const char *fstype) {
+        if (mount_test_option(options, "_netdev"))
+                 return true;
+
+        if (fstype && fstype_is_network(fstype))
+                 return true;
+
+        return false;
+}
+
 static bool mount_is_network(MountParameters *p) {
         assert(p);
 
-        if (mount_test_option(p->options, "_netdev"))
-                return true;
-
-        if (p->fstype && fstype_is_network(p->fstype))
-                return true;
-
-        return false;
+        return mount_needs_network(p->options, p->fstype);
 }
 
 static bool mount_is_loop(const MountParameters *p) {
@@ -1497,8 +1501,7 @@ static int mount_setup_unit(
                 if (m->running_as == SYSTEMD_SYSTEM) {
                         const char* target;
 
-                        target = fstype_is_network(fstype) ? SPECIAL_REMOTE_FS_TARGET : SPECIAL_LOCAL_FS_TARGET;
-
+                        target = mount_needs_network(options, fstype) ?  SPECIAL_REMOTE_FS_TARGET : SPECIAL_LOCAL_FS_TARGET;
                         r = unit_add_dependency_by_name(u, UNIT_BEFORE, target, NULL, true);
                         if (r < 0)
                                 goto fail;
@@ -1520,6 +1523,19 @@ static int mount_setup_unit(
                         if (!MOUNT(u)->where) {
                                 r = -ENOMEM;
                                 goto fail;
+                        }
+                }
+
+                if (m->running_as == SYSTEMD_SYSTEM) {
+                        const char* target;
+
+                        target = mount_needs_network(options, fstype) ?  SPECIAL_REMOTE_FS_TARGET : NULL;
+                        /* _netdev option may have shown up late, or on a
+                         * remount. Add remote-fs dependencies, even though
+                         * local-fs ones may already be there */
+                        if (target) {
+                                unit_add_dependency_by_name(u, UNIT_BEFORE, target, NULL, true);
+                                load_extras = true;
                         }
                 }
 
