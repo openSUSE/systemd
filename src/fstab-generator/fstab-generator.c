@@ -144,13 +144,14 @@ static bool mount_in_initrd(struct mntent *me) {
                streq(me->mnt_dir, "/usr");
 }
 
-static int write_idle_timeout(FILE *f, const char *where, const char *opts) {
+static int write_timeout(FILE *f, const char *where, const char *opts,
+                const char *filter, const char *variable) {
         _cleanup_free_ char *timeout = NULL;
         char timespan[FORMAT_TIMESPAN_MAX];
         usec_t u;
         int r;
 
-        r = fstab_filter_options(opts, "x-systemd.idle-timeout\0", NULL, &timeout, NULL);
+        r = fstab_filter_options(opts, filter, NULL, &timeout, NULL);
         if (r < 0)
                 return log_warning_errno(r, "Failed to parse options: %m");
         if (r == 0)
@@ -162,9 +163,19 @@ static int write_idle_timeout(FILE *f, const char *where, const char *opts) {
                 return 0;
         }
 
-        fprintf(f, "TimeoutIdleSec=%s\n", format_timespan(timespan, sizeof(timespan), u, 0));
+        fprintf(f, "%s=%s\n", variable, format_timespan(timespan, sizeof(timespan), u, 0));
 
         return 0;
+}
+
+static int write_idle_timeout(FILE *f, const char *where, const char *opts) {
+        return write_timeout(f, where, opts,
+                             "x-systemd.idle-timeout\0", "TimeoutIdleSec");
+}
+
+static int write_mount_timeout(FILE *f, const char *where, const char *opts) {
+        return write_timeout(f, where, opts,
+                             "x-systemd.mount-timeout\0", "TimeoutSec");
 }
 
 static int write_requires_after(FILE *f, const char *opts) {
@@ -344,9 +355,19 @@ static int add_mount(
                 "Documentation=man:fstab(5) man:systemd-fstab-generator(8)\n",
                 source);
 
-        /* nfs bg option has the same functionality like nofail */
-        if (streq_ptr(fstype, "nfs") && strstr(opts, "bg"))
-                nofail=true;
+        if (STRPTR_IN_SET(fstype, "nfs", "nfs4") && !automount &&
+            fstab_test_yes_no_option(opts, "bg\0" "fg\0")) {
+                /* The default retry timeout that mount.nfs uses for 'bg' mounts
+                 * is 10000 minutes, where as it uses 2 minutes for 'fg' mounts.
+                 * As we are making  'bg' mounts look like an 'fg' mount to
+                 * mount.nfs (so systemd can manage the job-control aspects of 'bg'),
+                 * we need to explicitly preserve that default, and also ensure
+                 * the systemd mount-timeout doesn't interfere.
+                 * By placing these options first, they can be over-ridden by
+                 * settings in /etc/fstab. */
+                opts = strjoina("x-systemd.mount-timeout=0,retry=10000,", opts, ",fg");
+                nofail = true;
+        }
 
         if (!nofail && !automount)
                 fprintf(f, "Before=%s\n", post);
@@ -382,6 +403,10 @@ static int add_mount(
                 return r;
 
         r = generator_write_device_deps(arg_dest, what, where, opts);
+        if (r < 0)
+                return r;
+
+        r = write_mount_timeout(f, where, opts);
         if (r < 0)
                 return r;
 

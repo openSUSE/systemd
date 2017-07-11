@@ -56,6 +56,25 @@ static void test_specifier_printf(void) {
         puts(w);
 }
 
+static void test_str_in_set(void) {
+        assert_se(STR_IN_SET("x", "x", "y", "z"));
+        assert_se(!STR_IN_SET("X", "x", "y", "z"));
+        assert_se(!STR_IN_SET("", "x", "y", "z"));
+        assert_se(STR_IN_SET("x", "w", "x"));
+}
+
+static void test_strptr_in_set(void) {
+        assert_se(STRPTR_IN_SET("x", "x", "y", "z"));
+        assert_se(!STRPTR_IN_SET("X", "x", "y", "z"));
+        assert_se(!STRPTR_IN_SET("", "x", "y", "z"));
+        assert_se(STRPTR_IN_SET("x", "w", "x"));
+
+        assert_se(!STRPTR_IN_SET(NULL, "x", "y", "z"));
+        assert_se(!STRPTR_IN_SET(NULL, ""));
+        /* strv cannot contain a null, hence the result below */
+        assert_se(!STRPTR_IN_SET(NULL, NULL));
+}
+
 static const char* const input_table_multiple[] = {
         "one",
         "two",
@@ -644,6 +663,8 @@ static void test_strv_make_nulstr(void) {
 
 int main(int argc, char *argv[]) {
         test_specifier_printf();
+        test_str_in_set();
+        test_strptr_in_set();
         test_strv_foreach();
         test_strv_foreach_backwards();
         test_strv_foreach_pair();
