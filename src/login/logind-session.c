@@ -47,6 +47,7 @@
 #include "terminal-util.h"
 #include "user-util.h"
 #include "util.h"
+#include "process-util.h"
 
 #define RELEASE_USEC (20*USEC_PER_SEC)
 
@@ -275,7 +276,7 @@ int session_save(Session *s) {
         if (!s->vtnr)
                 fprintf(f, "POSITION=%u\n", s->position);
 
-        if (s->leader > 0)
+        if (pid_is_valid(s->leader))
                 fprintf(f, "LEADER="PID_FMT"\n", s->leader);
 
         if (s->audit_id > 0)

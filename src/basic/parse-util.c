@@ -22,6 +22,7 @@
 #include "alloc-util.h"
 #include "extract-word.h"
 #include "parse-util.h"
+#include "process-util.h"
 #include "string-util.h"
 #include "util.h"
 
@@ -53,7 +54,7 @@ int parse_pid(const char *s, pid_t* ret_pid) {
         if ((unsigned long) pid != ul)
                 return -ERANGE;
 
-        if (pid <= 0)
+        if (!pid_is_valid(pid))
                 return -ERANGE;
 
         *ret_pid = pid;
