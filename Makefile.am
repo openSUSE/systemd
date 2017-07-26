@@ -6625,8 +6625,10 @@ LOCAL_FS_TARGET_WANTS += \
 	systemd-remount-fs.service \
 	tmp.mount
 
+if ENABLE_MACHINED
 REMOTE_FS_TARGET_WANTS += \
 	var-lib-machines.mount
+endif
 
 MULTI_USER_TARGET_WANTS += \
 	getty.target \
