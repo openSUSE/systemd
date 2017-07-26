@@ -37,10 +37,11 @@ ENV{COMPAT_SYMLINK_GENERATION}!="1", GOTO="generation_2"
 
 # NVMe links were introduced first via a SUSE specific commit
 # (bsc#944132) and upstream gained support later but of course using a
-# different scheme.
-KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL}!="?*", IMPORT{program}="scsi_id --export --whitelisted -d $tempnode", ENV{ID_BUS}="nvme"
-KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/$env{ID_BUS}-$env{ID_SERIAL}"
-KERNEL=="nvme*", ENV{DEVTYPE}=="partition", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/$env{ID_BUS}-$env{ID_SERIAL}-part%n"
+# different scheme. Also note that ID_SERIAL is already used by the
+# contemporary rules, see bsc#1048679 for details.
+KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", PROGRAM="scsi_id --whitelisted --replace-whitespace -d $devnode", RESULT=="?*", ENV{ID_NVME_SERIAL_COMPAT}="$result"
+KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_NVME_SERIAL_COMPAT}"
+KERNEL=="nvme*", ENV{DEVTYPE}=="partition", ENV{ID_NVME_SERIAL_COMPAT}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_NVME_SERIAL_COMPAT}-part%n"
 
 # SCSI compat links for ATA devices, removed by f6ba1a468cea (boo#769002)
 KERNEL=="sd*[!0-9]", ENV{ID_BUS}=="ata", PROGRAM="scsi_id --whitelisted --replace-whitespace -p0x80 -d $devnode", RESULT=="?*", ENV{ID_SCSI_COMPAT}="$result", SYMLINK+="disk/by-id/scsi-$env{ID_SCSI_COMPAT}"
