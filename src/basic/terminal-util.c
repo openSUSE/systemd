@@ -796,7 +796,9 @@ const char *default_term_for_tty(const char *tty) {
         if (tty && tty_is_console(tty)) {
                 _cleanup_free_ char *mode = NULL;
 
-                get_proc_cmdline_key("conmode=", &mode);
+                /* Simply return "dumb" in case of OOM. */
+                (void) proc_cmdline_get_key("conmode", 0, &mode);
+                (void) proc_cmdline_value_missing("conmode", mode);
                 return streq_ptr(mode, "3270") ? "ibm327x" : "dumb";
         }
 #endif
