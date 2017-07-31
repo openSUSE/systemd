@@ -1136,8 +1136,11 @@ int manager_startup(Manager *m, FILE *serialization, FDSet *fds) {
         dual_timestamp_get(&m->units_load_finish_timestamp);
 
         /* Second, deserialize if there is something to deserialize */
-        if (serialization)
+        if (serialization) {
                 r = manager_deserialize(m, serialization, fds);
+                if (r < 0)
+                        log_error("Deserialization failed: %s", strerror(-r));
+        }
 
         /* Any fds left? Find some unit which wants them. This is
          * useful to allow container managers to pass some file
@@ -2478,6 +2481,7 @@ int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
         for (;;) {
                 Unit *u;
                 char name[UNIT_NAME_MAX+2];
+                const char* unit_name;
 
                 /* Start marker */
                 if (!fgets(name, sizeof(name), f)) {
@@ -2490,14 +2494,23 @@ int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
                 }
 
                 char_array_0(name);
+                unit_name = strstrip(name);
 
-                r = manager_load_unit(m, strstrip(name), NULL, NULL, &u);
-                if (r < 0)
-                        goto finish;
+                r = manager_load_unit(m, unit_name, NULL, NULL, &u);
+                if (r < 0) {
+                        log_notice("Failed to load unit \"%s\", skipping deserialization: %s", unit_name, strerror(-r));
+                        if (r == -ENOMEM)
+                                goto finish;
+                        unit_deserialize_skip(f);
+                        continue;
+                }
 
                 r = unit_deserialize(u, f, fds);
-                if (r < 0)
-                        goto finish;
+                if (r < 0) {
+                        log_notice("Failed to deserialize unit \"%s\": %s", unit_name, strerror(-r));
+                        if (r == -ENOMEM)
+                                goto finish;
+                }
         }
 
 finish:
@@ -2566,8 +2579,10 @@ int manager_reload(Manager *m) {
 
         /* Second, deserialize our stored data */
         q = manager_deserialize(m, f, fds);
-        if (q < 0)
+        if (q < 0) {
+                log_error("Deserialization failed: %s", strerror(-q));
                 r = q;
+        }
 
         fclose(f);
         f = NULL;
