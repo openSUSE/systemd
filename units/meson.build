@@ -95,6 +95,8 @@ units = [
          'sockets.target.wants/'],
         ['time-sync.target',                    ''],
         ['timers.target',                       ''],
+        ['tmp.mount',                           '',
+         'local-fs.target.wants/'],
         ['umount.target',                       ''],
         ['user.slice',                          ''],
         ['var-run.mount',                       'HAVE_SYSV_COMPAT',        'local-fs.target.wants/'],
@@ -159,6 +161,7 @@ in_units = [
          'dbus-org.freedesktop.machine1.service'],
         ['systemd-modules-load.service',         'HAVE_KMOD',
          'sysinit.target.wants/'],
+        ['systemd-networkd.service',             'ENABLE_NETWORKD'],
         ['systemd-networkd-wait-online.service', 'ENABLE_NETWORKD'],
         ['systemd-nspawn@.service',              ''],
         ['systemd-poweroff.service',             ''],
@@ -168,6 +171,7 @@ in_units = [
         ['systemd-reboot.service',               ''],
         ['systemd-remount-fs.service',           '',
          'local-fs.target.wants/'],
+        ['systemd-resolved.service',             'ENABLE_RESOLVED'],
         ['systemd-rfkill.service',               'ENABLE_RFKILL'],
         ['systemd-suspend.service',              ''],
         ['systemd-sysctl.service',               '',
@@ -197,22 +201,18 @@ in_units = [
          'multi-user.target.wants/'],
         ['systemd-vconsole-setup.service',       'ENABLE_VCONSOLE'],
         ['systemd-volatile-root.service',        ''],
+        ['user@.service',                        ''],
 ]
 
 m4_units = [
         ['getty@.service',                     '',
          'autovt@.service '],
         ['serial-getty@.service',              ''],
-        ['tmp.mount',                          '',
-         'local-fs.target.wants/'],
 ]
 
 m4_in_units = [
         ['console-getty.service',              ''],
         ['container-getty@.service',           ''],
-        ['systemd-networkd.service',           'ENABLE_NETWORKD'],
-        ['systemd-resolved.service',           'ENABLE_RESOLVED'],
-        ['user@.service',                      ''],
 ]
 
 foreach tuple : m4_in_units
