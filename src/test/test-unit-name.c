@@ -464,6 +464,9 @@ static void test_unit_name_path_unescape(void) {
 
 int main(int argc, char* argv[]) {
         int rc = 0;
+
+        enter_cgroup_subroot();
+
         test_unit_name_is_valid();
         test_unit_name_replace_instance();
         test_unit_name_from_path();

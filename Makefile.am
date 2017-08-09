@@ -1786,7 +1786,8 @@ test_device_nodes_LDADD = \
 	libsystemd-shared.la
 
 test_engine_SOURCES = \
-	src/test/test-engine.c
+	src/test/test-engine.c \
+	src/test/test-helper.c
 
 test_engine_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -1849,7 +1850,8 @@ test_boot_timestamps_LDADD = \
 endif
 
 test_unit_name_SOURCES = \
-	src/test/test-unit-name.c
+	src/test/test-unit-name.c \
+	src/test/test-helper.c
 
 test_unit_name_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -1860,7 +1862,8 @@ test_unit_name_LDADD = \
 	libcore.la
 
 test_unit_file_SOURCES = \
-	src/test/test-unit-file.c
+	src/test/test-unit-file.c \
+	src/test/test-helper.c
 
 test_unit_file_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -2381,7 +2384,8 @@ test_cgroup_LDADD = \
 	libsystemd-shared.la
 
 test_cgroup_mask_SOURCES = \
-	src/test/test-cgroup-mask.c
+	src/test/test-cgroup-mask.c \
+	src/test/test-helper.c
 
 test_cgroup_mask_CPPFLAGS = \
 	$(AM_CPPFLAGS) \
@@ -2425,7 +2429,8 @@ test_path_util_LDADD = \
 	libsystemd-shared.la
 
 test_path_SOURCES = \
-	src/test/test-path.c
+	src/test/test-path.c \
+	src/test/test-helper.c
 
 test_path_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -2435,7 +2440,8 @@ test_path_LDADD = \
 	libcore.la
 
 test_execute_SOURCES = \
-	src/test/test-execute.c
+	src/test/test-execute.c \
+	src/test/test-helper.c
 
 test_execute_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -2470,7 +2476,8 @@ test_watchdog_LDADD = \
 	libsystemd-shared.la
 
 test_sched_prio_SOURCES = \
-	src/test/test-sched-prio.c
+	src/test/test-sched-prio.c \
+	src/test/test-helper.c
 
 test_sched_prio_CPPFLAGS = \
 	$(AM_CPPFLAGS) \
