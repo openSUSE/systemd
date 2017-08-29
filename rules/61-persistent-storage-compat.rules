@@ -19,9 +19,6 @@ KERNEL!="nvme*|sd*", GOTO="persistent_storage_end"
 # ignore partitions that span the entire disk
 TEST=="whole_disk", GOTO="persistent_storage_end"
 
-# for partitions import parent information
-ENV{DEVTYPE}=="partition", IMPORT{parent}="ID_*"
-
 #
 # Systems without the compat-symlinks-generation file are systems
 # installed before compat rules were created. They might be using
