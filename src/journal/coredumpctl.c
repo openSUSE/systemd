@@ -631,14 +631,13 @@ static int save_core(sd_journal *j, int fd, char **path, bool *unlink_temp) {
                         data += 9;
                         len -= 9;
 
-                        sz = write(fdt, data, len);
+                        sz = write(fd, data, len);
                         if (sz < 0) {
-                                r = log_error_errno(errno,
-                                                    "Failed to write temporary file: %m");
+                                r = log_error_errno(errno, "Failed to write output: %m");
                                 goto error;
                         }
                         if (sz != (ssize_t) len) {
-                                log_error("Short write to temporary file.");
+                                log_error("Short write to output.");
                                 r = -EIO;
                                 goto error;
                         }
