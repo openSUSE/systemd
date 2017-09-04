@@ -637,6 +637,19 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                 if (fstat(child, &st) < 0)
                         return -errno;
 
+                /* fbui: was originally:
+                 * if ((flags & CHASE_NO_AUTOFS) &&
+                 *   fd_check_fstype(child, AUTOFS_SUPER_MAGIC) > 0)
+                 *       return -EREMOTE; */
+                if (flags & CHASE_NO_AUTOFS) {
+                        struct statfs stfs;
+
+                        if (fstatfs(child, &stfs) == 0)
+                                if (stfs.f_type == AUTOFS_SUPER_MAGIC)
+                                        return -EREMOTE;
+                }
+
+
                 if (S_ISLNK(st.st_mode)) {
                         char *joined;
 
