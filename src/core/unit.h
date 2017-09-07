@@ -685,6 +685,8 @@ int unit_acquire_invocation_id(Unit *u);
 
 bool unit_shall_confirm_spawn(Unit *u);
 
+int unit_fork_helper_process(Unit *u, pid_t *ret);
+
 /* Macros which append UNIT= or USER_UNIT= to the message */
 
 #define log_unit_full(unit, level, error, ...)                          \

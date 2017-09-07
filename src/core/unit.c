@@ -4443,3 +4443,43 @@ int unit_acquire_invocation_id(Unit *u) {
 
         return 0;
 }
+
+int unit_fork_helper_process(Unit *u, pid_t *ret) {
+        pid_t pid;
+        int r;
+
+        assert(u);
+        assert(ret);
+
+        /* Forks off a helper process and makes sure it is a member of the unit's cgroup. Returns == 0 in the child,
+         * and > 0 in the parent. The pid parameter is always filled in with the child's PID. */
+
+        (void) unit_realize_cgroup(u);
+
+        pid = fork();
+        if (pid < 0)
+                return -errno;
+
+        if (pid == 0) {
+
+                (void) default_signals(SIGNALS_CRASH_HANDLER, SIGNALS_IGNORE, -1);
+                (void) ignore_signals(SIGPIPE, -1);
+
+                log_close();
+                log_open();
+
+                if (u->cgroup_path) {
+                        r = cg_attach_everywhere(u->manager->cgroup_supported, u->cgroup_path, 0, NULL, NULL);
+                        if (r < 0) {
+                                log_unit_error_errno(u, r, "Failed to join unit cgroup %s: %m", u->cgroup_path);
+                                _exit(EXIT_CGROUP);
+                        }
+                }
+
+                *ret = getpid();
+                return 0;
+        }
+
+        *ret = pid;
+        return 1;
+}
