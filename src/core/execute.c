@@ -2308,7 +2308,7 @@ static int exec_child(
         r = reset_signal_mask();
         if (r < 0) {
                 *exit_status = EXIT_SIGNAL_MASK;
-                *error_message = strdup("Failed to reset signal mask");
+                *error_message = strdup("Failed to set process signal mask");
                 /* If strdup fails, here and below, we will just print the generic error message. */
                 return r;
         }
@@ -2326,13 +2326,14 @@ static int exec_child(
         r = close_remaining_fds(params, runtime, dcreds, user_lookup_fd, socket_fd, fds, n_fds);
         if (r < 0) {
                 *exit_status = EXIT_FDS;
-                *error_message = strdup("Failed to close remaining fds");
+                *error_message = strdup("Failed to close unwanted file descriptors");
                 return r;
         }
 
         if (!context->same_pgrp)
                 if (setsid() < 0) {
                         *exit_status = EXIT_SETSID;
+                        *error_message = strdup("Failed to create new process session");
                         return -errno;
                 }
 
@@ -2344,7 +2345,7 @@ static int exec_child(
 
                 cmdline = exec_command_line(argv);
                 if (!cmdline) {
-                        *exit_status = EXIT_CONFIRM;
+                        *exit_status = EXIT_MEMORY;
                         return -ENOMEM;
                 }
 
@@ -2355,7 +2356,7 @@ static int exec_child(
                                 return 0;
                         }
                         *exit_status = EXIT_CONFIRM;
-                        *error_message = strdup("Execution cancelled");
+                        *error_message = strdup("Execution cancelled by the user");
                         return -ECANCELED;
                 }
         }
@@ -2441,21 +2442,21 @@ static int exec_child(
         r = setup_input(context, params, socket_fd, named_iofds);
         if (r < 0) {
                 *exit_status = EXIT_STDIN;
-                *error_message = strdup("Failed to set up stdin");
+                *error_message = strdup("Failed to set up standard input");
                 return r;
         }
 
         r = setup_output(unit, context, params, STDOUT_FILENO, socket_fd, named_iofds, basename(command->path), uid, gid, &journal_stream_dev, &journal_stream_ino);
         if (r < 0) {
                 *exit_status = EXIT_STDOUT;
-                *error_message = strdup("Failed to set up stdout");
+                *error_message = strdup("Failed to set up standard output");
                 return r;
         }
 
         r = setup_output(unit, context, params, STDERR_FILENO, socket_fd, named_iofds, basename(command->path), uid, gid, &journal_stream_dev, &journal_stream_ino);
         if (r < 0) {
                 *exit_status = EXIT_STDERR;
-                *error_message = strdup("Failed to set up stderr");
+                *error_message = strdup("Failed to set up standard error output");
                 return r;
         }
 
@@ -2484,7 +2485,7 @@ static int exec_child(
                         log_close();
                 } else if (r < 0) {
                         *exit_status = EXIT_OOM_ADJUST;
-                        *error_message = strdup("Failed to write /proc/self/oom_score_adj");
+                        *error_message = strdup("Failed to adjust OOM setting");
                         return -errno;
                 }
         }
@@ -2492,6 +2493,7 @@ static int exec_child(
         if (context->nice_set)
                 if (setpriority(PRIO_PROCESS, 0, context->nice) < 0) {
                         *exit_status = EXIT_NICE;
+                        *error_message = strdup("Failed to set up process scheduling priority (nice level");
                         return -errno;
                 }
 
@@ -2507,6 +2509,7 @@ static int exec_child(
                                        &param);
                 if (r < 0) {
                         *exit_status = EXIT_SETSCHEDULER;
+                        *error_message = strdup("Failed to set up CPU scheduling");
                         return -errno;
                 }
         }
@@ -2514,24 +2517,28 @@ static int exec_child(
         if (context->cpuset)
                 if (sched_setaffinity(0, CPU_ALLOC_SIZE(context->cpuset_ncpus), context->cpuset) < 0) {
                         *exit_status = EXIT_CPUAFFINITY;
+                        *error_message = strdup("Failed to set up CPU affinity");
                         return -errno;
                 }
 
         if (context->ioprio_set)
                 if (ioprio_set(IOPRIO_WHO_PROCESS, 0, context->ioprio) < 0) {
                         *exit_status = EXIT_IOPRIO;
+                        *error_message = strdup("Failed to set up IO scheduling priority");
                         return -errno;
                 }
 
         if (context->timer_slack_nsec != NSEC_INFINITY)
                 if (prctl(PR_SET_TIMERSLACK, context->timer_slack_nsec) < 0) {
                         *exit_status = EXIT_TIMERSLACK;
+                        *error_message = strdup("Failed to set up timer slack");
                         return -errno;
                 }
 
         if (context->personality != PERSONALITY_INVALID)
                 if (personality(context->personality) < 0) {
                         *exit_status = EXIT_PERSONALITY;
+                        *error_message = strdup("Failed to set up execution domain (personality)");
                         return -errno;
                 }
 
@@ -2547,6 +2554,7 @@ static int exec_child(
                 r = chown_terminal(STDIN_FILENO, uid);
                 if (r < 0) {
                         *exit_status = EXIT_STDIN;
+                        *error_message = strdup("Failed to change ownership of terminal");
                         return r;
                 }
         }
@@ -2558,6 +2566,7 @@ static int exec_child(
                 r = cg_set_task_access(SYSTEMD_CGROUP_CONTROLLER, params->cgroup_path, 0644, uid, gid);
                 if (r < 0) {
                         *exit_status = EXIT_CGROUP;
+                        *error_message = strdup("Failed to adjust control group access");
                         return r;
                 }
 
@@ -2565,6 +2574,7 @@ static int exec_child(
                 r = cg_set_group_access(SYSTEMD_CGROUP_CONTROLLER, params->cgroup_path, 0755, uid, gid);
                 if (r < 0) {
                         *exit_status = EXIT_CGROUP;
+                        *error_message = strdup("Failed to adjust control group access");
                         return r;
                 }
         }
@@ -2573,6 +2583,7 @@ static int exec_child(
                 r = setup_runtime_directory(context, params, uid, gid);
                 if (r < 0) {
                         *exit_status = EXIT_RUNTIME_DIRECTORY;
+                        *error_message = strdup("Failed to set up special execution directory");
                         return r;
                 }
         }
@@ -2617,6 +2628,7 @@ static int exec_child(
         r = setup_keyring(unit, params, uid, gid);
         if (r < 0) {
                 *exit_status = EXIT_KEYRING;
+                *error_message = strdup("Failed to set up kernel keyring");
                 return r;
         }
 
@@ -2625,6 +2637,7 @@ static int exec_child(
                         r = setup_pam(context->pam_name, username, uid, gid, context->tty_path, &accum_env, fds, n_fds);
                         if (r < 0) {
                                 *exit_status = EXIT_PAM;
+                                *error_message = strdup("Failed to set up PAM session");
                                 return r;
                         }
                 }
@@ -2634,6 +2647,7 @@ static int exec_child(
                 r = setup_netns(runtime->netns_storage_socket);
                 if (r < 0) {
                         *exit_status = EXIT_NETWORK;
+                        *error_message = strdup("Failed to set up network namespacing");
                         return r;
                 }
         }
@@ -2643,19 +2657,23 @@ static int exec_child(
                 r = apply_mount_namespace(unit, command, context, params, runtime);
                 if (r < 0) {
                         *exit_status = EXIT_NAMESPACE;
+                        *error_message = strdup("Failed to set up mount namespacing");
                         return r;
                 }
         }
 
         /* Apply just after mount namespace setup */
         r = apply_working_directory(context, params, home, needs_mount_namespace, exit_status);
-        if (r < 0)
+        if (r < 0) {
+                *error_message = strdup("Changing to the requested working directory failed");
                 return r;
+        }
 
         /* Drop groups as early as possbile */
         if ((params->flags & EXEC_APPLY_PERMISSIONS) && !command->privileged) {
                 r = enforce_groups(context, gid, supplementary_gids, ngids);
                 if (r < 0) {
+                        *error_message = strdup("Changing group credentials failed");
                         *exit_status = EXIT_GROUP;
                         return r;
                 }
@@ -2670,6 +2688,7 @@ static int exec_child(
 
                 r = mac_selinux_get_child_mls_label(socket_fd, command->path, context->selinux_context, &mac_selinux_context_net);
                 if (r < 0) {
+                        *error_message = strdup("Failed to determine SELinux context");
                         *exit_status = EXIT_SELINUX_CONTEXT;
                         return r;
                 }
@@ -2679,6 +2698,7 @@ static int exec_child(
         if ((params->flags & EXEC_APPLY_PERMISSIONS) && context->private_users) {
                 r = setup_private_users(uid, gid);
                 if (r < 0) {
+                        *error_message = strdup("Failed to set up user namespacing");
                         *exit_status = EXIT_USER;
                         return r;
                 }
@@ -2696,6 +2716,7 @@ static int exec_child(
         if (r >= 0)
                 r = flags_fds(fds, n_storage_fds, n_socket_fds, context->non_blocking);
         if (r < 0) {
+                *error_message = strdup("Failed to adjust passed file descriptors");
                 *exit_status = EXIT_FDS;
                 return r;
         }
@@ -2711,6 +2732,7 @@ static int exec_child(
 
                         r = setrlimit_closest(i, context->rlimit[i]);
                         if (r < 0) {
+                                *error_message = strdup("Failed to adjust resource limits");
                                 *exit_status = EXIT_LIMITS;
                                 return r;
                         }
@@ -2719,6 +2741,7 @@ static int exec_child(
                 /* Set the RTPRIO resource limit to 0, but only if nothing else was explicitly requested. */
                 if (context->restrict_realtime && !context->rlimit[RLIMIT_RTPRIO]) {
                         if (setrlimit(RLIMIT_RTPRIO, &RLIMIT_MAKE_CONST(0)) < 0) {
+                                *error_message = strdup("Failed to adjust RLIMIT_RTPRIO resource limit");
                                 *exit_status = EXIT_LIMITS;
                                 return -errno;
                         }
@@ -2785,7 +2808,7 @@ static int exec_child(
                                 r = setexeccon(exec_context);
                                 if (r < 0) {
                                         *exit_status = EXIT_SELINUX_CONTEXT;
-                                        (void) asprintf(error_message, "Failed to set SELinux context to %s", exec_context);
+                                        (void) asprintf(error_message, "Failed to change SELinux context to %s", exec_context);
                                         return r;
                                 }
                         }
@@ -2819,7 +2842,7 @@ static int exec_child(
                 if (prctl(PR_GET_SECUREBITS) != secure_bits)
                         if (prctl(PR_SET_SECUREBITS, secure_bits) < 0) {
                                 *exit_status = EXIT_SECUREBITS;
-                                *error_message = strdup("Failed to set secure bits");
+                                *error_message = strdup("Failed to set process secure bits");
                                 return -errno;
                         }
 
@@ -2898,7 +2921,7 @@ static int exec_child(
                 r = apply_syscall_filter(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_SECCOMP;
-                        *error_message = strdup("Failed to apply syscall filters");
+                        *error_message = strdup("Failed to apply system call filters");
                         return r;
                 }
 #endif
