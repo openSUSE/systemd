@@ -76,3 +76,5 @@
 #ifndef TTY_GID
 #define TTY_GID 5
 #endif
+
+#define LONG_LINE_MAX (1U*1024U*1024U)
