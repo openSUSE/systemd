@@ -167,7 +167,7 @@ struct Unit {
         LIST_FIELDS(Unit, gc_queue);
 
         /* CGroup realize members queue */
-        LIST_FIELDS(Unit, cgroup_queue);
+        LIST_FIELDS(Unit, cgroup_realize_queue);
 
         /* Units with the same CGroup netclass */
         LIST_FIELDS(Unit, cgroup_netclass);
@@ -267,7 +267,7 @@ struct Unit {
         bool in_dbus_queue:1;
         bool in_cleanup_queue:1;
         bool in_gc_queue:1;
-        bool in_cgroup_queue:1;
+        bool in_cgroup_realize_queue:1;
 
         bool sent_dbus_new_signal:1;
 
