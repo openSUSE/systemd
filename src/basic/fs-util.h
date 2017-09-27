@@ -73,3 +73,10 @@ union inotify_event_buffer {
         struct inotify_event ev;
         uint8_t raw[INOTIFY_EVENT_MAX];
 };
+
+enum {
+        CHASE_PREFIX_ROOT = 1,   /* If set, the specified path will be prefixed by the specified root before beginning the iteration */
+        CHASE_NONEXISTENT = 2,   /* If set, it's OK if the path doesn't actually exist. */
+};
+
+int chase_symlinks(const char *path_with_prefix, const char *root, unsigned flags, char **ret);
