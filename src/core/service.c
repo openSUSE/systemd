@@ -1344,8 +1344,7 @@ fail:
 static int main_pid_good(Service *s) {
         assert(s);
 
-        /* Returns 0 if the pid is dead, 1 if it is good, -1 if we
-         * don't know */
+        /* Returns 0 if the pid is dead, > 0 if it is good, < 0 if we don't know */
 
         /* If we know the pid file, then let's just check if it is
          * still valid */
