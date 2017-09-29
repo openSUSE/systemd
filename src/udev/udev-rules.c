@@ -2189,9 +2189,9 @@ int udev_rules_apply_to_event(struct udev_rules *rules,
 
                                 if (fgets(cmdline, sizeof(cmdline), f) != NULL) {
                                         const char *key = rules_str(rules, cur->key.value_off);
-                                        char *pos;
-
-                                        pos = strstr(cmdline, key);
+                                        char *pos = cmdline;
+retry:
+                                        pos = strstr(pos, key);
                                         if (pos != NULL) {
                                                 pos += strlen(key);
                                                 if (pos[0] == '\0' || isspace(pos[0])) {
@@ -2199,7 +2199,12 @@ int udev_rules_apply_to_event(struct udev_rules *rules,
                                                         udev_device_add_property(event->dev, key, "1");
                                                         imported = true;
                                                 } else if (pos[0] == '=') {
+                                                        const char *first = pos - strlen(key);
                                                         const char *value;
+
+                                                        /* Is this only a substring match ? */
+                                                        if (first != cmdline && !isspace(first[-1]))
+                                                                goto skip;
 
                                                         pos++;
                                                         value = pos;
@@ -2208,6 +2213,14 @@ int udev_rules_apply_to_event(struct udev_rules *rules,
                                                         pos[0] = '\0';
                                                         udev_device_add_property(event->dev, key, value);
                                                         imported = true;
+                                                } else {
+skip:
+                                                        /* 'key' is only a substring of the current
+                                                         * one. Skip it. */
+                                                        while (pos[0] != '\0' && !isspace(pos[0]))
+                                                                pos++;
+
+                                                        goto retry;
                                                 }
                                         }
                                 }
