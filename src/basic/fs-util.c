@@ -676,13 +676,11 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                                                 return -ENOMEM;
                                 }
 
-                        }
-
-                        /* Prefix what's left to do with what we just read, and start the loop again,
-                         * but remain in the current directory. */
-
-                        /* fbui: added the NULL sentinel */
-                        joined = strjoin("/", destination, todo, NULL);
+                                /* Prefix what's left to do with what we just read, and start the loop again, but
+                                 * remain in the current directory. */
+                                joined = strjoin(destination, todo, NULL);
+                        } else
+                                joined = strjoin("/", destination, todo, NULL);
                         if (!joined)
                                 return -ENOMEM;
 
