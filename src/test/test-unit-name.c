@@ -463,9 +463,13 @@ static void test_unit_name_path_unescape(void) {
 }
 
 int main(int argc, char* argv[]) {
-        int rc = 0;
+        int r, rc = 0;
 
-        enter_cgroup_subroot();
+        r = enter_cgroup_subroot();
+        if (r == -ENOMEDIUM) {
+                log_notice_errno(r, "Skipping test: cgroupfs not available");
+                return EXIT_TEST_SKIP;
+        }
 
         test_unit_name_is_valid();
         test_unit_name_replace_instance();
