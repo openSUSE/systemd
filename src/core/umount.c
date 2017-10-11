@@ -39,12 +39,14 @@
 #include "string-util.h"
 #include "udev-util.h"
 #include "umount.h"
+#include "mount-util.h"
 #include "util.h"
 #include "virt.h"
 
 typedef struct MountPoint {
         char *path;
         char *options;
+        char *type;
         dev_t devnum;
         LIST_FIELDS(struct MountPoint, mount_point);
 } MountPoint;
@@ -78,7 +80,7 @@ static int mount_points_list_get(MountPoint **head) {
                 return -errno;
 
         for (i = 1;; i++) {
-                _cleanup_free_ char *path = NULL, *options = NULL;
+                _cleanup_free_ char *path = NULL, *options = NULL, *type = NULL;
                 char *p = NULL;
                 MountPoint *m;
                 int k;
@@ -92,12 +94,12 @@ static int mount_points_list_get(MountPoint **head) {
                            "%*s"        /* (6) mount flags */
                            "%*[^-]"     /* (7) optional fields */
                            "- "         /* (8) separator */
-                           "%*s "       /* (9) file system type */
+                           "%ms "       /* (9) file system type */
                            "%*s"        /* (10) mount source */
                            "%ms"        /* (11) mount options */
                            "%*[^\n]",   /* some rubbish at the end */
-                           &path, &options);
-                if (k != 2) {
+                           &path, &type, &options);
+                if (k != 3) {
                         if (k == EOF)
                                 break;
 
@@ -134,6 +136,8 @@ static int mount_points_list_get(MountPoint **head) {
                 m->path = p;
                 m->options = options;
                 options = NULL;
+                m->type = type;
+                type = NULL;
 
                 LIST_PREPEND(mount_point, *head, m);
         }
@@ -377,8 +381,12 @@ static int mount_points_list_umount(MountPoint **head, bool *changed, bool log_e
                 /* If we are in a container, don't attempt to
                    read-only mount anything as that brings no real
                    benefits, but might confuse the host, as we remount
-                   the superblock here, not the bind mound. */
-                if (detect_container() <= 0)  {
+                   the superblock here, not the bind mount.
+                   If the filesystem is a network fs, also skip the
+                   remount.  It brings no value (we cannot leave
+                   a "dirty fs") and could hang if the network is down.  */
+                if (detect_container() <= 0 &&
+                    !fstype_is_network(m->type)) {
                         _cleanup_free_ char *options = NULL;
                         /* MS_REMOUNT requires that the data parameter
                          * should be the same from the original mount
@@ -496,22 +504,22 @@ static int loopback_points_list_detach(MountPoint **head, bool *changed) {
 
 static int dm_points_list_detach(MountPoint **head, bool *changed) {
         MountPoint *m, *n;
-        int n_failed = 0, k;
-        struct stat root_st;
+        int n_failed = 0, r;
+        dev_t rootdev;
 
         assert(head);
 
-        k = lstat("/", &root_st);
+        r = get_block_device("/", &rootdev);
+        if (r <= 0)
+                rootdev = 0;
 
         LIST_FOREACH_SAFE(mount_point, m, n, *head) {
-                int r;
 
-                if (k >= 0 &&
-                    major(root_st.st_dev) != 0 &&
-                    root_st.st_dev == m->devnum) {
-                        n_failed ++;
-                        continue;
-                }
+                if (major(rootdev) != 0)
+                        if (rootdev == m->devnum) {
+                                n_failed ++;
+                                continue;
+                        }
 
                 log_info("Detaching DM %u:%u.", major(m->devnum), minor(m->devnum));
                 r = delete_dm(m->devnum);

@@ -176,3 +176,6 @@ uint64_t physical_memory(void);
 int update_reboot_param_file(const char *param);
 
 int version(void);
+
+int get_block_device(const char *path, dev_t *dev);
+int get_block_device_harder(const char *path, dev_t *dev);

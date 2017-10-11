@@ -19,6 +19,7 @@
   along with systemd; If not, see <http://www.gnu.org/licenses/>.
 ***/
 
+#include <linux/magic.h>
 #include "alloc-util.h"
 #include "dirent-util.h"
 #include "fd-util.h"
@@ -498,4 +499,236 @@ int get_files_in_directory(const char *path, char ***list) {
         }
 
         return n;
+}
+
+int chase_symlinks(const char *path, const char *original_root, unsigned flags, char **ret) {
+        _cleanup_free_ char *buffer = NULL, *done = NULL, *root = NULL;
+        _cleanup_close_ int fd = -1;
+        unsigned max_follow = 32; /* how many symlinks to follow before giving up and returning ELOOP */
+        bool exists = true;
+        char *todo;
+        int r;
+
+        assert(path);
+
+        /* This is a lot like canonicalize_file_name(), but takes an additional "root" parameter, that allows following
+         * symlinks relative to a root directory, instead of the root of the host.
+         *
+         * Note that "root" primarily matters if we encounter an absolute symlink. It is also used when following
+         * relative symlinks to ensure they cannot be used to "escape" the root directory. The path parameter passed is
+         * assumed to be already prefixed by it, except if the CHASE_PREFIX_ROOT flag is set, in which case it is first
+         * prefixed accordingly.
+         *
+         * Algorithmically this operates on two path buffers: "done" are the components of the path we already
+         * processed and resolved symlinks, "." and ".." of. "todo" are the components of the path we still need to
+         * process. On each iteration, we move one component from "todo" to "done", processing it's special meaning
+         * each time. The "todo" path always starts with at least one slash, the "done" path always ends in no
+         * slash. We always keep an O_PATH fd to the component we are currently processing, thus keeping lookup races
+         * at a minimum.
+         *
+         * Suggested usage: whenever you want to canonicalize a path, use this function. Pass the absolute path you got
+         * as-is: fully qualified and relative to your host's root. Optionally, specify the root parameter to tell this
+         * function what to do when encountering a symlink with an absolute path as directory: prefix it by the
+         * specified path.
+         *
+         * Note: there's also chase_symlinks_prefix() (see below), which as first step prefixes the passed path by the
+         * passed root. */
+
+        if (original_root) {
+                r = path_make_absolute_cwd(original_root, &root);
+                if (r < 0)
+                        return r;
+
+                if (flags & CHASE_PREFIX_ROOT)
+                        path = prefix_roota(root, path);
+        }
+
+        r = path_make_absolute_cwd(path, &buffer);
+        if (r < 0)
+                return r;
+
+        fd = open("/", O_CLOEXEC|O_NOFOLLOW|O_PATH);
+        if (fd < 0)
+                return -errno;
+
+        todo = buffer;
+        for (;;) {
+                _cleanup_free_ char *first = NULL;
+                _cleanup_close_ int child = -1;
+                struct stat st;
+                size_t n, m;
+
+                /* Determine length of first component in the path */
+                n = strspn(todo, "/");                  /* The slashes */
+                m = n + strcspn(todo + n, "/");         /* The entire length of the component */
+
+                /* Extract the first component. */
+                first = strndup(todo, m);
+                if (!first)
+                        return -ENOMEM;
+
+                todo += m;
+
+                /* Just a single slash? Then we reached the end. */
+                if (isempty(first) || path_equal(first, "/"))
+                        break;
+
+                /* Just a dot? Then let's eat this up. */
+                if (path_equal(first, "/."))
+                        continue;
+
+                /* Two dots? Then chop off the last bit of what we already found out. */
+                if (path_equal(first, "/..")) {
+                        _cleanup_free_ char *parent = NULL;
+                        int fd_parent = -1;
+
+                        /* If we already are at the top, then going up will not change anything. This is in-line with
+                         * how the kernel handles this. */
+                        if (isempty(done) || path_equal(done, "/"))
+                                continue;
+
+                        parent = dirname_malloc(done);
+                        if (!parent)
+                                return -ENOMEM;
+
+                        /* Don't allow this to leave the root dir.  */
+                        if (root &&
+                            path_startswith(done, root) &&
+                            !path_startswith(parent, root))
+                                continue;
+
+                        /* fbui: was originally "free_and_replace(done, parent);" */
+                        free(done);
+                        done = parent;
+                        parent = NULL;
+
+                        fd_parent = openat(fd, "..", O_CLOEXEC|O_NOFOLLOW|O_PATH);
+                        if (fd_parent < 0)
+                                return -errno;
+
+                        safe_close(fd);
+                        fd = fd_parent;
+
+                        continue;
+                }
+
+                /* Otherwise let's see what this is. */
+                child = openat(fd, first + n, O_CLOEXEC|O_NOFOLLOW|O_PATH);
+                if (child < 0) {
+
+                        if (errno == ENOENT &&
+                            (flags & CHASE_NONEXISTENT) &&
+                            (isempty(todo) || path_is_safe(todo))) {
+
+                                /* If CHASE_NONEXISTENT is set, and the path does not exist, then that's OK, return
+                                 * what we got so far. But don't allow this if the remaining path contains "../ or "./"
+                                 * or something else weird. */
+
+                                if (!strextend(&done, first, todo, NULL))
+                                        return -ENOMEM;
+
+                                exists = false;
+                                break;
+                        }
+
+                        return -errno;
+                }
+
+                if (fstat(child, &st) < 0)
+                        return -errno;
+
+                /* fbui: was originally:
+                 * if ((flags & CHASE_NO_AUTOFS) &&
+                 *   fd_check_fstype(child, AUTOFS_SUPER_MAGIC) > 0)
+                 *       return -EREMOTE; */
+                if (flags & CHASE_NO_AUTOFS) {
+                        struct statfs stfs;
+
+                        if (fstatfs(child, &stfs) == 0)
+                                if (stfs.f_type == AUTOFS_SUPER_MAGIC)
+                                        return -EREMOTE;
+                }
+
+
+                if (S_ISLNK(st.st_mode)) {
+                        char *joined;
+
+                        _cleanup_free_ char *destination = NULL;
+
+                        /* This is a symlink, in this case read the destination. But let's make sure we don't follow
+                         * symlinks without bounds. */
+                        if (--max_follow <= 0)
+                                return -ELOOP;
+
+                        r = readlinkat_malloc(fd, first + n, &destination);
+                        if (r < 0)
+                                return r;
+                        if (isempty(destination))
+                                return -EINVAL;
+
+                        if (path_is_absolute(destination)) {
+
+                                /* An absolute destination. Start the loop from the beginning, but use the root
+                                 * directory as base. */
+
+                                safe_close(fd);
+                                fd = open(root ?: "/", O_CLOEXEC|O_NOFOLLOW|O_PATH);
+                                if (fd < 0)
+                                        return -errno;
+
+                                free(done);
+
+                                /* Note that we do not revalidate the root, we take it as is. */
+                                if (isempty(root))
+                                        done = NULL;
+                                else {
+                                        done = strdup(root);
+                                        if (!done)
+                                                return -ENOMEM;
+                                }
+
+                        }
+
+                        /* Prefix what's left to do with what we just read, and start the loop again,
+                         * but remain in the current directory. */
+
+                        /* fbui: added the NULL sentinel */
+                        joined = strjoin("/", destination, todo, NULL);
+                        if (!joined)
+                                return -ENOMEM;
+
+                        free(buffer);
+                        todo = buffer = joined;
+
+                        continue;
+                }
+
+                /* If this is not a symlink, then let's just add the name we read to what we already verified. */
+                if (!done) {
+                        done = first;
+                        first = NULL;
+                } else {
+                        if (!strextend(&done, first, NULL))
+                                return -ENOMEM;
+                }
+
+                /* And iterate again, but go one directory further down. */
+                safe_close(fd);
+                fd = child;
+                child = -1;
+        }
+
+        if (!done) {
+                /* Special case, turn the empty string into "/", to indicate the root directory. */
+                done = strdup("/");
+                if (!done)
+                        return -ENOMEM;
+        }
+
+        if (ret) {
+                *ret = done;
+                done = NULL;
+        }
+
+        return exists;
 }
