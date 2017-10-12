@@ -40,11 +40,18 @@
 #include "strv.h"
 #include "util.h"
 
+/* libcryptsetup define for any LUKS version, compatible with libcryptsetup 1.x */
+#ifndef CRYPT_LUKS
+#define CRYPT_LUKS NULL
+#endif
+
+/* internal helper */
+#define ANY_LUKS "LUKS"
 /* as in src/cryptsetup.h */
 #define CRYPT_SECTOR_SIZE 512
 #define CRYPT_MAX_SECTOR_SIZE 4096
 
-static const char *arg_type = NULL; /* CRYPT_LUKS1, CRYPT_TCRYPT or CRYPT_PLAIN */
+static const char *arg_type = NULL; /* ANY_LUKS, CRYPT_LUKS1, CRYPT_LUKS2, CRYPT_TCRYPT or CRYPT_PLAIN */
 static char *arg_cipher = NULL;
 static unsigned arg_key_size = 0;
 #ifdef HAVE_LIBCRYPTSETUP_SECTOR_SIZE
@@ -134,7 +141,7 @@ static int parse_one_option(const char *option) {
 
         } else if (startswith(option, "key-slot=")) {
 
-                arg_type = CRYPT_LUKS1;
+                arg_type = ANY_LUKS;
                 if (safe_atoi(option+9, &arg_key_slot) < 0) {
                         log_error("key-slot= parse failure, ignoring.");
                         return 0;
@@ -174,7 +181,7 @@ static int parse_one_option(const char *option) {
                 arg_hash = t;
 
         } else if (startswith(option, "header=")) {
-                arg_type = CRYPT_LUKS1;
+                arg_type = ANY_LUKS;
 
                 if (!path_is_absolute(option+7)) {
                         log_error("Header path '%s' is not absolute, refusing.", option+7);
@@ -204,7 +211,7 @@ static int parse_one_option(const char *option) {
         else if (STR_IN_SET(option, "allow-discards", "discard"))
                 arg_discards = true;
         else if (streq(option, "luks"))
-                arg_type = CRYPT_LUKS1;
+                arg_type = ANY_LUKS;
         else if (streq(option, "tcrypt"))
                 arg_type = CRYPT_TCRYPT;
         else if (streq(option, "tcrypt-hidden")) {
@@ -512,8 +519,8 @@ static int attach_luks_or_plain(struct crypt_device *cd,
         assert(name);
         assert(key_file || passwords);
 
-        if (!arg_type || streq(arg_type, CRYPT_LUKS1)) {
-                r = crypt_load(cd, CRYPT_LUKS1, NULL);
+        if (!arg_type || STR_IN_SET(arg_type, ANY_LUKS, CRYPT_LUKS1)) {
+                r = crypt_load(cd, CRYPT_LUKS, NULL);
                 if (r < 0) {
                         log_error("crypt_load() failed on device %s.\n", crypt_get_device_name(cd));
                         return r;
