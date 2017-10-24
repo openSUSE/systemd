@@ -239,6 +239,7 @@ struct Manager {
 
         bool taint_usr:1;
         bool test_run:1;
+        bool ready_sent:1;
 
         /* If non-zero, exit with the following value when the systemd
          * process terminate. Useful for containers: systemd-nspawn could get
