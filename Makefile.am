@@ -166,6 +166,7 @@ dist_zshcompletion_DATA = $(dist_zshcompletion_data)
 nodist_zshcompletion_DATA = $(nodist_zshcompletion_data)
 endif
 udevlibexec_PROGRAMS =
+udevlibexec_SCRIPTS =
 gperf_gperf_sources =
 rootlib_LTLIBRARIES =
 
@@ -4245,6 +4246,14 @@ udevlibexec_PROGRAMS += \
 
 dist_udevrules_DATA += \
 	rules/60-persistent-v4l.rules
+
+# ------------------------------------------------------------------------------
+dist_udevrules_DATA += \
+	rules/75-persistent-net-generator.rules
+
+udevlibexec_SCRIPTS += \
+	src/udev/rule_generator/rule_generator.functions \
+	src/udev/rule_generator/write_net_rules
 
 # ------------------------------------------------------------------------------
 mtd_probe_SOURCES =  \

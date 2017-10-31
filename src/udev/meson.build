@@ -150,3 +150,7 @@ install_data(udev_pc,
 
 meson.add_install_script('sh', '-c',
                          mkdir_p.format(join_paths(sysconfdir, 'udev/rules.d')))
+
+install_data('rule_generator/rule_generator.functions',
+        'rule_generator/write_net_rules',
+        install_dir : udevlibexecdir)
