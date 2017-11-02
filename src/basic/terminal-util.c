@@ -47,6 +47,7 @@
 #include "log.h"
 #include "macro.h"
 #include "parse-util.h"
+#include "proc-cmdline.h"
 #include "process-util.h"
 #include "socket-util.h"
 #include "stat-util.h"
@@ -788,7 +789,20 @@ bool tty_is_vc_resolve(const char *tty) {
 }
 
 const char *default_term_for_tty(const char *tty) {
-        return tty && tty_is_vc_resolve(tty) ? "linux" : "vt220";
+        if (tty && tty_is_vc_resolve(tty))
+                return "linux";
+
+#if defined (__s390__) || defined (__s390x__)
+        if (tty && tty_is_console(tty)) {
+                _cleanup_free_ char *mode = NULL;
+
+                /* Simply return "dumb" in case of OOM. */
+                (void) proc_cmdline_get_key("conmode", 0, &mode);
+                (void) proc_cmdline_value_missing("conmode", mode);
+                return streq_ptr(mode, "3270") ? "ibm327x" : "dumb";
+        }
+#endif
+        return "vt220";
 }
 
 int fd_columns(int fd) {

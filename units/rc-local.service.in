@@ -10,7 +10,7 @@
 [Unit]
 Description=@RC_LOCAL_SCRIPT_PATH_START@ Compatibility
 ConditionFileIsExecutable=@RC_LOCAL_SCRIPT_PATH_START@
-After=network.target
+After=basic.target
 
 [Service]
 Type=forking

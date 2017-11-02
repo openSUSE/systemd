@@ -562,6 +562,12 @@ dist_systemunit_DATA += \
 dist_systemunit_DATA_busnames += \
 	units/busnames.target
 
+if HAVE_SYSV_COMPAT
+dist_systemunit_DATA += \
+	units/var-run.mount \
+	units/var-lock.mount
+endif
+
 nodist_systemunit_DATA = \
 	units/getty@.service \
 	units/serial-getty@.service \
@@ -2855,6 +2861,18 @@ systemd_delta_LDADD = \
 	libsystemd-shared.la
 
 # ------------------------------------------------------------------------------
+if HAVE_SYSV_COMPAT
+systemd_insserv_generator_SOURCES = \
+	src/insserv-generator/insserv-generator.c
+
+systemd_insserv_generator_LDADD = \
+	libsystemd-shared.la
+
+systemgenerator_PROGRAMS += \
+	systemd-insserv-generator
+endif
+
+# ------------------------------------------------------------------------------
 systemd_getty_generator_SOURCES = \
 	src/getty-generator/getty-generator.c
 
@@ -3886,13 +3904,15 @@ dist_udevrules_DATA += \
 	rules/60-persistent-storage.rules \
 	rules/60-sensor.rules \
 	rules/60-serial.rules \
+	rules/60-ssd-scheduler.rules \
 	rules/64-btrfs.rules \
 	rules/70-joystick.rules \
 	rules/70-mouse.rules \
 	rules/70-touchpad.rules \
 	rules/75-net-description.rules \
 	rules/78-sound-card.rules \
-	rules/80-net-setup-link.rules
+	rules/80-net-setup-link.rules \
+	rules/80-hotplug-cpu-mem.rules
 
 nodist_udevrules_DATA += \
 	rules/50-udev-default.rules \
@@ -6611,6 +6631,9 @@ GRAPHICAL_TARGET_WANTS += \
 	systemd-update-utmp-runlevel.service
 RESCUE_TARGET_WANTS += \
 	systemd-update-utmp-runlevel.service
+LOCAL_FS_TARGET_WANTS += \
+	var-run.mount \
+	var-lock.mount
 endif
 
 SYSINIT_TARGET_WANTS += \
@@ -6624,8 +6647,10 @@ LOCAL_FS_TARGET_WANTS += \
 	systemd-remount-fs.service \
 	tmp.mount
 
+if ENABLE_MACHINED
 REMOTE_FS_TARGET_WANTS += \
 	var-lib-machines.mount
+endif
 
 MULTI_USER_TARGET_WANTS += \
 	getty.target \

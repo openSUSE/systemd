@@ -1098,7 +1098,6 @@ void unit_dump(Unit *u, FILE *f, const char *prefix) {
 
 /* Common implementation for multiple backends */
 int unit_load_fragment_and_dropin(Unit *u) {
-        Unit *t;
         int r;
 
         assert(u);
@@ -1111,18 +1110,15 @@ int unit_load_fragment_and_dropin(Unit *u) {
         if (u->load_state == UNIT_STUB)
                 return -ENOENT;
 
-        /* If the unit is an alias and the final unit has already been
-         * loaded, there's no point in reloading the dropins one more time. */
-        t = unit_follow_merge(u);
-        if (t != u && t->load_state != UNIT_STUB)
-                return 0;
-
-        return unit_load_dropin(t);
+        /* Load drop-in directory data. If u is an alias, we might be reloading the
+         * target unit needlessly. But we cannot be sure which drops-ins have already
+         * been loaded and which not, at least without doing complicated book-keeping,
+         * so let's always reread all drop-ins. */
+        return unit_load_dropin(unit_follow_merge(u));
 }
 
 /* Common implementation for multiple backends */
 int unit_load_fragment_and_dropin_optional(Unit *u) {
-        Unit *t;
         int r;
 
         assert(u);
@@ -1138,13 +1134,8 @@ int unit_load_fragment_and_dropin_optional(Unit *u) {
         if (u->load_state == UNIT_STUB)
                 u->load_state = UNIT_LOADED;
 
-        /* If the unit is an alias and the final unit has already been
-         * loaded, there's no point in reloading the dropins one more time. */
-        t = unit_follow_merge(u);
-        if (t != u && t->load_state != UNIT_STUB)
-                return 0;
-
-        return unit_load_dropin(t);
+        /* Load drop-in directory data */
+        return unit_load_dropin(unit_follow_merge(u));
 }
 
 int unit_add_default_target_dependency(Unit *u, Unit *target) {
@@ -3942,23 +3933,11 @@ int unit_kill_context(
 
                 } else if (r > 0) {
 
-                        /* FIXME: For now, on the legacy hierarchy, we
-                         * will not wait for the cgroup members to die
-                         * if we are running in a container or if this
-                         * is a delegation unit, simply because cgroup
-                         * notification is unreliable in these
-                         * cases. It doesn't work at all in
-                         * containers, and outside of containers it
-                         * can be confused easily by left-over
-                         * directories in the cgroup — which however
-                         * should not exist in non-delegated units. On
-                         * the unified hierarchy that's different,
-                         * there we get proper events. Hence rely on
-                         * them. */
+                        /* We prefer waiting in all cases rather than
+                         * immediatly sending SIGKILL to all user
+                         * units (when delegate=yes) ! */
 
-                        if (cg_unified_controller(SYSTEMD_CGROUP_CONTROLLER) > 0 ||
-                            (detect_container() == 0 && !unit_cgroup_delegate(u)))
-                                wait_for_exit = true;
+                        wait_for_exit = true;
 
                         if (send_sighup) {
                                 set_free(pid_set);
