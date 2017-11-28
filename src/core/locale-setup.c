@@ -21,7 +21,6 @@
 #include <stdlib.h>
 
 #include "env-util.h"
-#include "alloc-util.h"
 #include "fileio.h"
 #include "locale-setup.h"
 #include "locale-util.h"
@@ -34,8 +33,6 @@ int locale_setup(char ***environment) {
         char **add;
         char *variables[_VARIABLE_LC_MAX] = {};
         int r = 0, i;
-        char _cleanup_free_ *rc_lang = NULL, *rc_lc_ctype = NULL;
-        char _cleanup_free_ *root_uses_lang = NULL;
 
         if (detect_container() <= 0) {
                 r = parse_env_file("/proc/cmdline", WHITESPACE,
@@ -81,42 +78,6 @@ int locale_setup(char ***environment) {
 
                 if (r < 0 && r != -ENOENT)
                         log_warning_errno(r, "Failed to read /etc/locale.conf: %m");
-        }
-
-        r = parse_env_file("/etc/sysconfig/language", NEWLINE,
-                           "RC_LANG", &rc_lang,
-                           "RC_LC_CTYPE", &rc_lc_ctype,
-                           "ROOT_USES_LANG", &root_uses_lang,
-                           NULL);
-
-        if (r < 0 && r != -ENOENT)
-                log_warning_errno(r, "Failed to read /etc/sysconfig/language: %m");
-
-        /*
-         * Use the values of the interactive locale configuration in /etc/sysconfig/language
-         * as fallback if /etc/locale.conf does not exist and no locale was specified on the
-         * kernel's command line.  The special case ROOT_USES_LANG=ctype allows to set LC_CTYPE
-         * even if LANG for root is set to e.g. POSIX. But do this only if no LC_CTYPE has been
-         * set in /etc/locale.conf and on the kernel's command line.
-         */
-        if (root_uses_lang) {
-                if (strcaseeq(root_uses_lang, "yes") && !variables[VARIABLE_LANG]) {
-                        variables[VARIABLE_LANG] = rc_lang;
-                        rc_lang = NULL;
-                }
-                if (strcaseeq(root_uses_lang, "ctype") && !variables[VARIABLE_LC_CTYPE]) {
-                        if (variables[VARIABLE_LANG])
-                                variables[VARIABLE_LC_CTYPE] = strdup(variables[VARIABLE_LANG]);
-
-                        else if (!isempty(rc_lc_ctype)) {
-                                variables[VARIABLE_LC_CTYPE] = rc_lc_ctype;
-                                rc_lc_ctype = NULL;
-
-                        } else if (!isempty(rc_lang)) {
-                                variables[VARIABLE_LC_CTYPE] = rc_lang;
-                                rc_lang = NULL;
-                        }
-                }
         }
 
         add = NULL;
