@@ -539,8 +539,7 @@ void unit_free(Unit *u) {
         if (!u)
                 return;
 
-        if (u->transient_file)
-                fclose(u->transient_file);
+        u->transient_file = safe_fclose(u->transient_file);
 
         if (!MANAGER_IS_RELOADING(u->manager))
                 unit_remove_transient(u);
@@ -1325,9 +1324,7 @@ int unit_load(Unit *u) {
                 if (r < 0)
                         goto fail;
 
-                fclose(u->transient_file);
-                u->transient_file = NULL;
-
+                u->transient_file = safe_fclose(u->transient_file);
                 u->fragment_mtime = now(CLOCK_REALTIME);
         }
 
