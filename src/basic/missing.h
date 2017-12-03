@@ -553,10 +553,6 @@ static inline pid_t gettid(void) {
 #define PR_SET_CHILD_SUBREAPER 36
 #endif
 
-#ifndef MAX_HANDLE_SZ
-#define MAX_HANDLE_SZ 128
-#endif
-
 #ifndef __NR_name_to_handle_at
 #  if defined(__x86_64__)
 #    define __NR_name_to_handle_at 303
