@@ -616,6 +616,9 @@ nodist_userunit_DATA = \
 dist_systempreset_DATA = \
 	system-preset/90-systemd.preset
 
+userslicedropindir=$(systemunitdir)/user-.slice.d
+dist_userslicedropin_DATA=units/user-.slice.d/10-defaults.conf
+
 EXTRA_DIST += \
 	units/getty@.service.m4 \
 	units/serial-getty@.service.m4 \
