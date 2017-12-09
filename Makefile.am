@@ -6050,14 +6050,12 @@ systemd_logind_SOURCES = \
 	src/login/logind.c \
 	src/login/logind.h
 
-nodist_systemd_logind_SOURCES = \
-	src/login/logind-gperf.c
-
 systemd_logind_LDADD = \
 	liblogind-core.la
 
 liblogind_core_la_SOURCES = \
 	src/login/logind-core.c \
+	src/login/logind-gperf.c \
 	src/login/logind-device.c \
 	src/login/logind-device.h \
 	src/login/logind-button.c \
