@@ -568,6 +568,7 @@ nodist_systemunit_DATA = \
 	units/emergency.service \
 	units/rescue.service \
 	units/user@.service \
+	units/user-runtime-dir@.service \
 	units/systemd-suspend.service \
 	units/systemd-halt.service \
 	units/systemd-poweroff.service \
@@ -645,6 +646,7 @@ EXTRA_DIST += \
 	units/systemd-fsck-root.service.in \
 	units/systemd-machine-id-commit.service.in \
 	units/user@.service.in \
+	units/user-runtime-dir@.service.in \
 	units/debug-shell.service.in \
 	units/systemd-suspend.service.in \
 	units/quotaon.service.in \
@@ -6263,6 +6265,18 @@ endif
 
 EXTRA_DIST += \
 	units/systemd-user-sessions.service.in
+
+# ------------------------------------------------------------------------------
+systemd_user_runtime_dir_SOURCES = \
+	src/login/user-runtime-dir.c \
+	src/login/logind.h
+
+systemd_user_runtime_dir_LDADD = \
+	liblogind-core.la \
+	libsystemd-shared.la
+
+rootlibexec_PROGRAMS += \
+	systemd-user-runtime-dir
 
 # ------------------------------------------------------------------------------
 EXTRA_DIST += \

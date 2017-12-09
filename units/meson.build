@@ -201,6 +201,7 @@ in_units = [
          'multi-user.target.wants/'],
         ['systemd-vconsole-setup.service',       'ENABLE_VCONSOLE'],
         ['systemd-volatile-root.service',        ''],
+        ['user-runtime-dir@.service',            ''],
         ['user@.service',                        ''],
 ]
 

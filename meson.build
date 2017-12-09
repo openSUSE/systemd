@@ -1457,6 +1457,14 @@ if conf.get('ENABLE_LOGIND', false)
         endif
 endif
 
+executable('systemd-user-runtime-dir',
+           user_runtime_dir_sources,
+           include_directories : includes,
+           link_with : [libshared, liblogind_core],
+           install_rpath : rootlibexecdir,
+           install : true,
+           install_dir : rootlibexecdir)
+
 if conf.get('HAVE_PAM', false)
         executable('systemd-user-sessions',
                    'src/user-sessions/user-sessions.c',
