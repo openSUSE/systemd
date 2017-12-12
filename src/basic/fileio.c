@@ -118,6 +118,9 @@ int write_string_file(const char *fn, const char *line, WriteStringFileFlags fla
                 }
         }
 
+        if (flags & WRITE_STRING_FILE_DISABLE_BUFFER)
+                setvbuf(f, NULL, _IONBF, 0);
+
         r = write_string_stream(f, line, !(flags & WRITE_STRING_FILE_AVOID_NEWLINE));
         if (r < 0)
                 goto fail;
