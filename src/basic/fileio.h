@@ -33,6 +33,7 @@ typedef enum {
         WRITE_STRING_FILE_ATOMIC = 2,
         WRITE_STRING_FILE_AVOID_NEWLINE = 4,
         WRITE_STRING_FILE_VERIFY_ON_FAILURE = 8,
+        WRITE_STRING_FILE_DISABLE_BUFFER = 16,
 } WriteStringFileFlags;
 
 int write_string_stream_ts(FILE *f, const char *line, bool enforce_newline, struct timespec *ts);
