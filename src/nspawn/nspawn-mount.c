@@ -476,9 +476,9 @@ static int mkdir_userns(const char *path, mode_t mode, MountSettingsMask mask, u
 
         assert(path);
 
-        r = mkdir(path, mode);
-        if (r < 0 && errno != EEXIST)
-                return -errno;
+        r = mkdir_errno_wrapper(path, mode);
+        if (r < 0 && r != -EEXIST)
+                return r;
 
         if ((mask & MOUNT_USE_USERNS) == 0)
                 return 0;
@@ -486,8 +486,7 @@ static int mkdir_userns(const char *path, mode_t mode, MountSettingsMask mask, u
         if (mask & MOUNT_IN_USERNS)
                 return 0;
 
-        r = lchown(path, uid_shift, uid_shift);
-        if (r < 0)
+        if (lchown(path, uid_shift, uid_shift) < 0)
                 return -errno;
 
         return 0;
