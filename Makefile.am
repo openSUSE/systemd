@@ -4049,6 +4049,10 @@ udevadm_SOURCES = \
 	src/udev/udevadm-util.c \
 	src/udev/udevadm-util.h
 
+udevadm_CFLAGS = \
+	$(AM_CFLAGS) \
+       -DLOG_REALM=LOG_REALM_UDEV
+
 udevadm_LDADD = \
 	libudev-core.la \
 	libbasic.la
