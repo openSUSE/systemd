@@ -20,13 +20,16 @@
 ***/
 
 #include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
+#include "fd-util.h"
 #include "fileio.h"
 #include "log.h"
 #include "string-util.h"
@@ -59,6 +62,7 @@ char *sysctl_normalize(char *s) {
 
 int sysctl_write(const char *property, const char *value) {
         char *p;
+        _cleanup_close_ int fd = -1;
 
         assert(property);
         assert(value);
@@ -66,7 +70,17 @@ int sysctl_write(const char *property, const char *value) {
         log_debug("Setting '%s' to '%s'", property, value);
 
         p = strjoina("/proc/sys/", property);
-        return write_string_file(p, value, WRITE_STRING_FILE_DISABLE_BUFFER);
+        fd = open(p, O_WRONLY|O_CLOEXEC);
+        if (fd < 0)
+                return -errno;
+
+        if (!endswith(value, "\n"))
+                value = strjoina(value, "\n");
+
+        if (write(fd, value, strlen(value)) < 0)
+                return -errno;
+
+        return 0;
 }
 
 int sysctl_read(const char *property, char **content) {
