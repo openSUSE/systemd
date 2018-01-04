@@ -269,7 +269,7 @@
       </varlistentry>
 
       <varlistentry>
-        <term><option>--no-man</option></term>
+        <term><option>--man=no</option></term>
 
         <listitem><para>Do not invoke man to verify the existence of
         man pages listed in <varname>Documentation=</varname>.

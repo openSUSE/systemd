@@ -1661,7 +1661,7 @@ static void unit_check_unneeded(Unit *u) {
 
         for (j = 0; j < ELEMENTSOF(needed_dependencies); j++)
                 SET_FOREACH(other, u->dependencies[needed_dependencies[j]], i)
-                        if (unit_active_or_pending(other))
+                        if (unit_active_or_pending(other) || unit_will_restart(other))
                                 return;
 
         /* If stopping a unit fails continously we might enter a stop
@@ -3069,6 +3069,15 @@ bool unit_active_or_pending(Unit *u) {
                 return true;
 
         return false;
+}
+
+bool unit_will_restart(Unit *u) {
+        assert(u);
+
+        if (!UNIT_VTABLE(u)->will_restart)
+                return false;
+
+        return UNIT_VTABLE(u)->will_restart(u);
 }
 
 int unit_kill(Unit *u, KillWho w, int signo, sd_bus_error *error) {
