@@ -35,6 +35,7 @@ typedef enum {
         WRITE_STRING_FILE_ATOMIC = 2,
         WRITE_STRING_FILE_AVOID_NEWLINE = 4,
         WRITE_STRING_FILE_VERIFY_ON_FAILURE = 8,
+        WRITE_STRING_FILE_DISABLE_BUFFER = 16,
 } WriteStringFileFlags;
 
 int write_string_stream(FILE *f, const char *line, bool enforce_newline);
@@ -82,3 +83,5 @@ int tempfn_random_child(const char *p, const char *extra, char **ret);
 
 int write_timestamp_file_atomic(const char *fn, usec_t n);
 int read_timestamp_file(const char *fn, usec_t *ret);
+
+int read_line(FILE *f, size_t limit, char **ret);
