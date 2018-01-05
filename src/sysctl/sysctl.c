@@ -75,9 +75,10 @@ static char* normalize_sysctl(char *s) {
 }
 
 static int apply_sysctl(const char *property, const char *value) {
-        _cleanup_free_ char *p = NULL;
+        _cleanup_close_ int fd = -1;
+        _cleanup_free_ char *p = NULL, *s = NULL;
         char *n;
-        int r = 0, k;
+        int r = 0, k = 0;
 
         log_debug("Setting '%s' to '%s'", property, value);
 
@@ -104,7 +105,22 @@ static int apply_sysctl(const char *property, const char *value) {
                 }
         }
 
-        k = write_string_file(p, value);
+        fd = open(p, O_WRONLY|O_CLOEXEC);
+        if (fd < 0) {
+                k = -errno;
+                goto out;
+        }
+
+        s = strjoin(value, endswith(value, "\n") ? NULL : "\n", NULL);
+        if (!s) {
+                k = -ENOMEM;
+                goto out;
+        }
+
+        if (write(fd, s, strlen(s)) < 0)
+                k = -errno;
+
+out:
         if (k < 0) {
                 log_full(k == -ENOENT ? LOG_DEBUG : LOG_WARNING,
                          "Failed to write '%s' to '%s': %s", value, p, strerror(-k));
