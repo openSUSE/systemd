@@ -28,6 +28,7 @@
 #include <getopt.h>
 #include <sys/utsname.h>
 
+#include "def.h"
 #include "log.h"
 #include "strv.h"
 #include "util.h"
@@ -149,7 +150,7 @@ static int parse_file(Hashmap *sysctl_options, const char *path, bool ignore_eno
 
         log_debug("parse: %s", path);
         while (!feof(f)) {
-                char l[LINE_MAX], *p, *value, *new_value, *property, *existing;
+                char l[LONG_LINE_MAX], *p, *value, *new_value, *property, *existing;
                 void *v;
                 int k;
 
