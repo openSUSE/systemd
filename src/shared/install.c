@@ -2082,6 +2082,7 @@ int unit_file_query_preset(UnitFileScope scope, const char *root_dir, const char
         if (scope == UNIT_FILE_SYSTEM)
                 r = conf_files_list(&files, ".preset", root_dir,
                                     "/etc/systemd/system-preset",
+                                    "/run/systemd/system-preset",
                                     "/usr/local/lib/systemd/system-preset",
                                     "/usr/lib/systemd/system-preset",
 #ifdef HAVE_SPLIT_USR
@@ -2091,6 +2092,7 @@ int unit_file_query_preset(UnitFileScope scope, const char *root_dir, const char
         else if (scope == UNIT_FILE_GLOBAL)
                 r = conf_files_list(&files, ".preset", root_dir,
                                     "/etc/systemd/user-preset",
+                                    "/run/systemd/user-preset",
                                     "/usr/local/lib/systemd/user-preset",
                                     "/usr/lib/systemd/user-preset",
                                     NULL);
