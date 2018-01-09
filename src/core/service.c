@@ -1480,12 +1480,31 @@ static bool service_shall_restart(Service *s) {
         }
 }
 
+static bool service_will_restart(Unit *u) {
+        Service *s = SERVICE(u);
+
+        assert(s);
+
+        if (s->will_auto_restart)
+                return true;
+        if (s->state == SERVICE_AUTO_RESTART)
+                return true;
+        if (!UNIT(s)->job)
+                return false;
+        if (UNIT(s)->job->type == JOB_START)
+                return true;
+        return false;
+}
+
 static void service_enter_dead(Service *s, ServiceResult f, bool allow_restart) {
         int r;
         assert(s);
 
         if (s->result == SERVICE_SUCCESS)
                 s->result = f;
+
+        if (allow_restart && service_shall_restart(s))
+                s->will_auto_restart = true;
 
         service_set_state(s, s->result != SERVICE_SUCCESS ? SERVICE_FAILED : SERVICE_DEAD);
 
@@ -1494,7 +1513,8 @@ static void service_enter_dead(Service *s, ServiceResult f, bool allow_restart) 
                 emergency_action(UNIT(s)->manager, s->emergency_action, UNIT(s)->reboot_arg, "service failed");
         }
 
-        if (allow_restart && service_shall_restart(s)) {
+        if (s->will_auto_restart) {
+                s->will_auto_restart = false;
 
                 r = service_arm_timer(s, usec_add(now(CLOCK_MONOTONIC), s->restart_usec));
                 if (r < 0)
@@ -3642,6 +3662,8 @@ const UnitVTable service_vtable = {
 
         .active_state = service_active_state,
         .sub_state_to_string = service_sub_state_to_string,
+
+        .will_restart = service_will_restart,
 
         .check_gc = service_check_gc,
 
