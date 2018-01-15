@@ -252,7 +252,7 @@ option('bashcompletiondir', type : 'string',
 option('zshcompletiondir', type : 'string',
        description : 'directory for zsh completion scripts ["no" disables]')
 
-option('tests', type : 'combo', choices : ['true', 'unsafe'],
+option('tests', type : 'combo', choices : ['true', 'unsafe', 'false'],
        description : 'enable extra tests with =unsafe')
 option('install-tests', type : 'boolean', value : 'false',
        description : 'install test executables')

@@ -228,10 +228,12 @@ cc = meson.get_compiler('c')
 pkgconfig = import('pkgconfig')
 check_compilation_sh = find_program('tools/meson-check-compilation.sh')
 
-cxx = find_program('c++', required : false)
-if cxx.found()
-        #  Used only for tests
-        add_languages('cpp')
+if get_option('tests') != 'false'
+        cxx = find_program('c++', required : false)
+        if cxx.found()
+                #  Used only for tests
+                add_languages('cpp')
+        endif
 endif
 
 foreach arg : ['-Wextra',
@@ -2257,7 +2259,9 @@ foreach tuple : tests
                 type = ''
         endif
 
-        if condition == '' or conf.get(condition, false)
+        if want_tests == 'false'
+                message('Not compiling @0@ because tests is set to false'.format(name))
+        elif condition == '' or conf.get(condition) == 1
                 exe = executable(
                         name,
                         sources,
