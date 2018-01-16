@@ -180,12 +180,12 @@ static const Specifier specifier_table[] = {
 static int specifier_machine_id_safe(char specifier, void *data, void *userdata, char **ret) {
         int r;
 
-        /* If /etc/machine_id is missing (e.g. in a chroot environment), returns
-         * a recognizable error so that the caller can skip the rule
+        /* If /etc/machine_id is missing or empty (e.g. in a chroot environment)
+         * return a recognizable error so that the caller can skip the rule
          * gracefully. */
 
         r = specifier_machine_id(specifier, data, userdata, ret);
-        if (r == -ENOENT)
+        if (IN_SET(r, -ENOENT, -ENOMEDIUM))
                 return -ENOKEY;
 
         return r;
@@ -2133,8 +2133,8 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
 
                 for (n = 0; n < existing->count; n++) {
                         if (!item_compatible(existing->items + n, &i)) {
-                                log_warning("[%s:%u] Duplicate line for path \"%s\", ignoring.",
-                                            fname, line, i.path);
+                                log_notice("[%s:%u] Duplicate line for path \"%s\", ignoring.",
+                                           fname, line, i.path);
                                 return 0;
                         }
                 }
