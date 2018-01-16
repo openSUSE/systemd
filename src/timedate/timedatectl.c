@@ -490,7 +490,7 @@ static int timedatectl_main(sd_bus *bus, int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
-        _cleanup_bus_flush_close_unref_ sd_bus *bus = NULL;
+        sd_bus *bus = NULL;
         int r;
 
         setlocale(LC_ALL, "");
@@ -510,6 +510,7 @@ int main(int argc, char *argv[]) {
         r = timedatectl_main(bus, argc, argv);
 
 finish:
+        sd_bus_flush_close_unref(bus);
         pager_close();
 
         return r < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
