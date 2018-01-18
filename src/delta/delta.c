@@ -365,6 +365,30 @@ static int enumerate_dir(Hashmap *top, Hashmap *bottom, Hashmap *drops, const ch
         }
 }
 
+static bool should_skip_path(const char *prefix, const char *suffix) {
+#ifdef HAVE_SPLIT_USR
+        _cleanup_free_ char *target = NULL;
+        const char *p;
+        char *dirname;
+
+        dirname = strjoina(prefix, "/", suffix);
+
+        if (chase_symlinks(dirname, NULL, 0, &target) < 0)
+                return false;
+
+        NULSTR_FOREACH(p, prefixes) {
+                if (path_startswith(dirname, p))
+                        continue;
+
+                if (path_equal(target, strjoina(p, "/", suffix))) {
+                        log_debug("%s redirects to %s, skipping.", dirname, target);
+                        return true;
+                }
+        }
+#endif
+        return false;
+}
+
 static int process_suffix(const char *suffix, const char *onlyprefix) {
         const char *p;
         char *f;
@@ -392,6 +416,9 @@ static int process_suffix(const char *suffix, const char *onlyprefix) {
 
         NULSTR_FOREACH(p, prefixes) {
                 _cleanup_free_ char *t = NULL;
+
+                if (should_skip_path(p, suffix))
+                        continue;
 
                 t = strjoin(p, "/", suffix, NULL);
                 if (!t) {
@@ -469,11 +496,13 @@ static int process_suffix_chop(const char *arg) {
 
         /* Strip prefix from the suffix */
         NULSTR_FOREACH(p, prefixes) {
-                const char *suffix = startswith(arg, p);
+                const char *suffix;
+
+                suffix = startswith(arg, p);
                 if (suffix) {
                         suffix += strspn(suffix, "/");
                         if (*suffix)
-                                return process_suffix(suffix, NULL);
+                                return process_suffix(suffix, p);
                         else
                                 return process_suffixes(arg);
                 }

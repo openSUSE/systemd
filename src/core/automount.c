@@ -729,8 +729,9 @@ static int automount_start_expire(Automount *a) {
         return 0;
 }
 
-static void automount_enter_runnning(Automount *a) {
+static void automount_enter_running(Automount *a) {
         _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
+        Unit *trigger;
         struct stat st;
         int r;
 
@@ -759,14 +760,24 @@ static void automount_enter_runnning(Automount *a) {
                 goto fail;
         }
 
-        if (!S_ISDIR(st.st_mode) || st.st_dev != a->dev_id)
+        /* The mount unit may have been explicitly started before we got the
+         * autofs request. Ack it to unblock anything waiting on the mount point. */
+        if (!S_ISDIR(st.st_mode) || st.st_dev != a->dev_id) {
                 log_unit_info(UNIT(a), "Automount point already active?");
-        else {
-                r = manager_add_job(UNIT(a)->manager, JOB_START, UNIT_TRIGGER(UNIT(a)), JOB_REPLACE, &error, NULL);
-                if (r < 0) {
-                        log_unit_warning(UNIT(a), "Failed to queue mount startup job: %s", bus_error_message(&error, r));
-                        goto fail;
-                }
+                automount_send_ready(a, a->tokens, 0);
+                return;
+        }
+
+        trigger = UNIT_TRIGGER(UNIT(a));
+        if (!trigger) {
+                log_unit_error(UNIT(a), "Unit to trigger vanished.");
+                goto fail;
+        }
+
+        r = manager_add_job(UNIT(a)->manager, JOB_START, trigger, JOB_REPLACE, &error, NULL);
+        if (r < 0) {
+                log_unit_warning(UNIT(a), "Failed to queue mount startup job: %s", bus_error_message(&error, r));
+                goto fail;
         }
 
         automount_set_state(a, AUTOMOUNT_RUNNING);
@@ -778,6 +789,7 @@ fail:
 
 static int automount_start(Unit *u) {
         Automount *a = AUTOMOUNT(u);
+        Unit *trigger;
 
         assert(a);
         assert(a->state == AUTOMOUNT_DEAD || a->state == AUTOMOUNT_FAILED);
@@ -787,8 +799,11 @@ static int automount_start(Unit *u) {
                 return -EEXIST;
         }
 
-        if (UNIT_TRIGGER(u)->load_state != UNIT_LOADED)
+        trigger = UNIT_TRIGGER(u);
+        if (!trigger || trigger->load_state != UNIT_LOADED) {
+                log_unit_error(u, "Refusing to start, unit to trigger not loaded.");
                 return -ENOENT;
+        }
 
         a->result = AUTOMOUNT_SUCCESS;
         automount_enter_waiting(a);
@@ -934,6 +949,7 @@ static int automount_dispatch_io(sd_event_source *s, int fd, uint32_t events, vo
         _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
         union autofs_v5_packet_union packet;
         Automount *a = AUTOMOUNT(userdata);
+        Unit *trigger;
         int r;
 
         assert(a);
@@ -974,7 +990,7 @@ static int automount_dispatch_io(sd_event_source *s, int fd, uint32_t events, vo
                         goto fail;
                 }
 
-                automount_enter_runnning(a);
+                automount_enter_running(a);
                 break;
 
         case autofs_ptype_expire_direct:
@@ -995,7 +1011,13 @@ static int automount_dispatch_io(sd_event_source *s, int fd, uint32_t events, vo
                 }
 
 
-                r = manager_add_job(UNIT(a)->manager, JOB_STOP, UNIT_TRIGGER(UNIT(a)), JOB_REPLACE, &error, NULL);
+                trigger = UNIT_TRIGGER(UNIT(a));
+                if (!trigger) {
+                        log_unit_error(UNIT(a), "Unit to trigger vanished.");
+                        goto fail;
+                }
+
+                r = manager_add_job(UNIT(a)->manager, JOB_STOP, trigger, JOB_REPLACE, &error, NULL);
                 if (r < 0) {
                         log_unit_warning(UNIT(a), "Failed to queue umount startup job: %s", bus_error_message(&error, r));
                         goto fail;
