@@ -75,6 +75,7 @@ static bool show_location = false;
 static bool upgrade_syslog_to_journal = false;
 static bool always_reopen_console = false;
 static bool open_when_needed = false;
+static bool prohibit_ipc = false;
 
 /* Akin to glibc's __abort_msg; which is private and we hence cannot
  * use here. */
@@ -252,7 +253,8 @@ int log_open(void) {
             getpid() == 1 ||
             isatty(STDERR_FILENO) <= 0) {
 
-                if (IN_SET(log_target, LOG_TARGET_AUTO,
+                if (!prohibit_ipc &&
+                    IN_SET(log_target, LOG_TARGET_AUTO,
                                        LOG_TARGET_JOURNAL_OR_KMSG,
                                        LOG_TARGET_JOURNAL)) {
                         r = log_open_journal();
@@ -263,7 +265,8 @@ int log_open(void) {
                         }
                 }
 
-                if (IN_SET(log_target, LOG_TARGET_SYSLOG_OR_KMSG,
+                if (!prohibit_ipc &&
+                    IN_SET(log_target, LOG_TARGET_SYSLOG_OR_KMSG,
                                        LOG_TARGET_SYSLOG)) {
                         r = log_open_syslog();
                         if (r >= 0) {
@@ -1237,4 +1240,8 @@ void log_set_always_reopen_console(bool b) {
 
 void log_set_open_when_needed(bool b) {
         open_when_needed = b;
+}
+
+void log_set_prohibit_ipc(bool b) {
+        prohibit_ipc = b;
 }
