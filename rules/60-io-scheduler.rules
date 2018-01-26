@@ -1,0 +1,26 @@
+# Set optimal IO schedulers for HDD and SSD
+
+ACTION!="add", GOTO="scheduler_end"
+SUBSYSTEM!="block", GOTO="scheduler_end"
+
+# Check for blk-mq presence
+IMPORT{cmdline}="scsi_mod.use_blk_mq"
+ENV{scsi_mod.use_blk_mq}!="1", GOTO="blk_mq_end"
+
+# HDD: BFQ scheduler
+KERNEL=="sd*[!0-9]", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq", GOTO="scheduler_end"
+# SSD: deadline scheduler
+KERNEL=="sd*[!0-9]", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline", GOTO="scheduler_end"
+
+LABEL="blk_mq_end"
+
+# Do not change scheduler if `elevator` cmdline parameter is set
+IMPORT{cmdline}="elevator"
+ENV{elevator}=="*?", GOTO="scheduler_end"
+
+# HDD: CFQ scheduler
+KERNEL=="sd*[!0-9]", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="cfq"
+# SSD: deadline scheduler
+KERNEL=="sd*[!0-9]", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="deadline"
+
+LABEL="scheduler_end"
