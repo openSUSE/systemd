@@ -69,6 +69,8 @@ int take_etc_passwd_lock(const char *root);
 #define DYNAMIC_UID_MIN ((uid_t) UINT32_C(0x0000EF00))
 #define DYNAMIC_UID_MAX ((uid_t) UINT32_C(0x0000FFEF))
 
+#define ETC_PASSWD_LOCK_PATH "/etc/.pwd.lock"
+
 static inline bool uid_is_dynamic(uid_t uid) {
         return DYNAMIC_UID_MIN <= uid && uid <= DYNAMIC_UID_MAX;
 }
