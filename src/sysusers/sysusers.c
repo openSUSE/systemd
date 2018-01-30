@@ -59,6 +59,7 @@ typedef struct Item {
         char *gid_path;
         char *description;
         char *home;
+        char *shell;
 
         gid_t gid;
         uid_t uid;
@@ -377,6 +378,10 @@ static int rename_and_apply_smack(const char *temp_path, const char *dest_path) 
         return r;
 }
 
+static const char* default_shell(uid_t uid) {
+        return uid == 0 ? "/bin/sh" : "/sbin/nologin";
+}
+
 static int write_files(void) {
 
         _cleanup_fclose_ FILE *passwd = NULL, *group = NULL, *shadow = NULL, *gshadow = NULL;
@@ -629,10 +634,9 @@ static int write_files(void) {
                                 /* We default to the root directory as home */
                                 .pw_dir = i->home ? i->home : (char*) "/",
 
-                                /* Initialize the shell to nologin,
-                                 * with one exception: for root we
+                                /* Initialize the shell to nologin, with one exception: for root we
                                  * patch in something special */
-                                .pw_shell = i->uid == 0 ? (char*) "/bin/sh" : (char*) "/sbin/nologin",
+                                .pw_shell = i->shell ?: (char*) default_shell(i->uid),
                         };
 
                         errno = 0;
@@ -1254,6 +1258,7 @@ static void item_free(Item *i) {
         free(i->gid_path);
         free(i->description);
         free(i->home);
+        free(i->shell);
         free(i);
 }
 
@@ -1361,6 +1366,9 @@ static bool item_equal(Item *a, Item *b) {
         if (!streq_ptr(a->home, b->home))
                 return false;
 
+        if (!streq_ptr(a->shell, b->shell))
+                return false;
+
         return true;
 }
 
@@ -1374,7 +1382,12 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
                 {}
         };
 
-        _cleanup_free_ char *action = NULL, *name = NULL, *id = NULL, *resolved_name = NULL, *resolved_id = NULL, *description = NULL, *home = NULL;
+        _cleanup_free_ char *action = NULL,
+                *name = NULL, *resolved_name = NULL,
+                *id = NULL, *resolved_id = NULL,
+                *description = NULL,
+                *home = NULL,
+                *shell, *resolved_shell = NULL;
         _cleanup_(item_freep) Item *i = NULL;
         Item *existing;
         OrderedHashmap *h;
@@ -1387,7 +1400,8 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
 
         /* Parse columns */
         p = buffer;
-        r = extract_many_words(&p, NULL, EXTRACT_QUOTES, &action, &name, &id, &description, &home, NULL);
+        r = extract_many_words(&p, NULL, EXTRACT_QUOTES,
+                               &action, &name, &id, &description, &home, &shell, NULL);
         if (r < 0) {
                 log_error("[%s:%u] Syntax error.", fname, line);
                 return r;
@@ -1463,6 +1477,24 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
                 }
         }
 
+        /* Verify shell */
+        if (isempty(shell) || streq(shell, "-"))
+                shell = mfree(shell);
+
+        if (shell) {
+                r = specifier_printf(shell, specifier_table, NULL, &resolved_shell);
+                if (r < 0) {
+                        log_error("[%s:%u] Failed to replace specifiers: %s", fname, line, shell);
+                        return r;
+                }
+
+                if (!valid_shell(resolved_shell)) {
+                        log_error("[%s:%u] '%s' is not a valid login shell field.", fname, line, resolved_shell);
+                        return -EINVAL;
+                }
+        }
+
+
         switch (action[0]) {
 
         case ADD_RANGE:
@@ -1476,13 +1508,10 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
                         return -EINVAL;
                 }
 
-                if (description) {
-                        log_error("[%s:%u] Lines of type 'r' don't take a GECOS field.", fname, line);
-                        return -EINVAL;
-                }
-
-                if (home) {
-                        log_error("[%s:%u] Lines of type 'r' don't take a home directory field.", fname, line);
+                if (description || home || shell) {
+                        log_error("[%s:%u] Lines of type '%c' don't take a %s field.",
+                                  fname, line, action[0],
+                                  description ? "GECOS" : home ? "home directory" : "login shell");
                         return -EINVAL;
                 }
 
@@ -1513,13 +1542,10 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
                         return -EINVAL;
                 }
 
-                if (description) {
-                        log_error("[%s:%u] Lines of type 'm' don't take a GECOS field.", fname, line);
-                        return -EINVAL;
-                }
-
-                if (home) {
-                        log_error("[%s:%u] Lines of type 'm' don't take a home directory field.", fname, line);
+                if (description || home || shell) {
+                        log_error("[%s:%u] Lines of type '%c' don't take a %s field.",
+                                  fname, line, action[0],
+                                  description ? "GECOS" : home ? "home directory" : "login shell");
                         return -EINVAL;
                 }
 
@@ -1603,6 +1629,9 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
                 i->home = home;
                 home = NULL;
 
+                i->shell = resolved_shell;
+                resolved_shell = NULL;
+
                 h = users;
                 break;
 
@@ -1612,13 +1641,10 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
                         return -EINVAL;
                 }
 
-                if (description) {
-                        log_error("[%s:%u] Lines of type 'g' don't take a GECOS field.", fname, line);
-                        return -EINVAL;
-                }
-
-                if (home) {
-                        log_error("[%s:%u] Lines of type 'g' don't take a home directory field.", fname, line);
+                if (description || home || shell) {
+                        log_error("[%s:%u] Lines of type '%c' don't take a %s field.",
+                                  fname, line, action[0],
+                                  description ? "GECOS" : home ? "home directory" : "login shell");
                         return -EINVAL;
                 }
 
