@@ -64,7 +64,9 @@ typedef struct Item {
         uid_t uid;
 
         bool gid_set:1;
-        bool gid_must_exist:1;
+        // id_set_strict means that the group with the specified gid must
+        // exist and that the check if a uid clashes with a gid is skipped
+        bool id_set_strict:1;
         bool uid_set:1;
 
         bool todo_user:1;
@@ -830,7 +832,7 @@ finish:
         return r;
 }
 
-static int uid_is_ok(uid_t uid, const char *name) {
+static int uid_is_ok(uid_t uid, const char *name, bool check_with_gid) {
         struct passwd *p;
         struct group *g;
         const char *n;
@@ -842,17 +844,21 @@ static int uid_is_ok(uid_t uid, const char *name) {
 
         /* Try to avoid using uids that are already used by a group
          * that doesn't have the same name as our new user. */
-        i = ordered_hashmap_get(todo_gids, GID_TO_PTR(uid));
-        if (i && !streq(i->name, name))
-                return 0;
+        if (check_with_gid) {
+                i = ordered_hashmap_get(todo_gids, GID_TO_PTR(uid));
+                if (i && !streq(i->name, name))
+                        return 0;
+        }
 
         /* Let's check the files directly */
         if (hashmap_contains(database_uid, UID_TO_PTR(uid)))
                 return 0;
 
-        n = hashmap_get(database_gid, GID_TO_PTR(uid));
-        if (n && !streq(n, name))
-                return 0;
+        if (check_with_gid) {
+                n = hashmap_get(database_gid, GID_TO_PTR(uid));
+                if (n && !streq(n, name))
+                        return 0;
+        }
 
         /* Let's also check via NSS, to avoid UID clashes over LDAP and such, just in case */
         if (!arg_root) {
@@ -863,13 +869,15 @@ static int uid_is_ok(uid_t uid, const char *name) {
                 if (!IN_SET(errno, 0, ENOENT))
                         return -errno;
 
-                errno = 0;
-                g = getgrgid((gid_t) uid);
-                if (g) {
-                        if (!streq(g->gr_name, name))
-                                return 0;
-                } else if (!IN_SET(errno, 0, ENOENT))
-                        return -errno;
+                if (check_with_gid) {
+                        errno = 0;
+                        g = getgrgid((gid_t) uid);
+                        if (g) {
+                                if (!streq(g->gr_name, name))
+                                        return 0;
+                        } else if (!IN_SET(errno, 0, ENOENT))
+                                return -errno;
+                }
         }
 
         return 1;
@@ -981,7 +989,7 @@ static int add_user(Item *i) {
 
         /* Try to use the suggested numeric uid */
         if (i->uid_set) {
-                r = uid_is_ok(i->uid, i->name);
+                r = uid_is_ok(i->uid, i->name, !i->id_set_strict);
                 if (r < 0)
                         return log_error_errno(r, "Failed to verify uid " UID_FMT ": %m", i->uid);
                 if (r == 0) {
@@ -999,7 +1007,7 @@ static int add_user(Item *i) {
                         if (c <= 0 || !uid_range_contains(uid_range, n_uid_range, c))
                                 log_debug("User ID " UID_FMT " of file not suitable for %s.", c, i->name);
                         else {
-                                r = uid_is_ok(c, i->name);
+                                r = uid_is_ok(c, i->name, true);
                                 if (r < 0)
                                         return log_error_errno(r, "Failed to verify uid " UID_FMT ": %m", i->uid);
                                 else if (r > 0) {
@@ -1013,7 +1021,7 @@ static int add_user(Item *i) {
 
         /* Otherwise, try to reuse the group ID */
         if (!i->uid_set && i->gid_set) {
-                r = uid_is_ok((uid_t) i->gid, i->name);
+                r = uid_is_ok((uid_t) i->gid, i->name, true);
                 if (r < 0)
                         return log_error_errno(r, "Failed to verify uid " UID_FMT ": %m", i->uid);
                 if (r > 0) {
@@ -1031,7 +1039,7 @@ static int add_user(Item *i) {
                                 return r;
                         }
 
-                        r = uid_is_ok(search_uid, i->name);
+                        r = uid_is_ok(search_uid, i->name, true);
                         if (r < 0)
                                 return log_error_errno(r, "Failed to verify uid " UID_FMT ": %m", i->uid);
                         else if (r > 0)
@@ -1128,7 +1136,7 @@ static int add_group(Item *i) {
                 r = gid_is_ok(i->gid);
                 if (r < 0)
                         return log_error_errno(r, "Failed to verify gid " GID_FMT ": %m", i->gid);
-                if (i->gid_must_exist) {
+                if (i->id_set_strict) {
                         /* If we require the gid to already exist we can return here:
                          * r > 0: means the gid does not exist -> fail
                          * r == 0: means the gid exists -> nothing more to do.
@@ -1652,7 +1660,7 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
                                         if (r < 0)
                                                 return log_error_errno(r, "Failed to parse GID: '%s': %m", id);
                                         i->gid_set = true;
-                                        i->gid_must_exist = true;
+                                        i->id_set_strict = true;
                                         free_and_replace(resolved_id, uid);
                                 }
                                 r = parse_uid(resolved_id, &i->uid);
@@ -1913,7 +1921,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (!uid_range) {
-                /* Default to default range of 1..SYSTEMD_UID_MAX */
+                /* Default to default range of 1..SYSTEM_UID_MAX */
                 r = uid_range_add(&uid_range, &n_uid_range, 1, SYSTEM_UID_MAX);
                 if (r < 0) {
                         log_oom();
