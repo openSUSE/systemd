@@ -16,6 +16,10 @@
 # doesn't rely on them and they could be disabled permanently.
 #
 # Thanks !
+#
+# Note: this rules file can rely on all ID_* variables (set by
+# 60-persistent-storage.rule) but should not overwrite them, see
+# bsc#1048679 for details.
 
 ACTION=="remove", GOTO="persistent_storage_end"
 
@@ -49,11 +53,33 @@ ENV{COMPAT_SYMLINK_GENERATION}!="?*", ENV{COMPAT_SYMLINK_GENERATION}="1"
 #
 ENV{COMPAT_SYMLINK_GENERATION}!="1", GOTO="generation_2"
 
-# NVMe links were introduced first via a SUSE specific commit
+# NVMe symlinks were introduced first via a SUSE specific commit
 # (bsc#944132) and upstream gained support later but of course using a
-# different scheme. Also note that ID_SERIAL is already used by the
-# contemporary rules, see bsc#1048679 for details.
-KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", PROGRAM="scsi_id --whitelisted --replace-whitespace -d $devnode", RESULT=="?*", ENV{ID_NVME_SERIAL_COMPAT}="$result"
+# different scheme.
+
+# The SCSI translation layer for NVMe devices has been removed from
+# the kernel since 4.13, therefore we switched from scsi_id to the
+# sysfs interface to generate the name of the compat symlinks.
+# Unfortunately we can't use %s{model} to retrieve the model string
+# because udev strips any trailing whitespaces and some plateforms
+# (QEMU does that) might append such chars. In those cases scsi_id was
+# replacing them with a single trailing '_'. Therefore the currently
+# code retrieves the model string manually making sure to preserve all
+# characters so trailing whitespaces are still converted when the
+# symlink is created.
+
+# KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", ATTRS{model}=="?*", ATTRS{serial}=="?*" \
+#   PROGRAM=="/bin/sh -c 'MODEL=\"%s{model}\"; echo \"${MODEL:0:16}\"'", ENV{ID_NVME_SERIAL_COMPAT}="SNVMe_%c%s{serial}"
+
+KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", ATTRS{model}=="?*", ATTRS{serial}=="?*" \
+  PROGRAM=="/bin/sh -c ' \
+    cd /sys/%p; \
+    while ! [ -f model ]; do \
+      cd ..; \
+      [ $(pwd) = %S ] && exit 1; \
+   done; \
+   cut -c 1-16 model'", ENV{ID_NVME_SERIAL_COMPAT}="SNVMe_%c%s{serial}"
+
 KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_NVME_SERIAL_COMPAT}"
 KERNEL=="nvme*", ENV{DEVTYPE}=="partition", ENV{ID_NVME_SERIAL_COMPAT}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_NVME_SERIAL_COMPAT}-part%n"
 
