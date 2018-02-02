@@ -1564,6 +1564,14 @@ if conf.get('HAVE_SYSV_COMPAT', false)
                    install_rpath : rootlibexecdir,
                    install : true,
                    install_dir : systemgeneratordir)
+
+        executable('systemd-insserv-generator',
+                   'src/insserv-generator/insserv-generator.c',
+                   include_directories : includes,
+                   link_with : [libshared],
+                   install_rpath : rootlibexecdir,
+                   install : true,
+                   install_dir : systemgeneratordir)
 endif
 
 if conf.get('ENABLE_HOSTNAMED', false)
