@@ -101,6 +101,8 @@ units = [
         ['timers.target',                       ''],
         ['umount.target',                       ''],
         ['user.slice',                          ''],
+        ['var-run.mount',                       'HAVE_SYSV_COMPAT',        'local-fs.target.wants/'],
+        ['var-lock.mount',                      'HAVE_SYSV_COMPAT',        'local-fs.target.wants/'],
         ['var-lib-machines.mount',              'ENABLE_MACHINED',
          'remote-fs.target.wants/ machines.target.wants/'],
 ]
