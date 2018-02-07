@@ -842,7 +842,7 @@ static int bus_setup_api(Manager *m, sd_bus *bus) {
         return 0;
 }
 
-static int bus_init_api(Manager *m) {
+int bus_init_api(Manager *m) {
         _cleanup_(sd_bus_unrefp) sd_bus *bus = NULL;
         int r;
 
@@ -910,7 +910,7 @@ static int bus_setup_system(Manager *m, sd_bus *bus) {
         return 0;
 }
 
-static int bus_init_system(Manager *m) {
+int bus_init_system(Manager *m) {
         _cleanup_(sd_bus_unrefp) sd_bus *bus = NULL;
         int r;
 
@@ -951,7 +951,7 @@ static int bus_init_system(Manager *m) {
         return 0;
 }
 
-static int bus_init_private(Manager *m) {
+int bus_init_private(Manager *m) {
         _cleanup_close_ int fd = -1;
         union sockaddr_union sa = {
                 .un.sun_family = AF_UNIX
@@ -1016,26 +1016,6 @@ static int bus_init_private(Manager *m) {
         fd = -1;
 
         log_debug("Successfully created private D-Bus server.");
-
-        return 0;
-}
-
-int bus_init(Manager *m, bool try_bus_connect) {
-        int r;
-
-        if (try_bus_connect) {
-                r = bus_init_system(m);
-                if (r < 0)
-                        return r;
-
-                r = bus_init_api(m);
-                if (r < 0)
-                        return r;
-        }
-
-        r = bus_init_private(m);
-        if (r < 0)
-                return r;
 
         return 0;
 }
