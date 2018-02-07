@@ -3203,7 +3203,7 @@ UnitFileState unit_get_unit_file_state(Unit *u) {
                 r = unit_file_get_state(
                                 u->manager->running_as == MANAGER_SYSTEM ? UNIT_FILE_SYSTEM : UNIT_FILE_USER,
                                 NULL,
-                                basename(u->fragment_path),
+                                u->id,
                                 &u->unit_file_state);
                 if (r < 0)
                         u->unit_file_state = UNIT_FILE_BAD;
