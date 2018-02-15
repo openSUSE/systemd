@@ -1004,11 +1004,13 @@ libbasic_la_CFLAGS = \
 	$(AM_CFLAGS) \
 	$(SELINUX_CFLAGS) \
 	$(CAP_CFLAGS) \
+	$(MOUNT_CFLAGS) \
 	-pthread
 
 libbasic_la_LIBADD = \
 	$(SELINUX_LIBS) \
 	$(CAP_LIBS) \
+	$(MOUNT_LIBS) \
 	-lrt
 
 # -----------------------------------------------------------------------------
