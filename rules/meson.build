@@ -9,6 +9,7 @@ rules = files('''
         60-persistent-storage.rules
         60-persistent-storage-tape.rules
         60-persistent-v4l.rules
+        60-ssd-scheduler.rules
         60-sensor.rules
         60-serial.rules
         61-persistent-storage-compat.rules
