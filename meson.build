@@ -418,7 +418,8 @@ foreach ident : ['secure_getenv', '__secure_getenv']
 endforeach
 
 foreach ident : [
-        ['memfd_create',      '''#include <sys/memfd.h>'''],
+        ['memfd_create',      '''#define _GNU_SOURCE
+                                 #include <sys/mman.h>'''],
         ['gettid',            '''#include <sys/types.h>'''],
         ['pivot_root',        '''#include <stdlib.h>'''],     # no known header declares pivot_root
         ['name_to_handle_at', '''#define _GNU_SOURCE
@@ -431,7 +432,8 @@ foreach ident : [
         ['kcmp',              '''#include <linux/kcmp.h>'''],
         ['keyctl',            '''#include <sys/types.h>
                                  #include <keyutils.h>'''],
-        ['copy_file_range',   '''#include <sys/syscall.h>
+        ['copy_file_range',   '''#define _GNU_SOURCE
+                                 #include <sys/syscall.h>
                                  #include <unistd.h>'''],
         ['explicit_bzero' ,   '''#include <string.h>'''],
 ]
@@ -1562,6 +1564,14 @@ if conf.get('HAVE_SYSV_COMPAT', false)
                    install_rpath : rootlibexecdir,
                    install : true,
                    install_dir : systemgeneratordir)
+
+        executable('systemd-insserv-generator',
+                   'src/insserv-generator/insserv-generator.c',
+                   include_directories : includes,
+                   link_with : [libshared],
+                   install_rpath : rootlibexecdir,
+                   install : true,
+                   install_dir : systemgeneratordir)
 endif
 
 if conf.get('ENABLE_HOSTNAMED', false)
@@ -2193,18 +2203,17 @@ if conf.get('ENABLE_NETWORKD', false)
                    install_rpath : rootlibexecdir,
                    install : true,
                    install_dir : rootlibexecdir)
-endif
 
-exe = executable('networkctl',
-                 networkctl_sources,
-                 include_directories : includes,
-                 link_with : [libsystemd_network,
+        exe = executable('networkctl',
+                   networkctl_sources,
+                   include_directories : includes,
+                   link_with : [libsystemd_network,
                               libshared],
-                 install_rpath : rootlibexecdir,
-                 install : true,
-                 install_dir : rootbindir)
-public_programs += [exe]
-
+                   install_rpath : rootlibexecdir,
+                   install : true,
+                   install_dir : rootbindir)
+        public_programs += [exe]
+endif
 ############################################################
 
 foreach tuple : tests
