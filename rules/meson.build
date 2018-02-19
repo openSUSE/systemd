@@ -21,6 +21,7 @@ rules = files('''
         78-sound-card.rules
         80-drivers.rules
         80-net-setup-link.rules
+        80-hotplug-cpu-mem.rules
 '''.split())
 
 install_data(rules,
