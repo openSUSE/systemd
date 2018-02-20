@@ -625,7 +625,9 @@ void unit_free(Unit *u) {
         safe_close(u->ipv6_deny_map_fd);
 
         bpf_program_unref(u->ip_bpf_ingress);
+        bpf_program_unref(u->ip_bpf_ingress_installed);
         bpf_program_unref(u->ip_bpf_egress);
+        bpf_program_unref(u->ip_bpf_egress_installed);
 
         free(u);
 }
