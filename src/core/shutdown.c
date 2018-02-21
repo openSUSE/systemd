@@ -312,15 +312,18 @@ int main(int argc, char *argv[]) {
         int cmd, r;
         static const char* const dirs[] = {SYSTEM_SHUTDOWN_PATH, NULL};
 
+        /* The log target defaults to console, but the original systemd process will pass its log target in through a
+         * command line argument, which will override this default. Also, ensure we'll never log to the journal or
+         * syslog, as these logging daemons are either already dead or will die very soon. */
+
+        log_set_target(LOG_TARGET_CONSOLE);
+        log_set_prohibit_ipc(true);
         log_parse_environment();
+
         r = parse_argv(argc, argv);
         if (r < 0)
                 goto error;
 
-        /* journald will die if not gone yet. The log target defaults
-         * to console, but may have been changed by command line options. */
-
-        log_set_prohibit_ipc(true);
         log_open();
 
         umask(0022);
@@ -342,8 +345,8 @@ int main(int argc, char *argv[]) {
         else if (streq(arg_verb, "exit"))
                 cmd = 0; /* ignored, just checking that arg_verb is valid */
         else {
-                r = -EINVAL;
                 log_error("Unknown action '%s'.", arg_verb);
+                r = -EINVAL;
                 goto error;
         }
 
@@ -365,7 +368,7 @@ int main(int argc, char *argv[]) {
                 bump_sysctl_printk_log_level(LOG_WARNING);
 
         /* Lock us into memory */
-        mlockall(MCL_CURRENT|MCL_FUTURE);
+        (void) mlockall(MCL_CURRENT|MCL_FUTURE);
 
         /* Synchronize everything that is not written to disk yet at this point already. This is a good idea so that
          * slow IO is processed here already and the final process killing spree is not impacted by processes
