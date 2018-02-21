@@ -89,14 +89,14 @@ static int parse_argv(int argc, char *argv[]) {
                 case ARG_LOG_LEVEL:
                         r = log_set_max_level_from_string(optarg);
                         if (r < 0)
-                                log_error("Failed to parse log level %s, ignoring.", optarg);
+                                log_error_errno(r, "Failed to parse log level %s, ignoring.", optarg);
 
                         break;
 
                 case ARG_LOG_TARGET:
                         r = log_set_target_from_string(optarg);
                         if (r < 0)
-                                log_error("Failed to parse log target %s, ignoring", optarg);
+                                log_error_errno(r, "Failed to parse log target %s, ignoring", optarg);
 
                         break;
 
@@ -105,7 +105,7 @@ static int parse_argv(int argc, char *argv[]) {
                         if (optarg) {
                                 r = log_show_color_from_string(optarg);
                                 if (r < 0)
-                                        log_error("Failed to parse log color setting %s, ignoring", optarg);
+                                        log_error_errno(r, "Failed to parse log color setting %s, ignoring", optarg);
                         } else
                                 log_show_color(true);
 
@@ -115,7 +115,7 @@ static int parse_argv(int argc, char *argv[]) {
                         if (optarg) {
                                 r = log_show_location_from_string(optarg);
                                 if (r < 0)
-                                        log_error("Failed to parse log location setting %s, ignoring", optarg);
+                                        log_error_errno(r, "Failed to parse log location setting %s, ignoring", optarg);
                         } else
                                 log_show_location(true);
 
@@ -124,7 +124,7 @@ static int parse_argv(int argc, char *argv[]) {
                 case ARG_EXIT_CODE:
                         r = safe_atou8(optarg, &arg_exit_code);
                         if (r < 0)
-                                log_error("Failed to parse exit code %s, ignoring", optarg);
+                                log_error_errno(r, "Failed to parse exit code %s, ignoring", optarg);
 
                         break;
 
