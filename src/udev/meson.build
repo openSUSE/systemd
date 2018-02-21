@@ -189,3 +189,5 @@ install_data(udev_pc,
 
 meson.add_install_script('sh', '-c',
                          mkdir_p.format(join_paths(sysconfdir, 'udev/rules.d')))
+
+subdir('compat')
