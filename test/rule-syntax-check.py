@@ -33,10 +33,10 @@ else:
         sys.exit(2)
     rules_files = glob(os.path.join(rules_dir, '*.rules'))
 
-no_args_tests = re.compile(r'(ACTION|DEVPATH|KERNELS?|NAME|SYMLINK|SUBSYSTEMS?|DRIVERS?|TAG|PROGRAM|RESULT|TEST)\s*(?:=|!)=\s*"([^"]*)"$')
-args_tests = re.compile(r'(ATTRS?|ENV|TEST){([a-zA-Z0-9/_.*%-]+)}\s*(?:=|!)=\s*"([^"]*)"$')
-no_args_assign = re.compile(r'(NAME|SYMLINK|OWNER|GROUP|MODE|TAG|RUN|LABEL|GOTO|OPTIONS|IMPORT)\s*(?:\+=|:=|=)\s*"([^"]*)"$')
-args_assign = re.compile(r'(ATTR|ENV|IMPORT|RUN){([a-zA-Z0-9/_.*%-]+)}\s*(=|\+=)\s*"([^"]*)"$')
+no_args_tests = re.compile(r'(ACTION|DEVPATH|KERNELS?|NAME|SYMLINK|SUBSYSTEMS?|DRIVERS?|TAG|PROGRAM|RESULT|TEST)\s*(?:=|!)=\s*"(.*)"$')
+args_tests = re.compile(r'(ATTRS?|ENV|TEST){([a-zA-Z0-9/_.*%-]+)}\s*(?:=|!)=\s*"(.*)"$')
+no_args_assign = re.compile(r'(NAME|SYMLINK|OWNER|GROUP|MODE|TAG|RUN|LABEL|GOTO|OPTIONS|IMPORT)\s*(?:\+=|:=|=)\s*"(.*)"$')
+args_assign = re.compile(r'(ATTR|ENV|IMPORT|RUN){([a-zA-Z0-9/_.*%-]+)}\s*(=|\+=)\s*"(.*)"$')
 
 result = 0
 buffer = ''
@@ -58,6 +58,8 @@ for path in rules_files:
         if not line or line.startswith('#'):
             continue
 
+        # Separator ',' is normally optional but we make it mandatory here as
+        # it generally improves the readability of the rules.
         for clause in line.split(','):
             clause = clause.strip()
             if not (no_args_tests.match(clause) or args_tests.match(clause) or
