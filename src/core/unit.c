@@ -3982,7 +3982,7 @@ UnitFileState unit_get_unit_file_state(Unit *u) {
                 r = unit_file_get_state(
                                 u->manager->unit_file_scope,
                                 NULL,
-                                basename(u->fragment_path),
+                                u->id,
                                 &u->unit_file_state);
                 if (r < 0)
                         u->unit_file_state = UNIT_FILE_BAD;
@@ -4558,23 +4558,11 @@ int unit_kill_context(
 
                 } else if (r > 0) {
 
-                        /* FIXME: For now, on the legacy hierarchy, we
-                         * will not wait for the cgroup members to die
-                         * if we are running in a container or if this
-                         * is a delegation unit, simply because cgroup
-                         * notification is unreliable in these
-                         * cases. It doesn't work at all in
-                         * containers, and outside of containers it
-                         * can be confused easily by left-over
-                         * directories in the cgroup — which however
-                         * should not exist in non-delegated units. On
-                         * the unified hierarchy that's different,
-                         * there we get proper events. Hence rely on
-                         * them. */
+                        /* We prefer waiting in all cases rather than
+                         * immediatly sending SIGKILL to all user
+                         * units (when delegate=yes) ! */
 
-                        if (cg_unified_controller(SYSTEMD_CGROUP_CONTROLLER) > 0 ||
-                            (detect_container() == 0 && !UNIT_CGROUP_BOOL(u, delegate)))
-                                wait_for_exit = true;
+                        wait_for_exit = true;
 
                         if (send_sighup) {
                                 set_free(pid_set);
