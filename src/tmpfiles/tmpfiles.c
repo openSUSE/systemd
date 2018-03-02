@@ -733,7 +733,7 @@ static int path_set_perms(Item *i, const char *path) {
                 return r;
         }
 
-        if (fstatat(fd, "", &st, AT_EMPTY_PATH) < 0)
+        if (fstat(fd, &st) < 0)
                 return log_error_errno(errno, "Failed to fstat() file %s: %m", path);
 
         if (hardlink_vulnerable(&st)) {
@@ -922,7 +922,7 @@ static int path_set_acls(Item *item, const char *path) {
         if (fd < 0)
                 return log_error_errno(errno, "Adjusting ACL of %s failed: %m", path);
 
-        if (fstatat(fd, "", &st, AT_EMPTY_PATH) < 0)
+        if (fstat(fd, &st) < 0)
                 return log_error_errno(errno, "Failed to fstat() file %s: %m", path);
 
         if (hardlink_vulnerable(&st)) {
