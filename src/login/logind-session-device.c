@@ -530,5 +530,6 @@ void session_device_attach_fd(SessionDevice *sd, int fd, bool active) {
         assert(!sd->active);
 
         sd->fd = fd;
+        sd->pushed_fd = true;
         sd->active = active;
 }
