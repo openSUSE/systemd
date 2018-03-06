@@ -407,15 +407,21 @@ error:
 void session_device_free(SessionDevice *sd) {
         assert(sd);
 
+        /* Make sure to remove the pushed fd. */
         if (sd->pushed_fd) {
-                const char *m;
+                _cleanup_free_ char *m = NULL;
+                const char *id;
+                int r;
 
-                /* Make sure to remove the pushed fd. */
+                /* Session ID does not contain separators. */
+                id = sd->session->id;
+                assert(*(id + strcspn(id, "-\n")) == '\0');
 
-                m = strjoina("FDSTOREREMOVE=1\n"
-                             "FDNAME=session-", sd->session->id);
-
-                (void) sd_notify(false, m);
+                r = asprintf(&m, "FDSTOREREMOVE=1\n"
+                                 "FDNAME=session-%s-device-%u-%u\n",
+                                 id, major(sd->dev), minor(sd->dev));
+                if (r >= 0)
+                        (void) sd_notify(false, m);
         }
 
         session_device_stop(sd);
@@ -497,7 +503,8 @@ unsigned int session_device_try_pause_all(Session *s) {
 }
 
 int session_device_save(SessionDevice *sd) {
-        const char *m;
+        _cleanup_free_ char *m = NULL;
+        const char *id;
         int r;
 
         assert(sd);
@@ -512,8 +519,15 @@ int session_device_save(SessionDevice *sd) {
         if (sd->pushed_fd)
                 return 0;
 
-        m = strjoina("FDSTORE=1\n"
-                     "FDNAME=session-", sd->session->id);
+        /* Session ID does not contain separators. */
+        id = sd->session->id;
+        assert(*(id + strcspn(id, "-\n")) == '\0');
+
+        r = asprintf(&m, "FDSTORE=1\n"
+                         "FDNAME=session-%s-device-%u-%u\n",
+                         id, major(sd->dev), minor(sd->dev));
+        if (r < 0)
+                return r;
 
         r = sd_pid_notify_with_fds(0, false, m, &sd->fd, 1);
         if (r < 0)
