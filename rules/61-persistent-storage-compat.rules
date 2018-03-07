@@ -68,10 +68,10 @@ ENV{COMPAT_SYMLINK_GENERATION}!="1", GOTO="generation_2"
 # characters so trailing whitespaces are still converted when the
 # symlink is created.
 
-# KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", ATTRS{model}=="?*", ATTRS{serial}=="?*" \
+# KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", ATTRS{model}=="?*", ATTRS{serial}=="?*", \
 #   PROGRAM=="/bin/sh -c 'MODEL=\"%s{model}\"; echo \"${MODEL:0:16}\"'", ENV{ID_NVME_SERIAL_COMPAT}="SNVMe_%c%s{serial}"
 
-KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", ATTRS{model}=="?*", ATTRS{serial}=="?*" \
+KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", ATTRS{model}=="?*", ATTRS{serial}=="?*", \
   PROGRAM=="/bin/sh -c ' \
     cd /sys/%p; \
     while ! [ -f model ]; do \
@@ -94,7 +94,7 @@ KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-i
 KERNEL=="nvme*", ENV{DEVTYPE}=="partition", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/-$env{ID_SERIAL}-part%n"
 
 # SCSI compat links for ATA devices, removed by f6ba1a468cea (boo#769002)
-KERNEL=="sd*[!0-9]", ENV{ID_BUS}=="ata", PROGRAM="scsi_id --whitelisted --replace-whitespace -p0x80 -d $devnode", RESULT=="?*", ENV{ID_SCSI_COMPAT}="$result", SYMLINK+="disk/by-id/scsi-$env{ID_SCSI_COMPAT}"
+KERNEL=="sd*[!0-9]", ENV{ID_BUS}=="ata", PROGRAM=="scsi_id --whitelisted --replace-whitespace -p0x80 -d $devnode", RESULT=="?*", ENV{ID_SCSI_COMPAT}="$result", SYMLINK+="disk/by-id/scsi-$env{ID_SCSI_COMPAT}"
 KERNEL=="sd*[0-9]", ENV{ID_SCSI_COMPAT}=="?*", SYMLINK+="disk/by-id/scsi-$env{ID_SCSI_COMPAT}-part%n"
 
 # by-path (parent device path, compat version, only for ATA/NVMe/SAS bus) (bnc#916420)
