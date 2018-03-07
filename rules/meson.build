@@ -9,6 +9,7 @@ rules = files('''
         60-persistent-storage.rules
         60-persistent-storage-tape.rules
         60-persistent-v4l.rules
+        60-ssd-scheduler.rules
         60-sensor.rules
         60-serial.rules
         61-persistent-storage-compat.rules
@@ -21,6 +22,7 @@ rules = files('''
         78-sound-card.rules
         80-drivers.rules
         80-net-setup-link.rules
+        80-hotplug-cpu-mem.rules
 '''.split())
 
 install_data(rules,
