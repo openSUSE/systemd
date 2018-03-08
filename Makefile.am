@@ -3910,8 +3910,7 @@ dist_udevrules_DATA += \
 	rules/70-touchpad.rules \
 	rules/75-net-description.rules \
 	rules/78-sound-card.rules \
-	rules/80-net-setup-link.rules \
-	rules/80-hotplug-cpu-mem.rules
+	rules/80-net-setup-link.rules
 
 nodist_udevrules_DATA += \
 	rules/50-udev-default.rules \
