@@ -33,7 +33,7 @@ ENV{MATCHADDR}="$attr{address}"
 ENV{MATCHIFTYPE}="$attr{type}"
 
 # detect virtualization (none is set if we are not a guest)
-ENV{ID_VIRT}="none", PROGRAM="/usr/bin/systemd-detect-virt", RESULT=="?*", ENV{ID_VIRT}="$result"
+ENV{ID_VIRT}="none", PROGRAM=="/usr/bin/systemd-detect-virt", RESULT=="?*", ENV{ID_VIRT}="$result"
 
 # KVM virtual interfaces, not to be confused with Realtek interfaces
 ENV{MATCHADDR}=="52:54:00:*", ENV{ID_VIRT}=="kvm", ENV{MATCHADDR}=""
