@@ -421,6 +421,8 @@ static int write_files(void) {
                                         goto finish;
                                 }
 
+                                errno = 0;
+
                                 /* Make sure we keep the NIS entries (if any) at the end. */
                                 if (IN_SET(gr->gr_name[0], '+', '-'))
                                         break;
@@ -459,6 +461,7 @@ static int write_files(void) {
 
                         group_changed = true;
                 }
+                errno = 0;
 
                 /* Append the remaining NIS entries if any */
                 while (gr) {
@@ -468,6 +471,7 @@ static int write_files(void) {
                                 goto finish;
                         }
 
+                        errno = 0;
                         gr = fgetgrent(original);
                 }
                 if (!IN_SET(errno, 0, ENOENT)) {
@@ -581,11 +585,12 @@ static int write_files(void) {
                                         goto finish;
                                 }
 
+                                errno = 0;
+
                                 /* Make sure we keep the NIS entries (if any) at the end. */
                                 if (IN_SET(pw->pw_name[0], '+', '-'))
                                         break;
 
-                                errno = 0;
                                 if (putpwent(pw, passwd) < 0) {
                                         r = errno ? -errno : -EIO;
                                         goto finish;
@@ -632,6 +637,7 @@ static int write_files(void) {
                                 goto finish;
                         }
                 }
+                errno = 0;
 
                 /* Append the remaining NIS entries if any */
                 while (pw) {
@@ -641,6 +647,7 @@ static int write_files(void) {
                                 goto finish;
                         }
 
+                        errno = 0;
                         pw = fgetpwent(original);
                 }
                 if (!IN_SET(errno, 0, ENOENT)) {
