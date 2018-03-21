@@ -31,11 +31,15 @@ int main(int argc, char *argv[]) {
         _cleanup_(rm_rf_physical_and_freep) char *runtime_dir = NULL;
         _cleanup_(sd_bus_error_free) sd_bus_error err = SD_BUS_ERROR_NULL;
         Manager *m = NULL;
-        Unit *a = NULL, *b = NULL, *c = NULL, *d = NULL, *e = NULL, *g = NULL, *h = NULL;
+        Unit *a = NULL, *b = NULL, *c = NULL, *d = NULL, *e = NULL, *g = NULL, *h = NULL, *unit_with_multiple_dashes = NULL;
         FILE *serial = NULL;
         FDSet *fdset = NULL;
         Job *j;
         int r;
+
+        log_set_max_level(LOG_DEBUG);
+        log_parse_environment();
+        log_open();
 
         r = enter_cgroup_subroot();
         if (r == -ENOMEDIUM) {
@@ -116,6 +120,11 @@ int main(int argc, char *argv[]) {
         manager_dump_jobs(m, stdout, "\t");
 
         manager_free(m);
+
+        assert_se(manager_load_unit(m, "unit-with-multiple-dashes.service", NULL, NULL, &unit_with_multiple_dashes) >= 0);
+
+        assert_se(strv_equal(unit_with_multiple_dashes->documentation, STRV_MAKE("man:test", "man:override2", "man:override3")));
+        assert_se(streq_ptr(unit_with_multiple_dashes->description, "override4"));
 
         return 0;
 }

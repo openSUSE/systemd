@@ -136,6 +136,12 @@ test_data_files = '''
         hwdb/10-bad.hwdb
         journal-data/journal-1.txt
         journal-data/journal-2.txt
+        unit-with-.service.d/20-override.conf
+        unit-with-multiple-.service.d/20-override.conf
+        unit-with-multiple-.service.d/30-override.conf
+        unit-with-multiple-dashes.service
+        unit-with-multiple-dashes.service.d/10-override.conf
+        unstoppable.service
 '''.split()
 
 if conf.get('ENABLE_RESOLVED', false)
