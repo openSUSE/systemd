@@ -78,3 +78,11 @@ int fd_get_path(int fd, char **ret);
 /* Hint: ENETUNREACH happens if we try to connect to "non-existing" special IP addresses, such as ::5 */
 #define ERRNO_IS_DISCONNECT(r) \
         IN_SET(r, ENOTCONN, ECONNRESET, ECONNREFUSED, ECONNABORTED, EPIPE, ENETUNREACH)
+
+/* Like TAKE_PTR() but for file descriptors, resetting them to -1 */
+#define TAKE_FD(fd)                             \
+        ({                                      \
+                int _fd_ = (fd);                \
+                (fd) = -1;                      \
+                _fd_;                           \
+        })
