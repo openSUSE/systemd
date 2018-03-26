@@ -82,6 +82,7 @@ enum {
         INFO_GID,
         INFO_SIGNAL,
         INFO_TIMESTAMP,
+        INFO_RLIMIT,
         INFO_COMM,
         INFO_EXE,
         _INFO_LEN
@@ -302,6 +303,7 @@ static int save_external_coredump(
 
         _cleanup_free_ char *fn = NULL, *tmp = NULL;
         _cleanup_close_ int fd = -1;
+        uint64_t rlimit, max_size;
         struct stat st;
         int r;
 
@@ -309,6 +311,18 @@ static int save_external_coredump(
         assert(ret_filename);
         assert(ret_fd);
         assert(ret_size);
+
+        r = safe_atou64(info[INFO_RLIMIT], &rlimit);
+        if (r < 0)
+                return log_error_errno(r, "Failed to parse resource limit: %s", info[INFO_RLIMIT]);
+        if (rlimit <= 0) {
+                /* Is coredumping disabled? Then don't bother saving/processing the coredump */
+                log_info("Core Dumping has been disabled for process %s (%s).", info[INFO_PID], info[INFO_COMM]);
+                return -EBADSLT;
+        }
+
+        /* Never store more than the process configured, or than we actually shall keep or process */
+        max_size = MIN(rlimit, MAX(arg_process_size_max, arg_external_size_max));
 
         r = make_filename(info, &fn);
         if (r < 0)
@@ -324,7 +338,7 @@ static int save_external_coredump(
         if (fd < 0)
                 return log_error_errno(errno, "Failed to create coredump file %s: %m", tmp);
 
-        r = copy_bytes(STDIN_FILENO, fd, arg_process_size_max, false);
+        r = copy_bytes(STDIN_FILENO, fd, max_size, false);
         if (r == -EFBIG) {
                 log_error("Coredump of %s (%s) is larger than configured processing limit, refusing.", info[INFO_PID], info[INFO_COMM]);
                 goto fail;
@@ -618,6 +632,7 @@ int main(int argc, char* argv[]) {
         info[INFO_GID] = argv[INFO_GID + 1];
         info[INFO_SIGNAL] = argv[INFO_SIGNAL + 1];
         info[INFO_TIMESTAMP] = argv[INFO_TIMESTAMP + 1];
+        info[INFO_RLIMIT] = argv[INFO_RLIMIT + 1];
         info[INFO_COMM] = comm;
         info[INFO_EXE] = exe;
 

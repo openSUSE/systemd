@@ -385,6 +385,7 @@ static int write_files(void) {
 
         if (hashmap_size(todo_gids) > 0 || hashmap_size(members) > 0) {
                 _cleanup_fclose_ FILE *original = NULL;
+                struct group *gr = NULL;
 
                 /* First we update the actual group list file */
                 group_path = prefix_roota(arg_root, "/etc/group");
@@ -394,7 +395,6 @@ static int write_files(void) {
 
                 original = fopen(group_path, "re");
                 if (original) {
-                        struct group *gr;
 
                         r = sync_rights(original, group);
                         if (r < 0)
@@ -420,6 +420,12 @@ static int write_files(void) {
                                         r = -EEXIST;
                                         goto finish;
                                 }
+
+                                errno = 0;
+
+                                /* Make sure we keep the NIS entries (if any) at the end. */
+                                if (IN_SET(gr->gr_name[0], '+', '-'))
+                                        break;
 
                                 r = putgrent_with_members(gr, group);
                                 if (r < 0)
@@ -454,6 +460,23 @@ static int write_files(void) {
                                 goto finish;
 
                         group_changed = true;
+                }
+                errno = 0;
+
+                /* Append the remaining NIS entries if any */
+                while (gr) {
+                        errno = 0;
+                        if (putgrent(gr, group) != 0) {
+                                r = errno > 0 ? -errno : -EIO;
+                                goto finish;
+                        }
+
+                        errno = 0;
+                        gr = fgetgrent(original);
+                }
+                if (!IN_SET(errno, 0, ENOENT)) {
+                        r = -errno;
+                        goto finish;
                 }
 
                 r = fflush_and_check(group);
@@ -531,6 +554,8 @@ static int write_files(void) {
 
         if (hashmap_size(todo_uids) > 0) {
                 _cleanup_fclose_ FILE *original = NULL;
+                struct passwd *pw = NULL;
+                struct spwd *sp = NULL;
                 long lstchg;
 
                 /* First we update the user database itself */
@@ -541,7 +566,6 @@ static int write_files(void) {
 
                 original = fopen(passwd_path, "re");
                 if (original) {
-                        struct passwd *pw;
 
                         r = sync_rights(original, passwd);
                         if (r < 0)
@@ -562,6 +586,11 @@ static int write_files(void) {
                                 }
 
                                 errno = 0;
+
+                                /* Make sure we keep the NIS entries (if any) at the end. */
+                                if (IN_SET(pw->pw_name[0], '+', '-'))
+                                        break;
+
                                 if (putpwent(pw, passwd) < 0) {
                                         r = errno ? -errno : -EIO;
                                         goto finish;
@@ -608,6 +637,23 @@ static int write_files(void) {
                                 goto finish;
                         }
                 }
+                errno = 0;
+
+                /* Append the remaining NIS entries if any */
+                while (pw) {
+                        errno = 0;
+                        if (putpwent(pw, passwd) < 0) {
+                                r = errno ? -errno : -EIO;
+                                goto finish;
+                        }
+
+                        errno = 0;
+                        pw = fgetpwent(original);
+                }
+                if (!IN_SET(errno, 0, ENOENT)) {
+                        r = -errno;
+                        goto finish;
+                }
 
                 r = fflush_and_check(passwd);
                 if (r < 0)
@@ -628,7 +674,6 @@ static int write_files(void) {
 
                 original = fopen(shadow_path, "re");
                 if (original) {
-                        struct spwd *sp;
 
                         r = sync_rights(original, shadow);
                         if (r < 0)
@@ -649,6 +694,11 @@ static int write_files(void) {
                                 }
 
                                 errno = 0;
+
+                                /* Make sure we keep the NIS entries (if any) at the end. */
+                                if (IN_SET(sp->sp_namp[0], '+', '-'))
+                                        break;
+
                                 if (putspent(sp, shadow) < 0) {
                                         r = errno ? -errno : -EIO;
                                         goto finish;
@@ -687,6 +737,19 @@ static int write_files(void) {
                                 goto finish;
                         }
                 }
+                errno = 0;
+
+                /* Append the remaining NIS entries if any */
+                while (sp) {
+                        errno = 0;
+                        if (putspent(sp, shadow) < 0)
+                                return errno ? -errno : -EIO;
+
+                        errno = 0;
+                        sp = fgetspent(original);
+                }
+                if (!IN_SET(errno, 0, ENOENT))
+                        return -errno;
 
                 r = fflush_and_check(shadow);
                 if (r < 0)
