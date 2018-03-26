@@ -86,3 +86,5 @@ int fd_get_path(int fd, char **ret);
                 (fd) = -1;                      \
                 _fd_;                           \
         })
+
+int fd_reopen(int fd, int flags);
