@@ -23,7 +23,6 @@
 
 #include <stdbool.h>
 #include <stdio.h>
-#include <libmount.h>
 
 #include "sd-bus.h"
 #include "sd-event.h"
@@ -32,6 +31,8 @@
 #include "hashmap.h"
 #include "list.h"
 #include "ratelimit.h"
+
+struct libmnt_monitor;
 
 /* Enforce upper limit how many names we allow */
 #define MANAGER_MAX_NAMES 131072 /* 128K */
