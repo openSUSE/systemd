@@ -36,7 +36,7 @@
 #include "util.h"
 
 static void test_chase_symlinks(void) {
-        _cleanup_free_ char *result = NULL;
+        _cleanup_free_ char *result = NULL, *z = NULL, *w = NULL;
         char temp[] = "/tmp/test-chase.XXXXXX";
         const char *top, *p, *q;
         int r, pfd;
@@ -245,6 +245,49 @@ static void test_chase_symlinks(void) {
                 assert_se(sd_id128_get_machine(&b) >= 0);
                 assert_se(sd_id128_equal(a, b));
         }
+
+        /* Test CHASE_ONE */
+
+        p = strjoina(temp, "/start");
+        r = chase_symlinks(p, NULL, CHASE_STEP, &result);
+        assert_se(r == 0);
+        p = strjoina(temp, "/top/dot/dotdota");
+        assert_se(streq(p, result));
+        result = mfree(result);
+
+        r = chase_symlinks(p, NULL, CHASE_STEP, &result);
+        assert_se(r == 0);
+        p = strjoina(temp, "/top/./dotdota");
+        assert_se(streq(p, result));
+        result = mfree(result);
+
+        r = chase_symlinks(p, NULL, CHASE_STEP, &result);
+        assert_se(r == 0);
+        p = strjoina(temp, "/top/../a");
+        assert_se(streq(p, result));
+        result = mfree(result);
+
+        r = chase_symlinks(p, NULL, CHASE_STEP, &result);
+        assert_se(r == 0);
+        p = strjoina(temp, "/a");
+        assert_se(streq(p, result));
+        result = mfree(result);
+
+        r = chase_symlinks(p, NULL, CHASE_STEP, &result);
+        assert_se(r == 0);
+        p = strjoina(temp, "/b");
+        assert_se(streq(p, result));
+        result = mfree(result);
+
+        r = chase_symlinks(p, NULL, CHASE_STEP, &result);
+        assert_se(r == 0);
+        assert_se(streq("/usr", result));
+        result = mfree(result);
+
+        r = chase_symlinks("/usr", NULL, CHASE_STEP, &result);
+        assert_se(r > 0);
+        assert_se(streq("/usr", result));
+        result = mfree(result);
 
         assert_se(rm_rf(temp, REMOVE_ROOT|REMOVE_PHYSICAL) >= 0);
 }
