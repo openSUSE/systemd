@@ -23,6 +23,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/sem.h>
 
 #include "dirent-util.h"
 #include "format-util.h"
@@ -31,6 +32,8 @@
 #include "smack-util.h"
 #include "stdio-util.h"
 #include "string-util.h"
+#include "siphash24.h"
+#include "hash-funcs.h"
 #include "udev.h"
 
 static int node_symlink(struct udev_device *dev, const char *node, const char *slink) {
@@ -177,6 +180,85 @@ static const char *link_find_prioritized(struct udev_device *dev, bool add, cons
         return target;
 }
 
+#define NSEM 1024
+static int init_link_semaphores(const char *path)
+{
+        key_t key = ftok(path, 0);
+        int semid;
+
+        semid = semget(key, NSEM, 0600|IPC_CREAT|IPC_EXCL);
+        if (semid != -1) {
+                unsigned short val[NSEM];
+                int i;
+                struct sembuf dummy_op[]  = {
+                        { .sem_num = 0, .sem_op = -1, .sem_flg = 0 },
+                        { .sem_num = 0, .sem_op = 1, .sem_flg = 0 },
+                };
+
+                for (i = 0; i < NSEM; i++)
+                        val[i] = 1;
+                if (semctl(semid, 0, SETALL, val) == -1)
+                        return -errno;
+
+                /* Dummy semop to set sem_otime */
+                if (semop(semid, dummy_op, (sizeof(dummy_op)/sizeof(*dummy_op)))
+                    == -1)
+                        return -errno;
+                return semid;
+        } else {
+                const int RETRIES = 10;
+                int i;
+
+                semid = semget(key, NSEM, 0);
+                if (semid == -1)
+                        return -errno;
+
+                for (i = 0; i < RETRIES; i++) {
+                        struct semid_ds ds;
+
+                        /* Wait for initialization to finish */
+                        if (semctl(semid, 0, IPC_STAT, &ds) != -1 &&
+                            ds.sem_otime != 0)
+                                return semid;
+                        usleep(10000);
+                }
+                return -1;
+        }
+}
+
+static unsigned short get_sema_index(const char *link)
+{
+        static const unsigned char seed[16] = { 0x6b, 0xb0, 0xb1, 0x28,
+                                                0xf7, 0x8c, 0x59, 0xb2,
+                                                0x05, 0x1d, 0xd1, 0xa2,
+                                                0xcc, 0x12, 0xae, 0xb7 };
+        struct siphash state;
+        uint64_t hash;
+
+        siphash24_init(&state, seed);
+        path_hash_func(link, &state);
+        hash = siphash24_finalize(&state);
+
+        return hash & (NSEM-1);
+}
+
+static int _slink_semop(int semid, unsigned short semidx,
+                        int op, const char *msg)
+{
+        struct sembuf sb = { .sem_num = semidx, .sem_op = op, .sem_flg = 0 };
+
+        if (semop(semid, &sb, 1) == -1) {
+                log_warning_errno(-errno, "failed to %s semaphore", msg);
+                return -1;
+        }
+        return 0;
+}
+
+#define lock_slink(semid, semidx) \
+        _slink_semop((semid), (semidx), -1, "acquire")
+#define unlock_slink(semid, semidx) \
+        _slink_semop((semid), (semidx), 1, "release")
+
 /* manage "stack of names" with possibly specified device priorities */
 static void link_update(struct udev_device *dev, const char *slink, bool add) {
         char name_enc[UTIL_PATH_SIZE];
@@ -184,10 +266,25 @@ static void link_update(struct udev_device *dev, const char *slink, bool add) {
         char dirname[UTIL_PATH_SIZE];
         const char *target;
         char buf[UTIL_PATH_SIZE];
+        static int semid = -1;
+        unsigned short semidx;
+
+        if (semid == -1) {
+                semid = init_link_semaphores("/run/udev/links");
+                if (semid == -1) {
+                        log_error_errno(-errno, "failed to set up semaphores");
+                        return;
+                }
+        }
+        semidx = get_sema_index(slink);
 
         util_path_encode(slink + strlen("/dev"), name_enc, sizeof(name_enc));
         strscpyl(dirname, sizeof(dirname), "/run/udev/links/", name_enc, NULL);
         strscpyl(filename, sizeof(filename), dirname, "/", udev_device_get_id_filename(dev), NULL);
+
+        mkdir_parents(dirname, 0755);
+        if (lock_slink(semid, semidx) == -1)
+                return;
 
         if (!add && unlink(filename) == 0)
                 rmdir(dirname);
@@ -218,6 +315,7 @@ static void link_update(struct udev_device *dev, const char *slink, bool add) {
                                 err = -errno;
                 } while (err == -ENOENT);
         }
+        unlock_slink(semid, semidx);
 }
 
 void udev_node_update_old_links(struct udev_device *dev, struct udev_device *dev_old) {
