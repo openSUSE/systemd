@@ -46,6 +46,7 @@ int chmod_and_chown(const char *path, mode_t mode, uid_t uid, gid_t gid);
 int fchmod_and_fchown(int fd, mode_t mode, uid_t uid, gid_t gid);
 
 int fchmod_umask(int fd, mode_t mode);
+int fchmod_opath(int fd, mode_t m);
 
 int fd_warn_permissions(const char *path, int fd);
 
