@@ -1383,8 +1383,7 @@ static int create_item(Item *i) {
                         return r;
                 break;
 
-        case COPY_FILES: {
-
+        case COPY_FILES:
                 RUN_WITH_UMASK(0000)
                         (void) mkdir_parents_label(i->path, 0755);
 
@@ -1559,7 +1558,6 @@ static int create_item(Item *i) {
                         return r;
 
                 break;
-        }
 
         case CREATE_SYMLINK: {
                 RUN_WITH_UMASK(0000)
