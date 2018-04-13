@@ -1300,7 +1300,8 @@ static int path_set_attribute(Item *item, const char *path) {
 }
 
 static int write_one_file(Item *i, const char *path) {
-        _cleanup_close_ int fd = -1;
+        _cleanup_close_ int fd = -1, dir_fd = -1;
+        char *bn;
         int r;
 
         assert(i);
@@ -1308,8 +1309,16 @@ static int write_one_file(Item *i, const char *path) {
         assert(i->argument);
         assert(i->type == WRITE_FILE);
 
+        /* Validate the path and keep the fd on the directory for opening the
+         * file so we're sure that it can't be changed behind our back. */
+        dir_fd = path_open_parent_safe(path);
+        if (dir_fd < 0)
+                return dir_fd;
+
+        bn = basename(path);
+
         /* Follows symlinks */
-        fd = open(path, O_NONBLOCK|O_CLOEXEC|O_WRONLY|O_NOCTTY, i->mode);
+        fd = openat(dir_fd, bn, O_NONBLOCK|O_CLOEXEC|O_WRONLY|O_NOCTTY, i->mode);
         if (fd < 0) {
                 if (errno == ENOENT) {
                         log_debug_errno(errno, "Not writing missing file \"%s\": %m", path);
@@ -1325,7 +1334,7 @@ static int write_one_file(Item *i, const char *path) {
         if (r < 0)
                 return log_error_errno(r, "Failed to write file \"%s\": %m", path);
 
-        return path_set_perms(i, path);
+        return fd_set_perms(i, fd, NULL);
 }
 
 static int create_file(Item *i, const char *path) {
