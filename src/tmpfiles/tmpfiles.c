@@ -704,6 +704,7 @@ static bool hardlink_vulnerable(const struct stat *st) {
 
 static int fd_set_perms(Item *i, int fd, const struct stat *st) {
         _cleanup_free_ char *path = NULL;
+        struct stat stbuf;
         int r;
 
         assert(i);
@@ -715,6 +716,12 @@ static int fd_set_perms(Item *i, int fd, const struct stat *st) {
 
         if (!i->mode_set && !i->uid_set && !i->gid_set)
                 goto shortcut;
+
+        if (!st) {
+                if (fstat(fd, &stbuf) < 0)
+                        return log_error_errno(errno, "fstat(%s) failed: %m", path);
+                st = &stbuf;
+        }
 
         if (hardlink_vulnerable(st)) {
                 log_error("Refusing to set permissions on hardlinked file %s while the fs.protected_hardlinks sysctl is turned off.", path);
@@ -769,7 +776,7 @@ shortcut:
 
 static int path_set_perms(Item *i, const char *path) {
         _cleanup_close_ int fd = -1;
-        struct stat st;
+        struct stat stbuf, *st = NULL;
 
         assert(i);
         assert(path);
@@ -789,13 +796,20 @@ static int path_set_perms(Item *i, const char *path) {
                 return r;
         }
 
-        if (fstat(fd, &st) < 0)
-                return log_error_errno(errno, "Failed to fstat() file %s: %m", path);
+        if (i->type == EMPTY_DIRECTORY) {
+                /* FIXME: introduce fd_is_dir() helper ? */
+                if (fstat(fd, &stbuf) < 0)
+                        return log_error_errno(errno, "Failed to fstat() file %s: %m", path);
 
-        if (i->type == EMPTY_DIRECTORY && !S_ISDIR(st.st_mode))
-                return log_error_errno(EEXIST, "'%s' already exists and is not a directory. ", path);
+                if (!S_ISDIR(stbuf.st_mode)) {
+                        log_error("'%s' already exists and is not a directory. ", path);
+                        return -EEXIST;
+                }
 
-        return fd_set_perms(i, fd, &st);
+                st = &stbuf;
+        }
+
+        return fd_set_perms(i, fd, st);
 }
 
 static int parse_xattrs_from_arg(Item *i) {
@@ -943,14 +957,20 @@ static int fd_set_acls(Item *item, int fd, const struct stat *st) {
 #ifdef HAVE_ACL
         char procfs_path[strlen("/proc/self/fd/") + DECIMAL_STR_MAX(int)];
         _cleanup_free_ char *path = NULL;
+        struct stat stbuf;
 
         assert(item);
         assert(fd);
-        assert(st);
 
         r = fd_get_path(fd, &path);
         if (r < 0)
                 return r;
+
+        if (!st) {
+                if (fstat(fd, &stbuf) < 0)
+                        return log_error_errno(errno, "fstat(%s) failed: %m", path);
+                st = &stbuf;
+        }
 
         if (hardlink_vulnerable(st)) {
                 log_error("Refusing to set ACLs on hardlinked file %s while the fs.protected_hardlinks sysctl is turned off.", path);
@@ -987,7 +1007,6 @@ static int path_set_acls(Item *item, const char *path) {
         int r = 0;
 #ifdef HAVE_ACL
         _cleanup_close_ int fd = -1;
-        struct stat st;
 
         assert(item);
         assert(path);
@@ -996,13 +1015,10 @@ static int path_set_acls(Item *item, const char *path) {
         if (fd < 0)
                 return log_error_errno(errno, "Adjusting ACL of %s failed: %m", path);
 
-        if (fstat(fd, &st) < 0)
-                return log_error_errno(errno, "Failed to fstat() file %s: %m", path);
-
-        r = fd_set_acls(item, fd, &st);
- #endif
-         return r;
- }
+        r = fd_set_acls(item, fd, NULL);
+#endif
+        return r;
+}
 
 #define ATTRIBUTES_ALL                          \
         (FS_NOATIME_FL      |                   \
@@ -1109,6 +1125,7 @@ static int parse_attribute_from_arg(Item *item) {
 static int fd_set_attribute(Item *item, int fd, const struct stat *st) {
         _cleanup_close_ int procfs_fd = -1;
         _cleanup_free_ char *path = NULL;
+        struct stat stbuf;
         unsigned f;
         int r;
 
@@ -1118,6 +1135,12 @@ static int fd_set_attribute(Item *item, int fd, const struct stat *st) {
         r = fd_get_path(fd, &path);
         if (r < 0)
                 return r;
+
+        if (!st) {
+                if (fstat(fd, &stbuf) < 0)
+                        return log_error_errno(errno, "fstat(%s) failed: %m", path);
+                st = &stbuf;
+        }
 
         /* Issuing the file attribute ioctls on device nodes is not
          * safe, as that will be delivered to the drivers, not the
@@ -1149,7 +1172,6 @@ static int fd_set_attribute(Item *item, int fd, const struct stat *st) {
 
 static int path_set_attribute(Item *item, const char *path) {
         _cleanup_close_ int fd = -1;
-        struct stat st;
 
         if (!item->attribute_set || item->attribute_mask == 0)
                 return 0;
@@ -1158,10 +1180,7 @@ static int path_set_attribute(Item *item, const char *path) {
         if (fd < 0)
                 return log_error_errno(errno, "Cannot open '%s': %m", path);
 
-        if (fstat(fd, &st) < 0)
-                return log_error_errno(errno, "Cannot stat '%s': %m", path);
-
-        return fd_set_attribute(item, fd, &st);
+        return fd_set_attribute(item, fd, NULL);
 }
 
 static int write_one_file(Item *i, const char *path) {
