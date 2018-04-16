@@ -86,7 +86,11 @@ ENV{DEVTYPE}=="partition", ENV{ID_WWN_WITH_EXTENSION}=="?*", SYMLINK+="disk/by-i
 
 # by-partlabel/by-partuuid links (partition metadata)
 ENV{ID_PART_ENTRY_SCHEME}=="gpt", ENV{ID_PART_ENTRY_UUID}=="?*", SYMLINK+="disk/by-partuuid/$env{ID_PART_ENTRY_UUID}"
-ENV{ID_PART_ENTRY_SCHEME}=="gpt", ENV{ID_PART_ENTRY_NAME}=="?*", SYMLINK+="disk/by-partlabel/$env{ID_PART_ENTRY_NAME}"
+ENV{ID_PART_ENTRY_SCHEME}=="gpt", ENV{ID_PART_ENTRY_NAME}=="?*", \
+        ENV{ID_PART_ENTRY_NAME}!="primary", \
+        ENV{ID_PART_ENTRY_NAME}!="logical", \
+        ENV{ID_PART_ENTRY_NAME}!="extended", \
+	SYMLINK+="disk/by-partlabel/$env{ID_PART_ENTRY_NAME}"
 
 # add symlink to GPT root disk
 ENV{ID_PART_ENTRY_SCHEME}=="gpt", ENV{ID_PART_GPT_AUTO_ROOT}=="1", SYMLINK+="gpt-auto-root"
