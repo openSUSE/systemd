@@ -130,7 +130,6 @@ dist_pkgsysconf_DATA =
 nodist_pkgsysconf_DATA =
 dist_dbuspolicy_DATA =
 dist_dbussystemservice_DATA =
-dist_systemunit_DATA_busnames =
 dist_sysusers_DATA =
 check_PROGRAMS =
 check_DATA =
@@ -277,11 +276,9 @@ MACHINES_TARGET_WANTS =
 RESCUE_TARGET_WANTS =
 SYSINIT_TARGET_WANTS =
 SOCKETS_TARGET_WANTS =
-BUSNAMES_TARGET_WANTS =
 TIMERS_TARGET_WANTS =
 USER_SOCKETS_TARGET_WANTS =
 USER_DEFAULT_TARGET_WANTS =
-USER_BUSNAMES_TARGET_WANTS =
 
 SYSTEM_UNIT_ALIASES =
 USER_UNIT_ALIASES =
@@ -301,10 +298,6 @@ install-target-wants-hook:
 	what="$(SLICES_TARGET_WANTS)" && wants=slices.target && dir=$(systemunitdir) && $(add-wants)
 	what="$(USER_SOCKETS_TARGET_WANTS)" && wants=sockets.target && dir=$(userunitdir) && $(add-wants)
 	what="$(USER_DEFAULT_TARGET_WANTS)" && wants=default.target && dir=$(userunitdir) && $(add-wants)
-
-install-busnames-target-wants-hook:
-	what="$(BUSNAMES_TARGET_WANTS)" && wants=busnames.target && dir=$(systemunitdir) && $(add-wants)
-	what="$(USER_BUSNAMES_TARGET_WANTS)" && wants=busnames.target && dir=$(userunitdir) && $(add-wants)
 
 define add-wants
 	[ -z "$$what" ] || ( \
@@ -355,8 +348,7 @@ INSTALL_EXEC_HOOKS += \
 	install-target-wants-hook \
 	install-directories-hook \
 	install-aliases-hook \
-	install-touch-usr-hook \
-	install-busnames-target-wants-hook
+	install-touch-usr-hook
 
 if ENABLE_ENVIRONMENT_D
 INSTALL_EXEC_HOOKS += \
@@ -556,12 +548,6 @@ dist_systemunit_DATA = \
 	units/initrd-switch-root.target \
 	units/machines.target
 
-dist_systemunit_DATA += \
-	$(dist_systemunit_DATA_busnames)
-
-dist_systemunit_DATA_busnames += \
-	units/busnames.target
-
 if HAVE_SYSV_COMPAT
 dist_systemunit_DATA += \
 	units/var-run.mount \
@@ -617,7 +603,6 @@ dist_userunit_DATA = \
 	units/user/graphical-session.target \
 	units/user/graphical-session-pre.target \
 	units/user/bluetooth.target \
-	units/user/busnames.target \
 	units/user/paths.target \
 	units/user/printer.target \
 	units/user/shutdown.target \
@@ -1256,8 +1241,6 @@ libcore_la_SOURCES = \
 	src/core/service.h \
 	src/core/socket.c \
 	src/core/socket.h \
-	src/core/busname.c \
-	src/core/busname.h \
 	src/core/bus-policy.c \
 	src/core/bus-policy.h \
 	src/core/target.c \
@@ -1298,8 +1281,6 @@ libcore_la_SOURCES = \
 	src/core/dbus-service.h \
 	src/core/dbus-socket.c \
 	src/core/dbus-socket.h \
-	src/core/dbus-busname.c \
-	src/core/dbus-busname.h \
 	src/core/dbus-target.c \
 	src/core/dbus-target.h \
 	src/core/dbus-device.c \
@@ -5088,9 +5069,6 @@ rootlibexec_PROGRAMS += \
 nodist_systemunit_DATA += \
 	units/systemd-hostnamed.service
 
-dist_systemunit_DATA_busnames += \
-	units/org.freedesktop.hostname1.busname
-
 dist_dbuspolicy_DATA += \
 	src/hostname/org.freedesktop.hostname1.conf
 
@@ -5102,9 +5080,6 @@ polkitpolicy_files += \
 
 SYSTEM_UNIT_ALIASES += \
 	systemd-hostnamed.service dbus-org.freedesktop.hostname1.service
-
-BUSNAMES_TARGET_WANTS += \
-	org.freedesktop.hostname1.busname
 
 hostnamectl_SOURCES = \
 	src/hostname/hostnamectl.c
@@ -5129,13 +5104,6 @@ EXTRA_DIST += \
 	units/systemd-hostnamed.service.in
 
 # ------------------------------------------------------------------------------
-dist_systemunit_DATA_busnames += \
-	units/org.freedesktop.systemd1.busname
-
-BUSNAMES_TARGET_WANTS += \
-	org.freedesktop.systemd1.busname
-
-# ------------------------------------------------------------------------------
 if ENABLE_LOCALED
 systemd_localed_SOURCES = \
 	src/locale/localed.c \
@@ -5148,9 +5116,6 @@ systemd_localed_LDADD = \
 
 nodist_systemunit_DATA += \
 	units/systemd-localed.service
-
-dist_systemunit_DATA_busnames += \
-	units/org.freedesktop.locale1.busname
 
 rootlibexec_PROGRAMS += \
 	systemd-localed
@@ -5166,9 +5131,6 @@ polkitpolicy_files += \
 
 SYSTEM_UNIT_ALIASES += \
 	systemd-localed.service dbus-org.freedesktop.locale1.service
-
-BUSNAMES_TARGET_WANTS += \
-	org.freedesktop.locale1.busname
 
 dist_pkgdata_DATA = \
 	src/locale/kbd-model-map \
@@ -5228,17 +5190,11 @@ dist_dbuspolicy_DATA += \
 nodist_systemunit_DATA += \
 	units/systemd-timedated.service
 
-dist_systemunit_DATA_busnames += \
-	units/org.freedesktop.timedate1.busname
-
 polkitpolicy_files += \
 	src/timedate/org.freedesktop.timedate1.policy
 
 SYSTEM_UNIT_ALIASES += \
 	systemd-timedated.service dbus-org.freedesktop.timedate1.service
-
-BUSNAMES_TARGET_WANTS += \
-	org.freedesktop.timedate1.busname
 
 timedatectl_SOURCES = \
 	src/timedate/timedatectl.c
@@ -5436,9 +5392,6 @@ nodist_systemunit_DATA += \
 dist_systemunit_DATA += \
 	units/machine.slice
 
-dist_systemunit_DATA_busnames += \
-	units/org.freedesktop.machine1.busname
-
 dist_dbussystemservice_DATA += \
 	src/machine/org.freedesktop.machine1.service
 
@@ -5457,9 +5410,6 @@ dist_zshcompletion_data += \
 
 SYSTEM_UNIT_ALIASES += \
 	systemd-machined.service dbus-org.freedesktop.machine1.service
-
-BUSNAMES_TARGET_WANTS += \
-	org.freedesktop.machine1.busname
 
 libnss_mymachines_la_SOURCES = \
 	src/nss-mymachines/nss-mymachines.sym \
@@ -5604,12 +5554,6 @@ dist_rootlibexec_DATA += \
 nodist_systemunit_DATA += \
 	units/systemd-importd.service
 
-dist_systemunit_DATA_busnames += \
-	units/org.freedesktop.import1.busname
-
-BUSNAMES_TARGET_WANTS += \
-	org.freedesktop.import1.busname
-
 SYSTEM_UNIT_ALIASES += \
 	systemd-importd.service dbus-org.freedesktop.import1.service
 
@@ -5738,17 +5682,11 @@ rootlibexec_PROGRAMS += \
 nodist_systemunit_DATA += \
 	units/systemd-resolved.service
 
-dist_systemunit_DATA_busnames += \
-	units/org.freedesktop.resolve1.busname
-
 dist_dbuspolicy_DATA += \
 	src/resolve/org.freedesktop.resolve1.conf
 
 dist_dbussystemservice_DATA += \
 	src/resolve/org.freedesktop.resolve1.service
-
-BUSNAMES_TARGET_WANTS += \
-	org.freedesktop.resolve1.busname
 
 GENERAL_ALIASES += \
 	$(systemunitdir)/systemd-resolved.service $(pkgsysconfdir)/system/multi-user.target.wants/systemd-resolved.service \
@@ -6085,9 +6023,6 @@ nodist_systemunit_DATA += \
 	units/systemd-networkd.service \
 	units/systemd-networkd-wait-online.service
 
-dist_systemunit_DATA_busnames += \
-	units/org.freedesktop.network1.busname
-
 dist_dbussystemservice_DATA += \
 	src/network/org.freedesktop.network1.service
 
@@ -6099,9 +6034,6 @@ GENERAL_ALIASES += \
 	$(systemunitdir)/systemd-networkd.service $(pkgsysconfdir)/system/multi-user.target.wants/systemd-networkd.service \
 	$(systemunitdir)/systemd-networkd-wait-online.service $(pkgsysconfdir)/system/network-online.target.wants/systemd-networkd-wait-online.service \
 	$(systemunitdir)/systemd-networkd.service $(pkgsysconfdir)/system/dbus-org.freedesktop.network1.service
-
-BUSNAMES_TARGET_WANTS += \
-	org.freedesktop.network1.busname
 
 polkitrules_files += \
 	src/network/systemd-networkd.rules
@@ -6273,9 +6205,6 @@ nodist_systemunit_DATA += \
 dist_systemunit_DATA += \
 	units/user.slice
 
-dist_systemunit_DATA_busnames += \
-	units/org.freedesktop.login1.busname
-
 dist_dbussystemservice_DATA += \
 	src/login/org.freedesktop.login1.service
 
@@ -6296,9 +6225,6 @@ MULTI_USER_TARGET_WANTS += \
 
 SYSTEM_UNIT_ALIASES += \
 	systemd-logind.service dbus-org.freedesktop.login1.service
-
-BUSNAMES_TARGET_WANTS += \
-	org.freedesktop.login1.busname
 
 dist_udevrules_DATA += \
 	src/login/70-uaccess.rules \
