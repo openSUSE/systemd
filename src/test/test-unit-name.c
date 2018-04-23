@@ -246,6 +246,9 @@ static int test_unit_printf(void) {
         expect(u, "%p", "blah");
         expect(u, "%P", "blah");
         expect(u, "%i", "");
+        expect(u, "%I", "");
+        expect(u, "%j", "blah");
+        expect(u, "%J", "blah");
         expect(u, "%u", user);
         expect(u, "%U", uid);
         expect(u, "%h", home);
@@ -266,6 +269,8 @@ static int test_unit_printf(void) {
         expect(u2, "%P", "blah");
         expect(u2, "%i", "foo-foo");
         expect(u2, "%I", "foo/foo");
+        expect(u2, "%j", "blah");
+        expect(u2, "%J", "blah");
         expect(u2, "%u", user);
         expect(u2, "%U", uid);
         expect(u2, "%h", home);
@@ -273,6 +278,20 @@ static int test_unit_printf(void) {
         expect(u2, "%b", bid);
         expect(u2, "%H", host);
         expect(u2, "%t", "/run/user/*");
+
+        /* templated with components */
+        assert_se(u = unit_new(m, sizeof(Slice)));
+        assert_se(unit_add_name(u, "blah-blah\\x2d.slice") == 0);
+
+        expect(u, "%n", "blah-blah\\x2d.slice");
+        expect(u, "%N", "blah-blah\\x2d");
+        expect(u, "%f", "/blah/blah-");
+        expect(u, "%p", "blah-blah\\x2d");
+        expect(u, "%P", "blah/blah-");
+        expect(u, "%i", "");
+        expect(u, "%I", "");
+        expect(u, "%j", "blah\\x2d");
+        expect(u, "%J", "blah-");
 
         manager_free(m);
 #undef expect
