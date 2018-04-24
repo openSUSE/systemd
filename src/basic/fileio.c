@@ -53,6 +53,7 @@
 #define READ_FULL_BYTES_MAX (4U*1024U*1024U)
 
 int write_string_stream_ts(FILE *f, const char *line, bool enforce_newline, struct timespec *ts) {
+        int r;
 
         assert(f);
         assert(line);
@@ -61,6 +62,10 @@ int write_string_stream_ts(FILE *f, const char *line, bool enforce_newline, stru
         if (enforce_newline && !endswith(line, "\n"))
                 fputc('\n', f);
 
+        r = fflush_and_check(f);
+        if (r < 0)
+                return r;
+
         if (ts) {
                 struct timespec twice[2] = {*ts, *ts};
 
@@ -68,7 +73,7 @@ int write_string_stream_ts(FILE *f, const char *line, bool enforce_newline, stru
                         return -errno;
         }
 
-        return fflush_and_check(f);
+        return 0;
 }
 
 static int write_string_file_atomic(
