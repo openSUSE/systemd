@@ -98,6 +98,14 @@ static Manager *manager_new(void) {
         if (r < 0)
                 goto fail;
 
+        r = sd_event_add_signal(m->event, NULL, SIGINT, NULL, NULL);
+        if (r < 0)
+                goto fail;
+
+        r = sd_event_add_signal(m->event, NULL, SIGTERM, NULL, NULL);
+        if (r < 0)
+                goto fail;
+
         sd_event_set_watchdog(m->event, true);
 
         return m;
@@ -1158,6 +1166,8 @@ int main(int argc, char *argv[]) {
         mkdir_label("/run/systemd/seats", 0755);
         mkdir_label("/run/systemd/users", 0755);
         mkdir_label("/run/systemd/sessions", 0755);
+
+        assert_se(sigprocmask_many(SIG_BLOCK, NULL, SIGTERM, SIGINT, -1) >= 0);
 
         m = manager_new();
         if (!m) {
