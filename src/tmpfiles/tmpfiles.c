@@ -1505,7 +1505,7 @@ static int create_item(Item *i) {
                 /* fall through */
 
         case EMPTY_DIRECTORY:
-                r = path_set_perms(i, i->path);
+                r = glob_item(i, path_set_perms);
                 if (q < 0)
                         return q;
                 if (r < 0)
