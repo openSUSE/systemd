@@ -87,6 +87,7 @@ enum {
         CHASE_SAFE        = 1U << 3,   /* If set, return EPERM if we ever traverse from unprivileged to privileged files or directories */
         CHASE_OPEN        = 1U << 4,   /* If set, return an O_PATH object to the final component */
         CHASE_STEP        = 1U << 6,   /* If set, just execute a single step of the normalization */
+        CHASE_NOFOLLOW    = 1U << 7, /* Only valid with CHASE_OPEN: when the path's right-most component refers to symlink return O_PATH fd of the symlink, rather than following it. */
 };
 
 int chase_symlinks(const char *path_with_prefix, const char *root, unsigned flags, char **ret);
