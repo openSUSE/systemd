@@ -67,6 +67,12 @@ int mkdir_safe_internal(const char *path, mode_t mode, uid_t uid, gid_t gid, boo
         return 0;
 }
 
+int mkdirat_errno_wrapper(int dirfd, const char *pathname, mode_t mode) {
+        if (mkdirat(dirfd, pathname, mode) < 0)
+                return -errno;
+        return 0;
+}
+
 int mkdir_safe(const char *path, mode_t mode, uid_t uid, gid_t gid, bool follow_symlink) {
         return mkdir_safe_internal(path, mode, uid, gid, follow_symlink, mkdir);
 }
