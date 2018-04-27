@@ -1646,13 +1646,21 @@ static int create_device(Item *i, mode_t file_type) {
 }
 
 static int create_fifo(Item *i, const char *path) {
+        _cleanup_close_ int pfd = -1, fd = -1;
         CreationMode creation;
         struct stat st;
+        char *bn;
         int r;
+
+        pfd = path_open_parent_safe(path);
+        if (pfd < 0)
+                return pfd;
+
+        bn = basename(path);
 
         RUN_WITH_UMASK(0000) {
                 mac_selinux_create_file_prepare(path, S_IFIFO);
-                r = mkfifo(path, i->mode);
+                r = mkfifoat(pfd, bn, i->mode);
                 mac_selinux_create_file_clear();
         }
 
@@ -1660,7 +1668,7 @@ static int create_fifo(Item *i, const char *path) {
                 if (errno != EEXIST)
                         return log_error_errno(errno, "Failed to create fifo %s: %m", path);
 
-                if (lstat(path, &st) < 0)
+                if (fstatat(pfd, bn, &st, AT_SYMLINK_NOFOLLOW) < 0)
                         return log_error_errno(errno, "stat(%s) failed: %m", path);
 
                 if (!S_ISFIFO(st.st_mode)) {
@@ -1668,7 +1676,7 @@ static int create_fifo(Item *i, const char *path) {
                         if (i->force) {
                                 RUN_WITH_UMASK(0000) {
                                         mac_selinux_create_file_prepare(path, S_IFIFO);
-                                        r = mkfifo_atomic(path, i->mode);
+                                        r = mkfifoat_atomic(pfd, bn, i->mode);
                                         mac_selinux_create_file_clear();
                                 }
 
@@ -1683,9 +1691,14 @@ static int create_fifo(Item *i, const char *path) {
                         creation = CREATION_EXISTING;
         } else
                 creation = CREATION_NORMAL;
+
         log_debug("%s fifo \"%s\".", creation_mode_verb_to_string(creation), path);
 
-        return path_set_perms(i, path);
+        fd = openat(pfd, bn, O_NOFOLLOW|O_CLOEXEC|O_PATH);
+        if (fd < 0)
+                return log_error_errno(fd, "Failed to openat(%s): %m", path);
+
+        return fd_set_perms(i, fd, NULL);
 }
 
 typedef int (*action_t)(Item *, const char *);
