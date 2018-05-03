@@ -21,7 +21,7 @@ test_run() {
 
 test_setup() {
         # create the basic filesystem layout
-        setup_basic_environment >/dev/null
+        setup_basic_environment
 
         # mask some services that we do not want to run in these tests
         ln -s /dev/null $initdir/etc/systemd/system/systemd-hwdb-update.service
