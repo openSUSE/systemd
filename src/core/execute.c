@@ -1520,7 +1520,7 @@ static int exec_child(
         const char *username = NULL, *home = NULL, *shell = NULL, *wd;
         uid_t uid = UID_INVALID;
         gid_t gid = GID_INVALID;
-        int i, r;
+        int r;
         bool needs_mount_namespace;
 
         assert(unit);
@@ -1932,15 +1932,12 @@ static int exec_child(
         }
 
         if (params->apply_permissions) {
+                int which_failed;
 
-                for (i = 0; i < _RLIMIT_MAX; i++) {
-                        if (!context->rlimit[i])
-                                continue;
-
-                        if (setrlimit_closest(i, context->rlimit[i]) < 0) {
-                                *exit_status = EXIT_LIMITS;
-                                return -errno;
-                        }
+                r = setrlimit_closest_all((const struct rlimit* const *) context->rlimit, &which_failed);
+                if (r < 0) {
+                        *exit_status = EXIT_LIMITS;
+                        return r;
                 }
 
                 if (context->capability_bounding_set_drop) {
