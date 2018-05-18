@@ -1317,7 +1317,7 @@ static int fixup_environment(void) {
 }
 
 static void initialize_coredump(bool skip_setup) {
-
+#ifdef ENABLE_COREDUMP
         if (getpid() != 1)
                 return;
 
@@ -1330,6 +1330,7 @@ static void initialize_coredump(bool skip_setup) {
          * until the systemd-coredump tool is enabled via sysctl. */
         if (!skip_setup)
                 (void) write_string_file("/proc/sys/kernel/core_pattern", "|/bin/false", 0);
+#endif
 }
 
 int main(int argc, char *argv[]) {
