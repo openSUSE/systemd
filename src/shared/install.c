@@ -2079,7 +2079,8 @@ int unit_file_query_preset(UnitFileScope scope, const char *root_dir, const char
         if (!unit_name_is_valid(name, UNIT_NAME_ANY))
                 return -EINVAL;
 
-        if (scope == UNIT_FILE_SYSTEM)
+        switch (scope) {
+        case UNIT_FILE_SYSTEM:
                 r = conf_files_list(&files, ".preset", root_dir,
                                     "/etc/systemd/system-preset",
                                     "/run/systemd/system-preset",
@@ -2089,15 +2090,21 @@ int unit_file_query_preset(UnitFileScope scope, const char *root_dir, const char
                                     "/lib/systemd/system-preset",
 #endif
                                     NULL);
-        else if (scope == UNIT_FILE_GLOBAL)
+                break;
+
+        case UNIT_FILE_GLOBAL:
+        case UNIT_FILE_USER:
                 r = conf_files_list(&files, ".preset", root_dir,
                                     "/etc/systemd/user-preset",
                                     "/run/systemd/user-preset",
                                     "/usr/local/lib/systemd/user-preset",
                                     "/usr/lib/systemd/user-preset",
                                     NULL);
-        else
-                return 1; /* Default is "enable" */
+                break;
+
+        default:
+                assert_not_reached("Invalid unit file scope");
+        }
 
         if (r < 0)
                 return r;
