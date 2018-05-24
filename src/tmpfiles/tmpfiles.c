@@ -1226,18 +1226,23 @@ done:
 typedef int (*action_t)(Item *, const char *);
 typedef int (*fdaction_t)(Item *, int fd, const struct stat *st);
 
-static int item_do(Item *i, int fd, const struct stat *st, fdaction_t action) {
+static int item_do(Item *i, int fd, fdaction_t action) {
+        struct stat st;
         int r = 0, q;
 
         assert(i);
         assert(fd >= 0);
-        assert(st);
+
+        if (fstat(fd, &st) < 0) {
+                r = -errno;
+                goto finish;
+        }
 
         /* This returns the first error we run into, but nevertheless
          * tries to go on */
-        r = action(i, fd, st);
+        r = action(i, fd, &st);
 
-        if (S_ISDIR(st->st_mode)) {
+        if (S_ISDIR(st.st_mode)) {
                 char procfs_path[strlen("/proc/self/fd/") + DECIMAL_STR_MAX(int)];
                 _cleanup_closedir_ DIR *d = NULL;
                 struct dirent *de;
@@ -1253,16 +1258,15 @@ static int item_do(Item *i, int fd, const struct stat *st, fdaction_t action) {
                 }
 
                 FOREACH_DIRENT_ALL(de, d, q = -errno; goto finish) {
-                        struct stat de_st;
                         int de_fd;
 
                         if (dot_or_dot_dot(de->d_name))
                                 continue;
 
                         de_fd = openat(fd, de->d_name, O_NOFOLLOW|O_CLOEXEC|O_PATH);
-                        if (de_fd >= 0 && fstat(de_fd, &de_st) >= 0)
+                        if (de_fd >= 0)
                                 /* pass ownership of dirent fd over  */
-                                q = item_do(i, de_fd, &de_st, action);
+                                q = item_do(i, de_fd, action);
                         else
                                 q = -errno;
 
@@ -1308,7 +1312,6 @@ static int glob_item_recursively(Item *i, fdaction_t action) {
 
         STRV_FOREACH(fn, g.gl_pathv) {
                 _cleanup_close_ int fd = -1;
-                struct stat st;
 
                 /* Make sure we won't trigger/follow file object (such as
                  * device nodes, automounts, ...) pointed out by 'fn' with
@@ -1321,12 +1324,7 @@ static int glob_item_recursively(Item *i, fdaction_t action) {
                         continue;
                 }
 
-                if (fstat(fd, &st) < 0) {
-                        r = r ?: -errno;
-                        continue;
-                }
-
-                k = item_do(i, fd, &st, action);
+                k = item_do(i, fd, action);
                 if (k < 0 && r == 0)
                         r = k;
 
