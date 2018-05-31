@@ -1295,7 +1295,7 @@ static int setup_kmsg(const char *dest, int kmsg_socket) {
         if (mount(from, to, NULL, MS_BIND, NULL) < 0)
                 return log_error_errno(errno, "Bind mount for /proc/kmsg failed: %m");
 
-        fd = open(from, O_RDWR|O_NDELAY|O_CLOEXEC);
+        fd = open(from, O_RDWR|O_NONBLOCK|O_CLOEXEC);
         if (fd < 0)
                 return log_error_errno(errno, "Failed to open fifo: %m");
 
@@ -3254,7 +3254,7 @@ int main(int argc, char *argv[]) {
                 isatty(STDIN_FILENO) > 0 &&
                 isatty(STDOUT_FILENO) > 0;
 
-        master = posix_openpt(O_RDWR|O_NOCTTY|O_CLOEXEC|O_NDELAY);
+        master = posix_openpt(O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK);
         if (master < 0) {
                 r = log_error_errno(errno, "Failed to acquire pseudo tty: %m");
                 goto finish;
