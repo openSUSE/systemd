@@ -147,12 +147,41 @@ static int device_coldplug(Unit *u) {
         assert(d);
         assert(d->state == DEVICE_DEAD);
 
-        /* This should happen only when we reexecute PID1 from an old version
-         * which didn't serialize d->found. In this case simply assume that the
-         * device was in plugged state right before we started reexecuting which
-         * might be a wrong assumption. */
-        if (d->found == DEVICE_FOUND_UDEV_DB)
-                d->found = DEVICE_FOUND_UDEV;
+        if (d->found == DEVICE_FOUND_UDEV_DB) {
+
+                if (d->deserialized_state != DEVICE_DEAD)
+                        /* The device has been serialized and deserialized but
+                         * d->found item wasn't there. This can happen when PID1
+                         * is re-executed from an old version which didn't
+                         * serialize d->found. In this case simply assume that
+                         * the device was in plugged state right before we
+                         * started re-executing which might be a wrong
+                         * assumption. */
+                        d->found = DEVICE_FOUND_UDEV;
+                else
+                        /* The device has been discovered during the enumeration
+                         * step. This can happen in 2 cases:
+                         *
+                         *  - systemd is reloading/re-executing and the device
+                         *  is first seen during the enumeration. udev is about
+                         *  to send us the relevant event. Simply assume that we
+                         *  don't see the device at all for now so the device
+                         *  will be switched in "plugged" state and all the deps
+                         *  will be started accordingly once the device will be
+                         *  announced by udev. IOW we don't want the device to
+                         *  be put in "plugged" or "tentative" states in this
+                         *  case.
+                         *
+                         * - A user instance is starting: all devices have been
+                         * already announced by udev. Unfortunately we can't
+                         * make a distinction between this case and the previous
+                         * one. So simply assume device is in "plugged"
+                         * state. And yes, user instances still miss starting
+                         * device dependencies (bsc#1088052) but that shouldn't
+                         * be a big issue practically.
+                         */
+                        d->found = (u->manager->running_as == MANAGER_USER) ? DEVICE_FOUND_UDEV : DEVICE_NOT_FOUND;
+        }
 
         if (d->found & DEVICE_FOUND_UDEV)
                 /* If udev says the device is around, it's around */
