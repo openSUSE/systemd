@@ -53,23 +53,37 @@ ENV{COMPAT_SYMLINK_GENERATION}!="?*", ENV{COMPAT_SYMLINK_GENERATION}="1"
 #
 ENV{COMPAT_SYMLINK_GENERATION}!="1", GOTO="generation_2"
 
-# NVMe symlinks were introduced first via a SUSE specific commit
-# (bsc#944132) and upstream gained support later but of course using a
-# different scheme.
-
-# The SCSI translation layer for NVMe devices has been removed from
-# the kernel since 4.13, therefore we switched from scsi_id to the
-# sysfs interface to generate the name of the compat symlinks.
-# Unfortunately we can't use %s{model} to retrieve the model string
-# because udev strips any trailing whitespaces and some plateforms
-# (QEMU does that) might append such chars. In those cases scsi_id was
-# replacing them with a single trailing '_'. Therefore the currently
-# code retrieves the model string manually making sure to preserve all
-# characters so trailing whitespaces are still converted when the
+# NVMe symlinks were introduced by a SUSE specific commit (bsc#944132) which
+# relied on scsi_id (unfortunately) and hence used the NVMe SCSI translation
+# layer. Later upstream added (by-id) symlinks for NVMe as well but reads the
+# device properties from its sysfs attributes instead. The symlinks names
+# generated in both cases are not identical so we still have to generate the
+# old ones for backward compatibly reasons.
+#
+# The SCSI translation layer for NVMe devices has been removed from the kernel
+# since 4.13, therefore we had to drop the use of scsi_id and use the sysfs
+# interface to mimic scsi_id and continue to generate the old compat symlinks.
+#
+# The rules below hopefully mimics the main cases only as it's impossible to
+# re-implement the exact behavior of scsi_id via udev rules.
+#
+# scsi_id acted differently depending on the NVMe revision implemented by a
+# device, which can lead to problems if the device firmware is
+# updated. Therefore symlinks for all NVMe revisions are generated now.
+#
+# Extra care is needed for whitespace handling. For example we can't use
+# %s{model} to retrieve the model string because udev strips any trailing
+# whitespaces and some plateforms (QEMU does that) might append such chars. In
+# those cases scsi_id was replacing them with a single trailing '_'. Therefore
+# the currently code retrieves the model string manually making sure to
+# preserve all characters so trailing whitespaces are still converted when the
 # symlink is created.
 
-# KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", ATTRS{model}=="?*", ATTRS{serial}=="?*", \
-#   PROGRAM=="/bin/sh -c 'MODEL=\"%s{model}\"; echo \"${MODEL:0:16}\"'", ENV{ID_NVME_SERIAL_COMPAT}="SNVMe_%c%s{serial}"
+KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_EUI_COMPAT}!="?*", ATTRS{eui}=="?*", ATTRS{eui}!="0000000000000000", \
+  PROGRAM=="/bin/sh -c 'eui=\"%s{eui}\"; echo ${eui// /}", ENV{ID_NVME_EUI_COMPAT}="2%c"
+
+KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_NGUID_COMPAT}!="?*", ATTRS{nguid}=="?*", \
+  PROGRAM=="/bin/sh -c 'nguid=\"%s{nguid}\"; echo ${nguid//-/}", ENV{ID_NVME_NGUID_COMPAT}="%c"
 
 KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", ATTRS{model}=="?*", ATTRS{serial}=="?*", \
   PROGRAM=="/bin/sh -c ' \
@@ -80,7 +94,12 @@ KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", ATTRS{m
    done; \
    cut -c 1-16 model'", ENV{ID_NVME_SERIAL_COMPAT}="SNVMe_%c%s{serial}"
 
+KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_EUI_COMPAT}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_NVME_EUI_COMPAT}"
+KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_NGUID_COMPAT}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_NVME_NGUID_COMPAT}"
 KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_NVME_SERIAL_COMPAT}"
+
+KERNEL=="nvme*", ENV{DEVTYPE}=="partition", ENV{ID_NVME_EUI_COMPAT}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_NVME_EUI_COMPAT}-part%n"
+KERNEL=="nvme*", ENV{DEVTYPE}=="partition", ENV{ID_NVME_NGUID_COMPAT}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_NVME_NGUID_COMPAT}-part%n"
 KERNEL=="nvme*", ENV{DEVTYPE}=="partition", ENV{ID_NVME_SERIAL_COMPAT}=="?*", SYMLINK+="disk/by-id/nvme-$env{ID_NVME_SERIAL_COMPAT}-part%n"
 
 # Leap 42.3 ISO has a version of udev which suffers from bsc#1048679
