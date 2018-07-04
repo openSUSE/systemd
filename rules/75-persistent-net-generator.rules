@@ -71,8 +71,21 @@ ENV{MATCHADDR}=="e2:0c:0f:*", GOTO="globally_administered_whitelist"
 # Xensource
 ENV{MATCHADDR}=="00:16:3e:*", GOTO="globally_administered_whitelist"
 
+# ibmveth/ibmvnic like to use "locally administered" MAC addresses
+DRIVERS=="ibmveth", ENV{MATCHADDR}="$attr{address}", GOTO="globally_administered_whitelist"
+DRIVERS=="ibmvnic", ENV{MATCHADDR}="$attr{address}", GOTO="globally_administered_whitelist"
+
+# mlx4 on s390 uses to be a Mellanox SR-IOV function for an S/390 LPAR
+# where the physical function is controlled by the LPAR hypervisor
+# (unlike x86_64 KVM guest, where the physical function is controlled
+# by the linux host OS). In this case all virtual SR-IOV virtual
+# functions will have a "locally administered" MAC address and will
+# share the same bus (PCI) id (0000:00:00.0) unlike on on x86_64 where
+# the MAC addresses are random.
+DRIVERS=="mlx4_core", KERNELS=="0000:00:00.0", ENV{MATCHADDR}="$attr{address}", GOTO="globally_administered_whitelist"
+
 # match interface dev_id
-# HACK: for s390x, if layer2 == 0, dont use dev_id
+# HACK: for s390x qeth devices, if layer2 == 0, dont use dev_id
 ENV{LAYER2}="1", TEST=="device/layer2", ENV{LAYER2}="$attr{device/layer2}"
 ENV{LAYER2}!="0", ATTR{dev_id}=="?*", ENV{MATCHDEVID}="$attr{dev_id}"
 
@@ -93,11 +106,9 @@ SUBSYSTEMS=="ccw", ENV{COMMENT}="S/390 $driver device at $id"
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="?*", ENV{COMMENT}="USB device 0x$attr{idVendor}:0x$attr{idProduct} ($driver)"
 SUBSYSTEMS=="pcmcia", ENV{COMMENT}="PCMCIA device $attr{card_id}:$attr{manf_id} ($driver)"
 SUBSYSTEMS=="ieee1394", ENV{COMMENT}="Firewire device $attr{host_id})"
-
-# ibmveth/ibmvnic/mlx4 like to use "locally administered" MAC addresses
-DRIVERS=="ibmveth", ENV{MATCHADDR}="$attr{address}", ENV{COMMENT}="ibmveth ($id)"
-DRIVERS=="ibmvnic", ENV{MATCHADDR}="$attr{address}", ENV{COMMENT}="ibmvnic ($id)"
-DRIVERS=="mlx4_core", ENV{MATCHADDR}="$attr{address}", ENV{COMMENT}="mlx4_core ($id)"
+DRIVERS=="ibmveth", ENV{COMMENT}="ibmveth ($id)"
+DRIVERS=="ibmvnic", ENV{COMMENT}="ibmvnic ($id)"
+DRIVERS=="mlx4_core", ENV{COMMENT}="mlx4_core ($id)"
 
 # S/390 uses id matches only, do not use MAC address match
 SUBSYSTEMS=="ccwgroup", ENV{COMMENT}="S/390 $driver device at $id", ENV{MATCHID}="$id", ENV{MATCHDRV}="$driver", ENV{MATCHADDR}=""
