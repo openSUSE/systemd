@@ -107,19 +107,38 @@ static void message_reset_parts(sd_bus_message *m) {
         m->cached_rindex_part_begin = 0;
 }
 
-static void message_reset_containers(sd_bus_message *m) {
-        unsigned i;
-
+static struct bus_container *message_get_container(sd_bus_message *m) {
         assert(m);
 
-        for (i = 0; i < m->n_containers; i++) {
-                free(m->containers[i].signature);
-                free(m->containers[i].offsets);
-        }
+        if (m->n_containers == 0)
+                return &m->root_container;
+
+        assert(m->containers);
+        return m->containers + m->n_containers - 1;
+}
+
+static void message_free_last_container(sd_bus_message *m) {
+        struct bus_container *c;
+
+        c = message_get_container(m);
+
+        free(c->signature);
+        free(c->peeked_signature);
+        free(c->offsets);
+
+        /* Move to previous container, but not if we are on root container */
+        if (m->n_containers > 0)
+                m->n_containers--;
+}
+
+static void message_reset_containers(sd_bus_message *m) {
+        assert(m);
+
+        while (m->n_containers > 0)
+                message_free_last_container(m);
 
         m->containers = mfree(m->containers);
-
-        m->n_containers = m->containers_allocated = 0;
+        m->containers_allocated = 0;
         m->root_container.index = 0;
 }
 
@@ -149,10 +168,8 @@ static void message_free(sd_bus_message *m) {
 
         m->destination_ptr = mfree(m->destination_ptr);
         message_reset_containers(m);
-        free(m->root_container.signature);
-        free(m->root_container.offsets);
-
-        free(m->root_container.peeked_signature);
+        assert(m->n_containers == 0);
+        message_free_last_container(m);
 
         bus_creds_done(&m->creds);
         free(m);
@@ -1161,16 +1178,6 @@ _public_ int sd_bus_message_set_allow_interactive_authorization(sd_bus_message *
                 m->header->flags &= ~BUS_MESSAGE_ALLOW_INTERACTIVE_AUTHORIZATION;
 
         return 0;
-}
-
-static struct bus_container *message_get_container(sd_bus_message *m) {
-        assert(m);
-
-        if (m->n_containers == 0)
-                return &m->root_container;
-
-        assert(m->containers);
-        return m->containers + m->n_containers - 1;
 }
 
 struct bus_body_part *message_append_part(sd_bus_message *m) {
@@ -4200,13 +4207,9 @@ _public_ int sd_bus_message_exit_container(sd_bus_message *m) {
                         return -EBUSY;
         }
 
-        free(c->signature);
-        free(c->peeked_signature);
-        free(c->offsets);
-        m->n_containers--;
+        message_free_last_container(m);
 
         c = message_get_container(m);
-
         saved = c->index;
         c->index = c->saved_index;
         r = container_next_item(m, c, &m->rindex);
@@ -4224,16 +4227,13 @@ static void message_quit_container(sd_bus_message *m) {
         assert(m->sealed);
         assert(m->n_containers > 0);
 
-        c = message_get_container(m);
-
         /* Undo seeks */
+        c = message_get_container(m);
         assert(m->rindex >= c->before);
         m->rindex = c->before;
 
         /* Free container */
-        free(c->signature);
-        free(c->offsets);
-        m->n_containers--;
+        message_free_last_container(m);
 
         /* Correct index of new top-level container */
         c = message_get_container(m);
