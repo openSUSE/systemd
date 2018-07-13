@@ -9,7 +9,7 @@
 
 [Unit]
 Description=User Manager for UID %i
-After=systemd-user-sessions.service
+After=systemd-user-sessions.service dbus.service
 
 [Service]
 User=%i
