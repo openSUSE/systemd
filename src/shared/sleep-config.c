@@ -34,6 +34,7 @@
 #include "log.h"
 #include "macro.h"
 #include "parse-util.h"
+#include "path-util.h"
 #include "sleep-config.h"
 #include "string-util.h"
 #include "strv.h"
@@ -212,9 +213,19 @@ static int hibernation_partition_size(size_t *size, size_t *used) {
                         continue;
                 }
 
-                if (streq(type, "partition") && endswith(dev, "\\040(deleted)")) {
-                        log_warning("Ignoring deleted swapfile '%s'.", dev);
-                        continue;
+                if (streq(type, "partition")) {
+                        const char *fn;
+
+                        if (endswith(dev, "\\040(deleted)")) {
+                                log_warning("Ignoring deleted swapfile '%s'.", dev);
+                                continue;
+                        }
+
+                        fn = path_startswith(dev, "/dev/");
+                        if (fn && startswith(fn, "zram")) {
+                                log_debug("Ignoring compressed ram swap device '%s'.", dev);
+                                continue;
+                        }
                 }
 
                 *size = size_field;
