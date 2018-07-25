@@ -205,25 +205,26 @@ static int hibernation_partition_size(size_t *size, size_t *used) {
                            "%zu "   /* used */
                            "%*i\n", /* priority */
                            &dev, &type, &size_field, &used_field);
+                if (k == EOF)
+                        break;
                 if (k != 4) {
-                        if (k == EOF)
-                                break;
-
                         log_warning("Failed to parse /proc/swaps:%u", i);
                         continue;
                 }
 
-                if (streq(type, "partition")) {
-                        const char *fn;
+                if (streq(type, "file")) {
 
                         if (endswith(dev, "\\040(deleted)")) {
-                                log_warning("Ignoring deleted swapfile '%s'.", dev);
+                                log_warning("Ignoring deleted swap file '%s'.", dev);
                                 continue;
                         }
 
+                } else if (streq(type, "partition")) {
+                        const char *fn;
+
                         fn = path_startswith(dev, "/dev/");
                         if (fn && startswith(fn, "zram")) {
-                                log_debug("Ignoring compressed ram swap device '%s'.", dev);
+                                log_debug("Ignoring compressed RAM swap device '%s'.", dev);
                                 continue;
                         }
                 }
