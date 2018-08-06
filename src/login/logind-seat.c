@@ -447,7 +447,7 @@ int seat_start(Seat *s) {
 }
 
 int seat_stop(Seat *s, bool force) {
-        int r = 0;
+        int r;
 
         assert(s);
 
@@ -458,7 +458,7 @@ int seat_stop(Seat *s, bool force) {
                            LOG_MESSAGE("Removed seat %s.", s->id),
                            NULL);
 
-        seat_stop_sessions(s, force);
+        r = seat_stop_sessions(s, force);
 
         (void) unlink(s->state_file);
         seat_add_to_gc_queue(s);
