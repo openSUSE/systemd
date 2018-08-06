@@ -43,6 +43,7 @@
 #include "path-util.h"
 #include "process-util.h"
 #include "string-table.h"
+#include "strv.h"
 #include "terminal-util.h"
 #include "user-util.h"
 #include "util.h"
@@ -579,17 +580,17 @@ int session_activate(Session *s) {
         return 0;
 }
 
-static int session_start_scope(Session *s) {
+static int session_start_scope(Session *s, sd_bus_error *error) {
         int r;
 
         assert(s);
         assert(s->user);
 
         if (!s->scope) {
-                _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
                 _cleanup_free_ char *scope = NULL;
-                char *job = NULL;
                 const char *description;
+
+                s->scope_job = mfree(s->scope_job);
 
                 scope = strjoin("session-", s->id, ".scope");
                 if (!scope)
@@ -603,17 +604,15 @@ static int session_start_scope(Session *s) {
                                 s->leader,
                                 s->user->slice,
                                 description,
-                                "systemd-logind.service",
-                                "systemd-user-sessions.service",
+                                STRV_MAKE(s->user->runtime_dir_service, s->user->service), /* These two have StopWhenUnneeded= set, hence add a dep towards them */
+                                STRV_MAKE("systemd-logind.service", "systemd-user-sessions.service", s->user->runtime_dir_service, s->user->service), /* And order us after some more */
                                 (uint64_t) -1, /* disable TasksMax= for the scope, rely on the slice setting for it */
-                                &error,
-                                &job);
+                                error,
+                                &s->scope_job);
                 if (r < 0)
-                        return log_error_errno(r, "Failed to start session scope %s: %s", scope, bus_error_message(&error, r));
-
+                        return log_error_errno(r, "Failed to start session scope %s: %s", scope, bus_error_message(error, r));
 
                 s->scope = TAKE_PTR(scope);
-                free_and_replace(s->scope_job, job);
         }
 
         if (s->scope)
@@ -622,13 +621,16 @@ static int session_start_scope(Session *s) {
         return 0;
 }
 
-int session_start(Session *s) {
+int session_start(Session *s, sd_bus_error *error) {
         int r;
 
         assert(s);
 
         if (!s->user)
                 return -ESTALE;
+
+        if (s->stopping)
+                return -EINVAL;
 
         if (s->started)
                 return 0;
@@ -638,7 +640,7 @@ int session_start(Session *s) {
                 return r;
 
         /* Create cgroup */
-        r = session_start_scope(s);
+        r = session_start_scope(s, error);
         if (r < 0)
                 return r;
 
@@ -690,21 +692,24 @@ static int session_stop_scope(Session *s, bool force) {
          * that is left in the scope is "left-over". Informing systemd about this has the benefit that it will log
          * when killing any processes left after this point. */
         r = manager_abandon_scope(s->manager, s->scope, &error);
-        if (r < 0)
+        if (r < 0) {
                 log_warning_errno(r, "Failed to abandon session scope, ignoring: %s", bus_error_message(&error, r));
+                sd_bus_error_free(&error);
+        }
+
+        s->scope_job = mfree(s->scope_job);
 
         /* Optionally, let's kill everything that's left now. */
         if (force || manager_shall_kill(s->manager, s->user->name)) {
-                char *job = NULL;
 
-                r = manager_stop_unit(s->manager, s->scope, &error, &job);
-                if (r < 0)
-                        return log_error_errno(r, "Failed to stop session scope: %s", bus_error_message(&error, r));
+                r = manager_stop_unit(s->manager, s->scope, &error, &s->scope_job);
+                if (r < 0) {
+                        if (force)
+                                return log_error_errno(r, "Failed to stop session scope: %s", bus_error_message(&error, r));
 
-                free(s->scope_job);
-                s->scope_job = job;
+                        log_warning_errno(r, "Failed to stop session scope, ignoring: %s", bus_error_message(&error, r));
+                }
         } else {
-                s->scope_job = mfree(s->scope_job);
 
                 /* With no killing, this session is allowed to persist in "closing" state indefinitely.
                  * Therefore session stop and session removal may be two distinct events.
@@ -725,8 +730,17 @@ int session_stop(Session *s, bool force) {
 
         assert(s);
 
+        /* This is called whenever we begin with tearing down a session record. It's called in four cases: explicit API
+         * request via the bus (either directly for the session object or for the seat or user object this session
+         * belongs to; 'force' is true), or due to automatic GC (i.e. scope vanished; 'force' is false), or because the
+         * session FIFO saw an EOF ('force' is false), or because the release timer hit ('force' is false). */
+
         if (!s->user)
                 return -ESTALE;
+        if (!s->started)
+                return 0;
+        if (s->stopping)
+                return 0;
 
         s->timer_event_source = sd_event_source_unref(s->timer_event_source);
 
