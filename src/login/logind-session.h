@@ -115,6 +115,7 @@ struct Session {
 
         sd_bus_message *create_message;
 
+        /* Set up when a client requested to release the session via the bus */
         sd_event_source *timer_event_source;
 
         char *controller;
