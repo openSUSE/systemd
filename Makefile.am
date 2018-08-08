@@ -6267,6 +6267,7 @@ EXTRA_DIST += \
 	units/systemd-user-sessions.service.in
 
 # ------------------------------------------------------------------------------
+if ENABLE_LOGIND
 systemd_user_runtime_dir_SOURCES = \
 	src/login/user-runtime-dir.c \
 	src/login/logind.h
@@ -6277,6 +6278,7 @@ systemd_user_runtime_dir_LDADD = \
 
 rootlibexec_PROGRAMS += \
 	systemd-user-runtime-dir
+endif
 
 # ------------------------------------------------------------------------------
 EXTRA_DIST += \

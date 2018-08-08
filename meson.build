@@ -1455,15 +1455,15 @@ if conf.get('ENABLE_LOGIND', false)
                      test_dlopen,
                      args : [pam_systemd.full_path()]) # path to dlopen must include a slash
         endif
-endif
 
-executable('systemd-user-runtime-dir',
-           user_runtime_dir_sources,
-           include_directories : includes,
-           link_with : [libshared, liblogind_core],
-           install_rpath : rootlibexecdir,
-           install : true,
-           install_dir : rootlibexecdir)
+        executable('systemd-user-runtime-dir',
+                   user_runtime_dir_sources,
+                   include_directories : includes,
+                   link_with : [libshared],
+                   install_rpath : rootlibexecdir,
+                   install : true,
+                   install_dir : rootlibexecdir)
+endif
 
 if conf.get('HAVE_PAM', false)
         executable('systemd-user-sessions',
