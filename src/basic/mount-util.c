@@ -514,7 +514,7 @@ int bind_remount_recursive(const char *prefix, bool ro) {
                         (void) get_mount_flags(cleaned, &orig_flags);
                         orig_flags &= ~MS_RDONLY;
 
-                        if (mount(NULL, prefix, NULL, orig_flags|MS_BIND|MS_REMOUNT|(ro ? MS_RDONLY : 0), NULL) < 0)
+                        if (mount(NULL, cleaned, NULL, orig_flags|MS_BIND|MS_REMOUNT|(ro ? MS_RDONLY : 0), NULL) < 0)
                                 return -errno;
 
                         x = strdup(cleaned);
@@ -539,6 +539,11 @@ int bind_remount_recursive(const char *prefix, bool ro) {
                         r = path_is_mount_point(x, 0);
                         if (r == -ENOENT || r == 0)
                                 continue;
+                        if (IN_SET(r, -EACCES, -EPERM)) {
+                                /* Even if root user invoke this, FUSE or NFS mount points may not be acceessed. */
+                                log_debug_errno(r, "Failed to determine '%s' is mount point or not, ignoring: %m", x);
+                                continue;
+                        }
                         if (r < 0)
                                 return r;
 
