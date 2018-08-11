@@ -540,7 +540,14 @@ int bind_remount_recursive(const char *prefix, bool ro) {
                         if (r == -ENOENT || r == 0)
                                 continue;
                         if (IN_SET(r, -EACCES, -EPERM)) {
-                                /* Even if root user invoke this, FUSE or NFS mount points may not be acceessed. */
+                                /* Even if root user invoke this, submounts under private FUSE or NFS mount points
+                                 * may not be acceessed. E.g.,
+                                 *
+                                 * $ bindfs --no-allow-other ~/mnt/mnt ~/mnt/mnt
+                                 * $ bindfs --no-allow-other ~/mnt ~/mnt
+                                 *
+                                 * Then, root user cannot access the mount point ~/mnt/mnt.
+                                 * In such cases, the submounts are ignored, as we have no way to manage them. */
                                 log_debug_errno(r, "Failed to determine '%s' is mount point or not, ignoring: %m", x);
                                 continue;
                         }
