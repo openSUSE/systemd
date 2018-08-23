@@ -170,7 +170,6 @@ const char *kill_who_to_string(KillWho k) _const_;
 KillWho kill_who_from_string(const char *s) _pure_;
 
 int session_prepare_vt(Session *s);
-void session_restore_vt(Session *s);
 void session_leave_vt(Session *s);
 
 bool session_is_controller(Session *s, const char *sender);
