@@ -49,6 +49,7 @@
 #define RELEASE_USEC (20*USEC_PER_SEC)
 
 static void session_remove_fifo(Session *s);
+static void session_restore_vt(Session *s);
 
 Session* session_new(Manager *m, const char *id) {
         Session *s;
@@ -1129,7 +1130,7 @@ error:
         return r;
 }
 
-void session_restore_vt(Session *s) {
+static void session_restore_vt(Session *s) {
 
         static const struct vt_mode mode = {
                 .mode = VT_AUTO,
