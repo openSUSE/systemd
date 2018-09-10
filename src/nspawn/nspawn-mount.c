@@ -553,7 +553,7 @@ int mount_all(const char *dest,
 
                 /* outer child mounts */
                 { "tmpfs",               "/tmp",                "tmpfs", "mode=1777", MS_NOSUID|MS_NODEV|MS_STRICTATIME,                                            MOUNT_FATAL },
-                { "tmpfs",               "/sys",                "tmpfs", "mode=755",  MS_NOSUID|MS_NOEXEC|MS_NODEV,                              MOUNT_FATAL|MOUNT_APPLY_APIVFS_NETNS },
+                { "tmpfs",               "/sys",                "tmpfs", "mode=555",  MS_NOSUID|MS_NOEXEC|MS_NODEV,                              MOUNT_FATAL|MOUNT_APPLY_APIVFS_NETNS },
                 { "sysfs",               "/sys",                "sysfs", NULL,        MS_RDONLY|MS_NOSUID|MS_NOEXEC|MS_NODEV,                    MOUNT_FATAL|MOUNT_APPLY_APIVFS_RO },    /* skipped if above was mounted */
                 { "sysfs",               "/sys",                "sysfs", NULL,                  MS_NOSUID|MS_NOEXEC|MS_NODEV,                    MOUNT_FATAL },                          /* skipped if above was mounted */
 
