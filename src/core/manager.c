@@ -3047,6 +3047,17 @@ finish:
         return r;
 }
 
+static void manager_flush_finished_jobs(Manager *m) {
+        Job *j;
+
+        while ((j = set_steal_first(m->pending_finished_jobs))) {
+                bus_job_send_removed_signal(j);
+                job_free(j);
+        }
+
+        m->pending_finished_jobs = set_free(m->pending_finished_jobs);
+}
+
 int manager_reload(Manager *m) {
         int r, q;
         _cleanup_fclose_ FILE *f = NULL;
@@ -3149,6 +3160,9 @@ int manager_reload(Manager *m) {
 
         assert(m->n_reloading > 0);
         m->n_reloading--;
+
+        if (!MANAGER_IS_RELOADING(m))
+                manager_flush_finished_jobs(m);
 
         m->send_reloading_done = true;
 
