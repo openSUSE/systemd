@@ -16,5 +16,5 @@ StopWhenUnneeded=yes
 ExecStart=@rootlibexecdir@/systemd-user-runtime-dir start %i
 ExecStop=@rootlibexecdir@/systemd-user-runtime-dir stop %i
 Type=oneshot
-RemainAfterExit=true
+RemainAfterExit=yes
 Slice=user-%i.slice
