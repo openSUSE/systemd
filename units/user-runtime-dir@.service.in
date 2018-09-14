@@ -11,6 +11,7 @@
 Description=/run/user/%i mount wrapper
 Documentation=man:user@.service(5)
 StopWhenUnneeded=yes
+IgnoreOnIsolate=yes
 
 [Service]
 ExecStart=@rootlibexecdir@/systemd-user-runtime-dir start %i
