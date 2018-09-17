@@ -778,7 +778,14 @@ if want_libcryptsetup != 'false'
         libcryptsetup = dependency('libcryptsetup',
                                    version : '>= 1.6.0',
                                    required : want_libcryptsetup == 'true')
+
+        have_sector = cc.has_member(
+                    'struct crypt_params_plain',
+                    'sector_size',
+                    prefix : '#include <libcryptsetup.h>')
+
         conf.set('HAVE_LIBCRYPTSETUP', libcryptsetup.found())
+        conf.set10('HAVE_LIBCRYPTSETUP_SECTOR_SIZE', have_sector)
 else
         libcryptsetup = []
 endif

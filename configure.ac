@@ -961,6 +961,12 @@ if test "x$enable_libcryptsetup" != "xno"; then
 fi
 AM_CONDITIONAL(HAVE_LIBCRYPTSETUP, [test "$have_libcryptsetup" = "yes"])
 
+AS_IF([test "$have_libcryptsetup" = "yes"], [
+        PKG_CHECK_MODULES(LIBCRYPTSETUP, [ libcryptsetup >= 2.0.0 ],
+                [AC_DEFINE(HAVE_LIBCRYPTSETUP_SECTOR_SIZE, 1, [Define if sector size is tunable])
+                have_libcryptsetup_sector_size=yes],
+                [have_libcryptsetup_sector_size=no])])
+
 # ------------------------------------------------------------------------------
 have_qrencode=no
 AC_ARG_ENABLE(qrencode, AS_HELP_STRING([--disable-qrencode], [disable qrencode support]))

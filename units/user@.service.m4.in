@@ -7,7 +7,8 @@
 
 [Unit]
 Description=User Manager for UID %i
-After=systemd-user-sessions.service
+After=systemd-user-sessions.service dbus.service
+IgnoreOnIsolate=yes
 
 [Service]
 User=%i
