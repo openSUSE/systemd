@@ -72,12 +72,6 @@ struct UnitRef {
         LIST_FIELDS(UnitRef, refs);
 };
 
-typedef enum UnitCGroupBPFState {
-        UNIT_CGROUP_BPF_OFF = 0,
-        UNIT_CGROUP_BPF_ON = 1,
-        UNIT_CGROUP_BPF_INVALIDATED = -1,
-} UnitCGroupBPFState;
-
 struct Unit {
         Manager *manager;
 
@@ -210,6 +204,7 @@ struct Unit {
         char *cgroup_path;
         CGroupMask cgroup_realized_mask;
         CGroupMask cgroup_enabled_mask;
+        CGroupMask cgroup_invalidated_mask;
         CGroupMask cgroup_subtree_mask;
         CGroupMask cgroup_members_mask;
         int cgroup_inotify_wd;
@@ -276,8 +271,6 @@ struct Unit {
         bool cgroup_realized:1;
         bool cgroup_members_mask_valid:1;
         bool cgroup_subtree_mask_valid:1;
-
-        UnitCGroupBPFState cgroup_bpf_state:2;
 
         bool start_limit_hit:1;
 
