@@ -1350,7 +1350,8 @@ static int create_item(Item *i) {
 
                 log_debug("%s directory \"%s\".", creation_mode_verb_to_string(creation), i->path);
 
-                if (IN_SET(i->type, CREATE_SUBVOLUME_NEW_QUOTA, CREATE_SUBVOLUME_INHERIT_QUOTA)) {
+                if (creation == CREATION_NORMAL &&
+                    IN_SET(i->type, CREATE_SUBVOLUME_NEW_QUOTA, CREATE_SUBVOLUME_INHERIT_QUOTA)) {
                         r = btrfs_subvol_auto_qgroup(i->path, 0, i->type == CREATE_SUBVOLUME_NEW_QUOTA);
                         if (r == -ENOTTY)
                                 log_debug_errno(r, "Couldn't adjust quota for subvolume \"%s\" because of unsupported file system or because directory is not a subvolume: %m", i->path);
