@@ -119,6 +119,7 @@ static usec_t arg_default_start_limit_interval = DEFAULT_START_LIMIT_INTERVAL;
 static unsigned arg_default_start_limit_burst = DEFAULT_START_LIMIT_BURST;
 static usec_t arg_runtime_watchdog = 0;
 static usec_t arg_shutdown_watchdog = 10 * USEC_PER_MINUTE;
+static char *arg_early_core_pattern = NULL;
 static char **arg_default_environment = NULL;
 static struct rlimit *arg_default_rlimit[_RLIMIT_MAX] = {};
 static uint64_t arg_capability_bounding_set = CAP_ALL;
@@ -356,6 +357,16 @@ static int parse_proc_cmdline_item(const char *key, const char *value, void *dat
                         log_warning("Failed to parse dump core switch %s. Ignoring.", value);
                 else
                         arg_dump_core = r;
+
+        } else if (proc_cmdline_key_streq(key, "systemd.early_core_pattern")) {
+
+                if (proc_cmdline_value_missing(key, value))
+                        return 0;
+
+                if (path_is_absolute(value))
+                        (void) parse_path_argument_and_warn(value, false, &arg_early_core_pattern);
+                else
+                        log_warning("Specified core pattern '%s' is not an absolute path, ignoring.", value);
 
         } else if (proc_cmdline_key_streq(key, "systemd.crash_chvt")) {
 
@@ -1363,6 +1374,20 @@ static int fixup_environment(void) {
         return 0;
 }
 
+static void initialize_core_pattern(bool skip_setup) {
+        int r;
+
+        if (skip_setup || !arg_early_core_pattern)
+                return;
+
+        if (getpid() != 1)
+                return;
+
+        r = write_string_file("/proc/sys/kernel/core_pattern", arg_early_core_pattern, 0);
+        if (r < 0)
+                log_warning_errno(r, "Failed to write '%s' to /proc/sys/kernel/core_pattern, ignoring: %m", arg_early_core_pattern);
+}
+
 int main(int argc, char *argv[]) {
         Manager *m = NULL;
         int r, retval = EXIT_FAILURE;
@@ -1550,8 +1575,10 @@ int main(int argc, char *argv[]) {
                 if (setrlimit(RLIMIT_CORE, &RLIMIT_MAKE_CONST(RLIM_INFINITY)) < 0)
                         log_warning_errno(errno, "Failed to set RLIMIT_CORE: %m");
 
-                /* But at the same time, turn off the core_pattern logic by default, so that no coredumps are stored
-                 * until the systemd-coredump tool is enabled via sysctl. */
+                /* But at the same time, turn off the core_pattern logic by default, so that no
+                 * coredumps are stored until the systemd-coredump tool is enabled via
+                 * sysctl. However it can be changed via the kernel command line later so core
+                 * dumps can still be generated during early startup and in initramfs. */
                 if (!skip_setup)
                         (void) write_string_file("/proc/sys/kernel/core_pattern", "|/bin/false", 0);
         }
@@ -1608,6 +1635,10 @@ int main(int argc, char *argv[]) {
                 if (r < 0)
                         log_warning_errno(r, "Failed to parse kernel command line, ignoring: %m");
         }
+
+        /* A core pattern might have been specified via the cmdline.  */
+        if (arg_action == ACTION_RUN)
+                initialize_core_pattern(skip_setup);
 
         /* Note that this also parses bits from the kernel command
          * line, including "debug". */
