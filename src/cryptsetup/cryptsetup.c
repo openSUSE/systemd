@@ -47,7 +47,7 @@
 static const char *arg_type = NULL; /* CRYPT_LUKS1, CRYPT_TCRYPT or CRYPT_PLAIN */
 static char *arg_cipher = NULL;
 static unsigned arg_key_size = 0;
-#if HAVE_LIBCRYPTSETUP_SECTOR_SIZE
+#ifdef HAVE_LIBCRYPTSETUP_SECTOR_SIZE
 static unsigned arg_sector_size = CRYPT_SECTOR_SIZE;
 #endif
 static int arg_key_slot = CRYPT_ANY_SLOT;
@@ -109,7 +109,9 @@ static int parse_one_option(const char *option) {
 
         } else if (startswith(option, "sector-size=")) {
 
-#if HAVE_LIBCRYPTSETUP_SECTOR_SIZE
+#ifdef HAVE_LIBCRYPTSETUP_SECTOR_SIZE
+                int r;
+
                 r = safe_atou(option+12, &arg_sector_size);
                 if (r < 0) {
                         log_error_errno(r, "Failed to parse %s, ignoring: %m", option);
@@ -525,7 +527,7 @@ static int attach_luks_or_plain(struct crypt_device *cd,
                 struct crypt_params_plain params = {
                         .offset = arg_offset,
                         .skip = arg_skip,
-#if HAVE_LIBCRYPTSETUP_SECTOR_SIZE
+#ifdef HAVE_LIBCRYPTSETUP_SECTOR_SIZE
                         .sector_size = arg_sector_size,
 #endif
                 };
