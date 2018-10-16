@@ -174,19 +174,15 @@ noreturn static void crash(int sig) {
                 if (pid < 0)
                         log_emergency_errno(errno, "Caught <%s>, cannot fork for core dump: %m", signal_to_string(sig));
                 else if (pid == 0) {
-                        struct rlimit rl = {
-                                .rlim_cur = RLIM_INFINITY,
-                                .rlim_max = RLIM_INFINITY,
-                        };
-
                         /* Enable default signal handler for core dump */
+
                         sa = (struct sigaction) {
                                 .sa_handler = SIG_DFL,
                         };
                         (void) sigaction(sig, &sa, NULL);
 
-                        /* Don't limit the core dump size */
-                        (void) setrlimit(RLIMIT_CORE, &rl);
+                        /* Don't limit the coredump size */
+                        (void) setrlimit(RLIMIT_CORE, &RLIMIT_MAKE_CONST(RLIM_INFINITY));
 
                         /* Just to be sure... */
                         (void) chdir("/");
@@ -1320,6 +1316,23 @@ static int fixup_environment(void) {
         return 0;
 }
 
+static void initialize_coredump(bool skip_setup) {
+#ifdef ENABLE_COREDUMP
+        if (getpid() != 1)
+                return;
+
+        /* Don't limit the core dump size, so that coredump handlers such as systemd-coredump (which honour the limit)
+         * will process core dumps for system services by default. */
+        if (setrlimit(RLIMIT_CORE, &RLIMIT_MAKE_CONST(RLIM_INFINITY)) < 0)
+                log_warning_errno(errno, "Failed to set RLIMIT_CORE: %m");
+
+        /* But at the same time, turn off the core_pattern logic by default, so that no coredumps are stored
+         * until the systemd-coredump tool is enabled via sysctl. */
+        if (!skip_setup)
+                (void) write_string_file("/proc/sys/kernel/core_pattern", "|/bin/false", 0);
+#endif
+}
+
 int main(int argc, char *argv[]) {
         Manager *m = NULL;
         int r, retval = EXIT_FAILURE;
@@ -1491,6 +1504,8 @@ int main(int argc, char *argv[]) {
                  * because we are not PID 1 */
                 kernel_timestamp = DUAL_TIMESTAMP_NULL;
         }
+
+        initialize_coredump(skip_setup);
 
         if (getpid() == 1) {
                 /* We expect the environment to be set correctly
