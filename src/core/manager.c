@@ -77,6 +77,7 @@
 #include "dbus-job.h"
 #include "dbus-manager.h"
 #include "bus-kernel.h"
+#include "fileio.h"
 
 /* As soon as 5s passed since a unit was added to our GC queue, make sure to run a gc sweep */
 #define GC_QUEUE_USEC_MAX (10*USEC_PER_SEC)
@@ -2336,21 +2337,17 @@ int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
         m->n_reloading ++;
 
         for (;;) {
-                char line[LINE_MAX], *l;
+                _cleanup_free_ char *line = NULL;
+                const char *l;
 
-                if (!fgets(line, sizeof(line), f)) {
-                        if (feof(f))
-                                r = 0;
-                        else
-                                r = -errno;
-
+                r = read_line(f, LONG_LINE_MAX, &line);
+                if (r < 0)
+                        log_error("Failed to read serialization line: %s", strerror(-r));
+                if (r <= 0)
                         goto finish;
-                }
 
-                char_array_0(line);
                 l = strstrip(line);
-
-                if (l[0] == 0)
+                if (isempty(l)) /* end marker */
                         break;
 
                 if (startswith(l, "current-job-id=")) {
@@ -2479,29 +2476,29 @@ int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
         }
 
         for (;;) {
-                Unit *u;
-                char name[UNIT_NAME_MAX+2];
+                _cleanup_free_ char *line = NULL;
                 const char* unit_name;
+                Unit *u;
 
                 /* Start marker */
-                if (!fgets(name, sizeof(name), f)) {
-                        if (feof(f))
-                                r = 0;
-                        else
-                                r = -errno;
-
+                r = read_line(f, LONG_LINE_MAX, &line);
+                if (r < 0)
+                        log_error("Failed to read serialization line: %s", strerror(-r));
+                if (r <= 0)
                         goto finish;
-                }
 
-                char_array_0(name);
-                unit_name = strstrip(name);
+                unit_name = strstrip(line);
 
                 r = manager_load_unit(m, unit_name, NULL, NULL, &u);
                 if (r < 0) {
                         log_notice("Failed to load unit \"%s\", skipping deserialization: %s", unit_name, strerror(-r));
                         if (r == -ENOMEM)
                                 goto finish;
-                        unit_deserialize_skip(f);
+
+                        r = unit_deserialize_skip(f);
+                        if (r < 0)
+                                goto finish;
+
                         continue;
                 }
 
