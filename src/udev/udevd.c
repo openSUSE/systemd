@@ -1680,6 +1680,9 @@ int main(int argc, char *argv[]) {
                 mem_limit = physical_memory() / (128LU*1024*1024);
                 arg_children_max = MAX(10U, MIN(arg_children_max, mem_limit));
 
+                mem_limit = physical_memory() / (128LU*1024*1024);
+                arg_children_max = MAX(10U, MIN(arg_children_max, mem_limit));
+
                 log_debug("set children_max to %u", arg_children_max);
         }
 

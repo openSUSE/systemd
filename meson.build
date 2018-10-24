@@ -425,6 +425,7 @@ decl_headers = '''
 #include <sys/stat.h>
 '''
 # FIXME: key_serial_t is only defined in keyutils.h, this is bound to fail
+# FIXME: these should use -D_GNU_SOURCE, since that is defined at build time
 
 foreach decl : ['char16_t',
                 'char32_t',
@@ -438,6 +439,10 @@ foreach decl : ['char16_t',
         have = cc.sizeof(decl, prefix : decl_headers) > 0
         conf.set10('HAVE_' + decl.underscorify().to_upper(), have)
 endforeach
+
+conf.set10('HAVE_STRUCT_STATX_IN_SYS_STAT_H', cc.sizeof('struct statx', prefix : '''
+#include <sys/stat.h>
+''', args : '-D_GNU_SOURCE') > 0)
 
 foreach decl : [['IFLA_INET6_ADDR_GEN_MODE',         'linux/if_link.h'],
                 ['IN6_ADDR_GEN_MODE_STABLE_PRIVACY', 'linux/if_link.h'],
@@ -764,7 +769,7 @@ substs.set('DEBUGTTY', get_option('debug-tty'))
 
 enable_debug_hashmap = false
 enable_debug_mmap_cache = false
-foreach name : get_option('debug')
+foreach name : get_option('debug-extra')
         if name == 'hashmap'
                 enable_debug_hashmap = true
         elif name == 'mmap-cache'
@@ -922,11 +927,17 @@ if want_libcryptsetup != 'false' and not fuzzer_build
                                    version : '>= 1.6.0',
                                    required : want_libcryptsetup == 'true')
         have = libcryptsetup.found()
+        have_sector = cc.has_member(
+                    'struct crypt_params_plain',
+                    'sector_size',
+                    prefix : '#include <libcryptsetup.h>')
 else
         have = false
+        have_sector = false
         libcryptsetup = []
 endif
 conf.set10('HAVE_LIBCRYPTSETUP', have)
+conf.set10('HAVE_LIBCRYPTSETUP_SECTOR_SIZE', have_sector)
 
 want_libcurl = get_option('libcurl')
 if want_libcurl != 'false' and not fuzzer_build
@@ -1853,6 +1864,14 @@ if conf.get('HAVE_SYSV_COMPAT') == 1
 
         executable('systemd-rc-local-generator',
                    'src/rc-local-generator/rc-local-generator.c',
+                   include_directories : includes,
+                   link_with : [libshared],
+                   install_rpath : rootlibexecdir,
+                   install : true,
+                   install_dir : systemgeneratordir)
+
+        executable('systemd-insserv-generator',
+                   'src/insserv-generator/insserv-generator.c',
                    include_directories : includes,
                    link_with : [libshared],
                    install_rpath : rootlibexecdir,
