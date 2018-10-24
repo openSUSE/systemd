@@ -827,7 +827,7 @@ int cg_attach(const char *controller, const char *path, pid_t pid) {
 
         xsprintf(c, PID_FMT "\n", pid);
 
-        r = write_string_file(fs, c, 0);
+        r = write_string_file(fs, c, WRITE_STRING_FILE_DISABLE_BUFFER);
         if (r < 0)
                 return r;
 
@@ -1098,7 +1098,7 @@ int cg_install_release_agent(const char *controller, const char *agent) {
 
         sc = strstrip(contents);
         if (isempty(sc)) {
-                r = write_string_file(fs, agent, 0);
+                r = write_string_file(fs, agent, WRITE_STRING_FILE_DISABLE_BUFFER);
                 if (r < 0)
                         return r;
         } else if (!path_equal(sc, agent))
@@ -1116,7 +1116,7 @@ int cg_install_release_agent(const char *controller, const char *agent) {
 
         sc = strstrip(contents);
         if (streq(sc, "0")) {
-                r = write_string_file(fs, "1", 0);
+                r = write_string_file(fs, "1", WRITE_STRING_FILE_DISABLE_BUFFER);
                 if (r < 0)
                         return r;
 
@@ -1143,7 +1143,7 @@ int cg_uninstall_release_agent(const char *controller) {
         if (r < 0)
                 return r;
 
-        r = write_string_file(fs, "0", 0);
+        r = write_string_file(fs, "0", WRITE_STRING_FILE_DISABLE_BUFFER);
         if (r < 0)
                 return r;
 
@@ -1153,7 +1153,7 @@ int cg_uninstall_release_agent(const char *controller) {
         if (r < 0)
                 return r;
 
-        r = write_string_file(fs, "", 0);
+        r = write_string_file(fs, "", WRITE_STRING_FILE_DISABLE_BUFFER);
         if (r < 0)
                 return r;
 
@@ -2006,7 +2006,7 @@ int cg_set_attribute(const char *controller, const char *path, const char *attri
         if (r < 0)
                 return r;
 
-        return write_string_file(p, value, 0);
+        return write_string_file(p, value, WRITE_STRING_FILE_DISABLE_BUFFER);
 }
 
 int cg_get_attribute(const char *controller, const char *path, const char *attribute, char **ret) {
@@ -2529,7 +2529,7 @@ int cg_enable_everywhere(CGroupMask supported, CGroupMask mask, const char *p) {
                                         return log_debug_errno(errno, "Failed to open cgroup.subtree_control file of %s: %m", p);
                         }
 
-                        r = write_string_stream(f, s, 0);
+                        r = write_string_stream(f, s, WRITE_STRING_FILE_DISABLE_BUFFER);
                         if (r < 0) {
                                 log_debug_errno(r, "Failed to enable controller %s for %s (%s): %m", n, p, fs);
                                 clearerr(f);
