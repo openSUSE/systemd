@@ -2581,6 +2581,55 @@ int manager_serialize(Manager *m, FILE *f, FDSet *fds, bool switching_root) {
         return 0;
 }
 
+static int manager_deserialize_one_unit(Manager *m, const char *unit, FILE *f, FDSet *fds) {
+        Unit *u;
+        int r;
+
+        r = manager_load_unit(m, unit, NULL, NULL, &u);
+        if (r < 0) {
+                if (r == -ENOMEM)
+                        return r;
+                return log_notice_errno(r, "Failed to load unit \"%s\", skipping deserialization: %m", unit);
+        }
+
+        r = unit_deserialize(u, f, fds);
+        if (r < 0) {
+                if (r == -ENOMEM)
+                        return r;
+                return log_notice_errno(r, "Failed to deserialize unit \"%s\", skipping: %m", unit);
+        }
+
+        return 0;
+}
+
+static int manager_deserialize_units(Manager *m, FILE *f, FDSet *fds) {
+        _cleanup_free_ char *line = NULL;
+        const char *unit_name;
+        int r;
+
+        for (;;) {
+                /* Start marker */
+                r = read_line(f, LONG_LINE_MAX, &line);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to read serialization line: %m");
+                if (r == 0)
+                        break;
+
+                unit_name = strstrip(line);
+
+                r = manager_deserialize_one_unit(m, unit_name, f, fds);
+                if (r == -ENOMEM)
+                        return r;
+                if (r < 0) {
+                        r = unit_deserialize_skip(f);
+                        if (r < 0)
+                                return r;
+                }
+        }
+
+        return 0;
+}
+
 int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
         int r = 0;
 
@@ -2739,40 +2788,7 @@ int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
                         log_notice("Unknown serialization item '%s'", l);
         }
 
-        for (;;) {
-                _cleanup_free_ char *line = NULL;
-                const char* unit_name;
-                Unit *u;
-
-                /* Start marker */
-                r = read_line(f, LONG_LINE_MAX, &line);
-                if (r < 0)
-                        return log_error_errno(r, "Failed to read serialization line: %m");
-                if (r == 0)
-                        break;
-
-                unit_name = strstrip(line);
-
-                r = manager_load_unit(m, unit_name, NULL, NULL, &u);
-                if (r < 0) {
-                        log_notice_errno(r, "Failed to load unit \"%s\", skipping deserialization: %m", unit_name);
-                        if (r == -ENOMEM)
-                                goto finish;
-
-                        r = unit_deserialize_skip(f);
-                        if (r < 0)
-                                goto finish;
-
-                        continue;
-                }
-
-                r = unit_deserialize(u, f, fds);
-                if (r < 0) {
-                        log_notice_errno(r, "Failed to deserialize unit \"%s\": %m", unit_name);
-                        if (r == -ENOMEM)
-                                goto finish;
-                }
-        }
+        r = manager_deserialize_units(m, f, fds);
 
 finish:
         if (ferror(f))
