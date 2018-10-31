@@ -490,6 +490,13 @@ static int mount_add_default_dependencies(Mount *m) {
         if (r < 0)
                 return r;
 
+        /* If this is a tmpfs mount then we have to unmount it before we try to deactivate swaps */
+        if (streq_ptr(p->fstype, "tmpfs")) {
+                r = unit_add_dependency_by_name(UNIT(m), UNIT_AFTER, SPECIAL_SWAP_TARGET, NULL, true);
+                if (r < 0)
+                        return r;
+        }
+
         return 0;
 }
 
