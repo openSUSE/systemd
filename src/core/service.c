@@ -1228,16 +1228,17 @@ static int service_spawn(
                 union sockaddr_union sa;
                 socklen_t salen = sizeof(sa);
 
-                r = getpeername(s->socket_fd, &sa.sa, &salen);
-                if (r < 0) {
-                        r = -errno;
-                        goto fail;
-                }
+                /* If this is a per-connection service instance, let's set $REMOTE_ADDR and $REMOTE_PORT to something
+                 * useful. Note that we do this only when we are still connected at this point in time, which we might
+                 * very well not be. Hence we ignore all errors when retrieving peer information (as that might result
+                 * in ENOTCONN), and just use whate we can use. */
 
-                if (IN_SET(sa.sa.sa_family, AF_INET, AF_INET6)) {
+                if (getpeername(s->socket_fd, &sa.sa, &salen) >= 0 &&
+                    IN_SET(sa.sa.sa_family, AF_INET, AF_INET6)) {
+
                         _cleanup_free_ char *addr = NULL;
                         char *t;
-                        int port;
+                        unsigned port;
 
                         r = sockaddr_pretty(&sa.sa, salen, true, false, &addr);
                         if (r < 0)
@@ -1250,11 +1251,9 @@ static int service_spawn(
                         }
                         our_env[n_env++] = t;
 
-                        port = sockaddr_port(&sa.sa);
-                        if (port < 0) {
-                                r = port;
+                        r = sockaddr_port(&sa.sa, &port);
+                        if (r < 0)
                                 goto fail;
-                        }
 
                         if (asprintf(&t, "REMOTE_PORT=%u", port) < 0) {
                                 r = -ENOMEM;
