@@ -86,7 +86,10 @@ int dhcp6_option_append_ia(uint8_t **buf, size_t *buflen, DHCP6IA *ia) {
         DHCP6Address *addr;
         int r;
 
-        assert_return(buf && *buf && buflen && ia, -EINVAL);
+        assert_return(buf, -EINVAL);
+        assert_return(*buf, -EINVAL);
+        assert_return(buflen, -EINVAL);
+        assert_return(ia, -EINVAL);
 
         switch (ia->type) {
         case SD_DHCP6_OPTION_IA_NA:
@@ -103,7 +106,7 @@ int dhcp6_option_append_ia(uint8_t **buf, size_t *buflen, DHCP6IA *ia) {
                 return -EINVAL;
         }
 
-        if (*buflen < len)
+        if (*buflen < offsetof(DHCP6Option, data) + len)
                 return -ENOBUFS;
 
         ia_hdr = *buf;
