@@ -56,7 +56,7 @@ void manager_reset_config(Manager *m) {
         m->idle_action = HANDLE_IGNORE;
 
         m->runtime_dir_size = physical_memory_scale(10U, 100U); /* 10% */
-        m->user_tasks_max = system_tasks_max_scale(DEFAULT_USER_TASKS_MAX_PERCENTAGE, 100U); /* 33% */
+        m->user_tasks_max = mfree(m->user_tasks_max);
         m->sessions_max = 8192;
         m->inhibitors_max = 8192;
 

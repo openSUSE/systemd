@@ -167,6 +167,7 @@ static void manager_free(Manager *m) {
         free(m->scheduled_shutdown_tty);
         free(m->wall_message);
         free(m->action_job);
+        free(m->user_tasks_max);
         free(m);
 }
 

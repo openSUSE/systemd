@@ -6234,6 +6234,15 @@ EXTRA_DIST += \
 	units/systemd-logind.service.in \
 	src/login/logind.conf.in
 
+systemgenerator_PROGRAMS += \
+	logind-compat-tasks-max-generator
+
+logind_compat_tasks_max_generator_SOURCES = \
+	src/login/compat-tasks-max-generator.c
+
+logind_compat_tasks_max_generator_LDADD = \
+	liblogind-core.la
+
 # ------------------------------------------------------------------------------
 if HAVE_PAM
 

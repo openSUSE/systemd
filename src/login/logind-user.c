@@ -849,17 +849,21 @@ int config_parse_compat_user_tasks_max(
                 void *data,
                 void *userdata) {
 
+        char **m = data;
+        int r;
+
         assert(filename);
         assert(lvalue);
         assert(rvalue);
         assert(data);
 
-        log_syntax(unit, LOG_NOTICE, filename, line, 0,
-                   "Support for option %s= has been removed.",
+        log_syntax(unit, LOG_WARNING, filename, line, 0,
+                   "Support for option %s= is deprecated and will be removed.",
                    lvalue);
-        log_info("Hint: try creating /etc/systemd/system/user-.slice.d/50-limits.conf with:\n"
-                 "        [Slice]\n"
-                 "        TasksMax=%s",
-                 rvalue);
+
+        r = free_and_strdup(m, rvalue);
+        if (r < 0)
+                return log_oom();
+
         return 0;
 }

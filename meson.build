@@ -1425,6 +1425,14 @@ if conf.get('ENABLE_LOGIND', false)
                          install_dir : rootbindir)
         public_programs += [exe]
 
+        executable('logind-compat-tasks-max-generator',
+                   'src/login/compat-tasks-max-generator.c',
+                   include_directories : includes,
+                   link_with : [libshared, liblogind_core],
+                   install_rpath : rootlibexecdir,
+                   install : true,
+                   install_dir : systemgeneratordir)
+
         if conf.get('HAVE_PAM', false)
                 version_script_arg = join_paths(meson.current_source_dir(), pam_systemd_sym)
                 pam_systemd = shared_library(
