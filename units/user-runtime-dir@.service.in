@@ -16,4 +16,6 @@ IgnoreOnIsolate=yes
 [Service]
 ExecStart=@rootlibexecdir@/systemd-user-runtime-dir start %i
 ExecStop=@rootlibexecdir@/systemd-user-runtime-dir stop %i
-RemainAfterExit=true
+Type=oneshot
+RemainAfterExit=yes
+Slice=user-%i.slice
