@@ -1019,7 +1019,7 @@ static void cgroup_context_apply(
                 cgroup_apply_firewall(u);
 }
 
-CGroupMask cgroup_context_get_mask(CGroupContext *c) {
+static CGroupMask cgroup_context_get_mask(CGroupContext *c) {
         CGroupMask mask = 0;
 
         /* Figure out which controllers we need */
@@ -1049,7 +1049,7 @@ CGroupMask cgroup_context_get_mask(CGroupContext *c) {
         return mask;
 }
 
-CGroupMask unit_get_bpf_mask(Unit *u) {
+static CGroupMask unit_get_bpf_mask(Unit *u) {
         CGroupMask mask = 0;
 
         if (unit_get_needs_bpf_firewall(u))
