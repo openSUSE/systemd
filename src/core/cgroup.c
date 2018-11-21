@@ -1127,7 +1127,7 @@ CGroupMask unit_get_members_mask(Unit *u) {
          * require, merged */
 
         if (u->cgroup_members_mask_valid)
-                return u->cgroup_members_mask;
+                return u->cgroup_members_mask; /* Use cached value if possible */
 
         u->cgroup_members_mask = 0;
 
