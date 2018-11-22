@@ -2525,10 +2525,8 @@ int cg_enable_everywhere(CGroupMask supported, CGroupMask mask, const char *p) {
 
                         if (!f) {
                                 f = fopen(fs, "we");
-                                if (!f) {
-                                        log_debug_errno(errno, "Failed to open cgroup.subtree_control file of %s: %m", p);
-                                        break;
-                                }
+                                if (!f)
+                                        return log_debug_errno(errno, "Failed to open cgroup.subtree_control file of %s: %m", p);
                         }
 
                         r = write_string_stream(f, s, 0);
