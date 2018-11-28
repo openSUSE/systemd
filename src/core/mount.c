@@ -423,8 +423,8 @@ static bool should_umount(Mount *m) {
 }
 
 static int mount_add_default_dependencies(Mount *m) {
+        const char *after, *before;
         MountParameters *p;
-        const char *after;
         int r;
 
         assert(m);
@@ -474,8 +474,15 @@ static int mount_add_default_dependencies(Mount *m) {
                         return r;
 
                 after = SPECIAL_REMOTE_FS_PRE_TARGET;
-        } else
+                before = SPECIAL_REMOTE_FS_TARGET;
+        } else {
                 after = SPECIAL_LOCAL_FS_PRE_TARGET;
+                before = SPECIAL_LOCAL_FS_TARGET;
+        }
+
+        r = unit_add_dependency_by_name(UNIT(m), UNIT_BEFORE, before, NULL, true);
+        if (r < 0)
+                return r;
 
         r = unit_add_dependency_by_name(UNIT(m), UNIT_AFTER, after, NULL, true);
         if (r < 0)
