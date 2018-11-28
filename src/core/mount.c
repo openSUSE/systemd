@@ -1427,21 +1427,6 @@ static int mount_setup_unit(
                         goto fail;
                 }
 
-                if (m->running_as == MANAGER_SYSTEM) {
-                        const char* target;
-
-                        target = mount_needs_network(options, fstype) ?  SPECIAL_REMOTE_FS_TARGET : SPECIAL_LOCAL_FS_TARGET;
-                        r = unit_add_dependency_by_name(u, UNIT_BEFORE, target, NULL, true);
-                        if (r < 0)
-                                goto fail;
-
-                        if (should_umount(MOUNT(u))) {
-                                r = unit_add_dependency_by_name(u, UNIT_CONFLICTS, SPECIAL_UMOUNT_TARGET, NULL, true);
-                                if (r < 0)
-                                        goto fail;
-                        }
-                }
-
                 unit_add_to_load_queue(u);
                 changed = true;
         } else {
