@@ -631,14 +631,14 @@ static int log_unsafe_transition(int a, int b, const char *path, unsigned flags)
         _cleanup_free_ char *n1 = NULL, *n2 = NULL;
 
         if (!FLAGS_SET(flags, CHASE_WARN))
-                return -EPERM;
+                return -ENOLINK;
 
         (void) fd_get_path(a, &n1);
         (void) fd_get_path(b, &n2);
 
         log_warning("Detected unsafe path transition %s %s %s during canonicalization of %s.",
                     n1, special_glyph(ARROW), n2, path);
-        return -EPERM;
+        return -ENOLINK;
 }
 
 int chase_symlinks(const char *path, const char *original_root, unsigned flags, char **ret) {
@@ -700,6 +700,10 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
          *    a caller wants to trace the a path through the file system verbosely. Returns < 0 on error, > 0 if the
          *    path is fully normalized, and == 0 for each normalization step. This may be combined with
          *    CHASE_NONEXISTENT, in which case 1 is returned when a component is not found.
+         *
+         * 4. With CHASE_SAFE: in this case the path must not contain unsafe transitions, i.e. transitions from
+         *    unprivileged to privileged files or directories. In such cases the return value is -ENOLINK. If
+         *    CHASE_WARN is also set a warning describing the unsafe transition is emitted.
          *
          * */
 
