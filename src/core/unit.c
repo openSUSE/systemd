@@ -3523,7 +3523,6 @@ int unit_make_transient(Unit *u) {
 
         unit_add_to_dbus_queue(u);
         unit_add_to_gc_queue(u);
-        unit_add_to_load_queue(u);
 
         return 0;
 }

@@ -51,6 +51,7 @@
 #define RELEASE_USEC (20*USEC_PER_SEC)
 
 static void session_remove_fifo(Session *s);
+static void session_restore_vt(Session *s);
 
 Session* session_new(Manager *m, const char *id) {
         Session *s;
@@ -1062,14 +1063,8 @@ error:
         return r;
 }
 
-void session_restore_vt(Session *s) {
-
-        static const struct vt_mode mode = {
-                .mode = VT_AUTO,
-        };
-
-        _cleanup_free_ char *utf8 = NULL;
-        int vt, kb, old_fd;
+static void session_restore_vt(Session *s) {
+        int r, vt, old_fd;
 
         /* We need to get a fresh handle to the virtual terminal,
          * since the old file-descriptor is potentially in a hung-up
@@ -1086,17 +1081,9 @@ void session_restore_vt(Session *s) {
         if (vt < 0)
                 return;
 
-        (void) ioctl(vt, KDSETMODE, KD_TEXT);
-
-        if (read_one_line_file("/sys/module/vt/parameters/default_utf8", &utf8) >= 0 && *utf8 == '1')
-                kb = K_UNICODE;
-        else
-                kb = K_XLATE;
-
-        (void) ioctl(vt, KDSKBMODE, kb);
-
-        (void) ioctl(vt, VT_SETMODE, &mode);
-        (void) fchown(vt, 0, (gid_t) -1);
+        r = vt_restore(vt);
+        if (r < 0)
+                log_warning_errno(r, "Failed to restore VT, ignoring: %m");
 
         s->vtfd = safe_close(s->vtfd);
 }
@@ -1121,9 +1108,9 @@ void session_leave_vt(Session *s) {
                 return;
 
         session_device_pause_all(s);
-        r = ioctl(s->vtfd, VT_RELDISP, 1);
+        r = vt_release(s->vtfd, false);
         if (r < 0)
-                log_debug_errno(errno, "Cannot release VT of session %s: %m", s->id);
+                log_debug_errno(r, "Cannot release VT of session %s: %m", s->id);
 }
 
 bool session_is_controller(Session *s, const char *sender) {
