@@ -28,6 +28,9 @@
 #define ENTRY_SIZE_MAX (1024*1024*770u)
 #define DATA_SIZE_MAX (1024*1024*768u)
 
+/* The maximum number of fields in an entry */
+#define ENTRY_FIELD_COUNT_MAX 1024
+
 bool valid_user_field(const char *p, size_t l, bool allow_protected);
 
 void server_process_native_message(Server *s, const void *buffer, size_t buffer_size, const struct ucred *ucred, const struct timeval *tv, const char *label, size_t label_len);
