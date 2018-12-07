@@ -530,17 +530,14 @@ static int process_http_upload(
                 r = process_source(source, arg_compress, arg_seal);
                 if (r == -EAGAIN)
                         break;
-                else if (r < 0) {
-                        log_warning("Failed to process data for connection %p", connection);
+                if (r < 0) {
                         if (r == -E2BIG)
-                                return mhd_respondf(connection,
-                                                    MHD_HTTP_REQUEST_ENTITY_TOO_LARGE,
-                                                    "Entry is too large, maximum is %u bytes.\n",
-                                                    DATA_SIZE_MAX);
+                                log_warning_errno(r, "Entry is too above maximum of %u, aborting connection %p.",
+                                                  DATA_SIZE_MAX, connection);
                         else
-                                return mhd_respondf(connection,
-                                                    MHD_HTTP_UNPROCESSABLE_ENTITY,
-                                                    "Processing failed: %s.", strerror(-r));
+                                log_warning_errno(r, "Failed to process data, aborting connection %p: %m",
+                                                  connection);
+                        return MHD_NO;
                 }
         }
 
@@ -573,6 +570,7 @@ static int request_handler(
         const char *header;
         int r, code, fd;
         _cleanup_free_ char *hostname = NULL;
+        size_t len;
 
         assert(connection);
         assert(connection_cls);
@@ -594,12 +592,27 @@ static int request_handler(
                 return mhd_respond(connection, MHD_HTTP_NOT_FOUND,
                                    "Not found.\n");
 
-        header = MHD_lookup_connection_value(connection,
-                                             MHD_HEADER_KIND, "Content-Type");
+        header = MHD_lookup_connection_value(connection, MHD_HEADER_KIND, "Content-Type");
         if (!header || !streq(header, "application/vnd.fdo.journal"))
                 return mhd_respond(connection, MHD_HTTP_UNSUPPORTED_MEDIA_TYPE,
                                    "Content-Type: application/vnd.fdo.journal"
                                    " is required.\n");
+
+        header = MHD_lookup_connection_value(connection, MHD_HEADER_KIND, "Content-Length");
+        if (!header)
+                return mhd_respond(connection, MHD_HTTP_LENGTH_REQUIRED,
+                                   "Content-Length header is required.");
+        r = safe_atozu(header, &len);
+        if (r < 0)
+                return mhd_respondf(connection, MHD_HTTP_LENGTH_REQUIRED,
+                                    "Content-Length: %s cannot be parsed: %s", header, strerror(-r));
+
+        if (len > ENTRY_SIZE_MAX)
+                /* When serialized, an entry of maximum size might be slightly larger,
+                 * so this does not correspond exactly to the limit in journald. Oh well.
+                 */
+                return mhd_respondf(connection, MHD_HTTP_REQUEST_ENTITY_TOO_LARGE,
+                                    "Payload larger than maximum size of %u bytes", ENTRY_SIZE_MAX);
 
         {
                 const union MHD_ConnectionInfo *ci;
