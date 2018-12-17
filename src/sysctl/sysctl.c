@@ -101,7 +101,7 @@ static int parse_file(Hashmap *sysctl_options, const char *path, bool ignore_eno
 
                 value = strchr(p, '=');
                 if (!value) {
-                        log_error("Line is not an assignment in file '%s': %s", path, value);
+                        log_error("Line is not an assignment in file '%s': %s", path, p);
 
                         if (r == 0)
                                 r = -EINVAL;
