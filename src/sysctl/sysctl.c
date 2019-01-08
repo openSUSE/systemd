@@ -28,6 +28,7 @@
 #include <getopt.h>
 #include <sys/utsname.h>
 
+#include "def.h"
 #include "log.h"
 #include "strv.h"
 #include "util.h"
@@ -74,9 +75,10 @@ static char* normalize_sysctl(char *s) {
 }
 
 static int apply_sysctl(const char *property, const char *value) {
-        _cleanup_free_ char *p = NULL;
+        _cleanup_close_ int fd = -1;
+        _cleanup_free_ char *p = NULL, *s = NULL;
         char *n;
-        int r = 0, k;
+        int r = 0, k = 0;
 
         log_debug("Setting '%s' to '%s'", property, value);
 
@@ -103,7 +105,22 @@ static int apply_sysctl(const char *property, const char *value) {
                 }
         }
 
-        k = write_string_file(p, value);
+        fd = open(p, O_WRONLY|O_CLOEXEC);
+        if (fd < 0) {
+                k = -errno;
+                goto out;
+        }
+
+        s = strjoin(value, endswith(value, "\n") ? NULL : "\n", NULL);
+        if (!s) {
+                k = -ENOMEM;
+                goto out;
+        }
+
+        if (write(fd, s, strlen(s)) < 0)
+                k = -errno;
+
+out:
         if (k < 0) {
                 log_full(k == -ENOENT ? LOG_DEBUG : LOG_WARNING,
                          "Failed to write '%s' to '%s': %s", value, p, strerror(-k));
@@ -149,7 +166,7 @@ static int parse_file(Hashmap *sysctl_options, const char *path, bool ignore_eno
 
         log_debug("parse: %s", path);
         while (!feof(f)) {
-                char l[LINE_MAX], *p, *value, *new_value, *property, *existing;
+                char l[LONG_LINE_MAX], *p, *value, *new_value, *property, *existing;
                 void *v;
                 int k;
 

@@ -77,6 +77,7 @@
 #include "dbus-job.h"
 #include "dbus-manager.h"
 #include "bus-kernel.h"
+#include "fileio.h"
 
 /* As soon as 5s passed since a unit was added to our GC queue, make sure to run a gc sweep */
 #define GC_QUEUE_USEC_MAX (10*USEC_PER_SEC)
@@ -1136,8 +1137,11 @@ int manager_startup(Manager *m, FILE *serialization, FDSet *fds) {
         dual_timestamp_get(&m->units_load_finish_timestamp);
 
         /* Second, deserialize if there is something to deserialize */
-        if (serialization)
+        if (serialization) {
                 r = manager_deserialize(m, serialization, fds);
+                if (r < 0)
+                        log_error("Deserialization failed: %s", strerror(-r));
+        }
 
         /* Any fds left? Find some unit which wants them. This is
          * useful to allow container managers to pass some file
@@ -2322,6 +2326,59 @@ int manager_serialize(Manager *m, FILE *f, FDSet *fds, bool switching_root) {
         return 0;
 }
 
+static int manager_deserialize_one_unit(Manager *m, const char *unit, FILE *f, FDSet *fds) {
+        Unit *u;
+        int r;
+
+        r = manager_load_unit(m, unit, NULL, NULL, &u);
+        if (r < 0) {
+                if (r == -ENOMEM)
+                        return r;
+                log_notice("Failed to load unit \"%s\", skipping deserialization: %s", unit, strerror(-r));
+                return r;
+        }
+
+        r = unit_deserialize(u, f, fds);
+        if (r < 0) {
+                if (r == -ENOMEM)
+                        return r;
+                log_notice("Failed to deserialize unit \"%s\", skipping: %s", unit, strerror(-r));
+                return r;
+        }
+
+        return 0;
+}
+
+static int manager_deserialize_units(Manager *m, FILE *f, FDSet *fds) {
+        _cleanup_free_ char *line = NULL;
+        const char *unit_name;
+        int r;
+
+        for (;;) {
+                /* Start marker */
+                r = read_line(f, LONG_LINE_MAX, &line);
+                if (r < 0) {
+                        log_error("Failed to read serialization line: %s", strerror(-r));
+                        return r;
+                }
+                if (r == 0)
+                        break;
+
+                unit_name = strstrip(line);
+
+                r = manager_deserialize_one_unit(m, unit_name, f, fds);
+                if (r == -ENOMEM)
+                        return r;
+                if (r < 0) {
+                        r = unit_deserialize_skip(f);
+                        if (r < 0)
+                                return r;
+                }
+        }
+
+        return 0;
+}
+
 int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
         int r = 0;
 
@@ -2333,21 +2390,17 @@ int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
         m->n_reloading ++;
 
         for (;;) {
-                char line[LINE_MAX], *l;
+                _cleanup_free_ char *line = NULL;
+                const char *l;
 
-                if (!fgets(line, sizeof(line), f)) {
-                        if (feof(f))
-                                r = 0;
-                        else
-                                r = -errno;
-
+                r = read_line(f, LONG_LINE_MAX, &line);
+                if (r < 0)
+                        log_error("Failed to read serialization line: %s", strerror(-r));
+                if (r <= 0)
                         goto finish;
-                }
 
-                char_array_0(line);
                 l = strstrip(line);
-
-                if (l[0] == 0)
+                if (isempty(l)) /* end marker */
                         break;
 
                 if (startswith(l, "current-job-id=")) {
@@ -2475,30 +2528,7 @@ int manager_deserialize(Manager *m, FILE *f, FDSet *fds) {
                 }
         }
 
-        for (;;) {
-                Unit *u;
-                char name[UNIT_NAME_MAX+2];
-
-                /* Start marker */
-                if (!fgets(name, sizeof(name), f)) {
-                        if (feof(f))
-                                r = 0;
-                        else
-                                r = -errno;
-
-                        goto finish;
-                }
-
-                char_array_0(name);
-
-                r = manager_load_unit(m, strstrip(name), NULL, NULL, &u);
-                if (r < 0)
-                        goto finish;
-
-                r = unit_deserialize(u, f, fds);
-                if (r < 0)
-                        goto finish;
-        }
+        r = manager_deserialize_units(m, f, fds);
 
 finish:
         if (ferror(f))
@@ -2566,8 +2596,10 @@ int manager_reload(Manager *m) {
 
         /* Second, deserialize our stored data */
         q = manager_deserialize(m, f, fds);
-        if (q < 0)
+        if (q < 0) {
+                log_error("Deserialization failed: %s", strerror(-q));
                 r = q;
+        }
 
         fclose(f);
         f = NULL;
