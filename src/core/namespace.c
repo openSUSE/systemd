@@ -31,6 +31,7 @@
 #include "dev-setup.h"
 #include "fd-util.h"
 #include "fs-util.h"
+#include "label.h"
 #include "loop-util.h"
 #include "loopback-setup.h"
 #include "missing.h"
@@ -188,7 +189,7 @@ static void mount_entry_done(MountEntry *p) {
         p->source_malloc = mfree(p->source_malloc);
 }
 
-static int append_access_mounts(MountEntry **p, char **strv, MountMode mode) {
+static int append_access_mounts(MountEntry **p, char **strv, MountMode mode, bool forcibly_require_prefix) {
         char **i;
 
         assert(p);
@@ -216,7 +217,7 @@ static int append_access_mounts(MountEntry **p, char **strv, MountMode mode) {
                         .path_const = e,
                         .mode = mode,
                         .ignore = ignore,
-                        .has_prefix = !needs_prefix,
+                        .has_prefix = !needs_prefix && !forcibly_require_prefix,
                 };
         }
 
@@ -617,6 +618,8 @@ static int mount_bind_dev(MountEntry *m) {
         /* Implements the little brother of mount_private_dev(): simply bind mounts the host's /dev into the service's
          * /dev. This is only used when RootDirectory= is set. */
 
+        (void) mkdir_p_label(mount_entry_path(m), 0755);
+
         r = path_is_mount_point(mount_entry_path(m), NULL, 0);
         if (r < 0)
                 return log_debug_errno(r, "Unable to determine whether /dev is already mounted: %m");
@@ -633,6 +636,8 @@ static int mount_sysfs(MountEntry *m) {
         int r;
 
         assert(m);
+
+        (void) mkdir_p_label(mount_entry_path(m), 0755);
 
         r = path_is_mount_point(mount_entry_path(m), NULL, 0);
         if (r < 0)
@@ -651,6 +656,8 @@ static int mount_procfs(MountEntry *m) {
         int r;
 
         assert(m);
+
+        (void) mkdir_p_label(mount_entry_path(m), 0755);
 
         r = path_is_mount_point(mount_entry_path(m), NULL, 0);
         if (r < 0)
@@ -897,7 +904,9 @@ int setup_namespace(
         MountEntry *m, *mounts = NULL;
         size_t root_hash_size = 0;
         bool make_slave = false;
+        const char *root;
         unsigned n_mounts;
+        bool require_prefix = false;
         int r = 0;
 
         assert(ns_info);
@@ -928,18 +937,24 @@ int setup_namespace(
                 r = dissected_image_decrypt(dissected_image, NULL, root_hash, root_hash_size, dissect_image_flags, &decrypted_image);
                 if (r < 0)
                         return r;
+        }
 
-                if (!root_directory) {
-                        /* Create a mount point for the image, if it's still missing. We use the same mount point for
-                         * all images, which is safe, since they all live in their own namespaces after all, and hence
-                         * won't see each other. */
-                        root_directory = "/run/systemd/unit-root";
-                        (void) mkdir(root_directory, 0700);
-                }
+        if (root_directory)
+                root = root_directory;
+        else {
+                /* Always create the mount namespace in a temporary directory, instead of operating
+                 * directly in the root. The temporary directory prevents any mounts from being
+                 * potentially obscured my other mounts we already applied.
+                 * We use the same mount point for all images, which is safe, since they all live
+                 * in their own namespaces after all, and hence won't see each other. */
+
+                root = "/run/systemd/unit-root";
+                (void) mkdir_label(root, 0700);
+                require_prefix = true;
         }
 
         n_mounts = namespace_calculate_mounts(
-                        root_directory,
+                        root,
                         ns_info,
                         read_write_paths,
                         read_only_paths,
@@ -949,20 +964,20 @@ int setup_namespace(
                         protect_home, protect_system);
 
         /* Set mount slave mode */
-        if (root_directory || n_mounts > 0)
+        if (root || n_mounts > 0)
                 make_slave = true;
 
         if (n_mounts > 0) {
                 m = mounts = (MountEntry *) alloca0(n_mounts * sizeof(MountEntry));
-                r = append_access_mounts(&m, read_write_paths, READWRITE);
+                r = append_access_mounts(&m, read_write_paths, READWRITE, require_prefix);
                 if (r < 0)
                         goto finish;
 
-                r = append_access_mounts(&m, read_only_paths, READONLY);
+                r = append_access_mounts(&m, read_only_paths, READONLY, require_prefix);
                 if (r < 0)
                         goto finish;
 
-                r = append_access_mounts(&m, inaccessible_paths, INACCESSIBLE);
+                r = append_access_mounts(&m, inaccessible_paths, INACCESSIBLE, require_prefix);
                 if (r < 0)
                         goto finish;
 
@@ -1018,7 +1033,7 @@ int setup_namespace(
                 if (r < 0)
                         goto finish;
 
-                if (namespace_info_mount_apivfs(root_directory, ns_info)) {
+                if (namespace_info_mount_apivfs(root, ns_info)) {
                         r = append_static_mounts(&m, apivfs_table, ELEMENTSOF(apivfs_table), ns_info->ignore_protect_paths);
                         if (r < 0)
                                 goto finish;
@@ -1027,14 +1042,14 @@ int setup_namespace(
                 assert(mounts + n_mounts == m);
 
                 /* Prepend the root directory where that's necessary */
-                r = prefix_where_needed(mounts, n_mounts, root_directory);
+                r = prefix_where_needed(mounts, n_mounts, root);
                 if (r < 0)
                         goto finish;
 
                 qsort(mounts, n_mounts, sizeof(MountEntry), mount_path_compare);
 
                 drop_duplicates(mounts, &n_mounts);
-                drop_outside_root(root_directory, mounts, &n_mounts);
+                drop_outside_root(root, mounts, &n_mounts);
                 drop_inaccessible(mounts, &n_mounts);
                 drop_nop(mounts, &n_mounts);
         }
@@ -1054,11 +1069,12 @@ int setup_namespace(
         }
 
         /* Try to set up the new root directory before mounting anything there */
-        if (root_directory)
-                (void) base_filesystem_create(root_directory, UID_INVALID, GID_INVALID);
+        if (root)
+                (void) base_filesystem_create(root, UID_INVALID, GID_INVALID);
 
         if (root_image) {
-                r = dissected_image_mount(dissected_image, root_directory, dissect_image_flags);
+                /* A root image is specified, mount it to the right place */
+                r = dissected_image_mount(dissected_image, root, dissect_image_flags);
                 if (r < 0)
                         goto finish;
 
@@ -1070,15 +1086,23 @@ int setup_namespace(
 
         } else if (root_directory) {
 
-                /* Turn directory into bind mount, if it isn't one yet */
-                r = path_is_mount_point(root_directory, NULL, AT_SYMLINK_FOLLOW);
+                /* A root directory is specified. Turn its directory into bind mount, if it isn't one yet. */
+                r = path_is_mount_point(root, NULL, AT_SYMLINK_FOLLOW);
                 if (r < 0)
                         goto finish;
                 if (r == 0) {
-                        if (mount(root_directory, root_directory, NULL, MS_BIND|MS_REC, NULL) < 0) {
+                        if (mount(root, root, NULL, MS_BIND|MS_REC, NULL) < 0) {
                                 r = -errno;
                                 goto finish;
                         }
+                }
+
+        } else if (root) {
+
+                /* Let's mount the main root directory to the root directory to use */
+                if (mount("/", root, NULL, MS_BIND|MS_REC, NULL) < 0) {
+                        r = -errno;
+                        goto finish;
                 }
         }
 
@@ -1097,7 +1121,7 @@ int setup_namespace(
 
                 /* First round, add in all special mounts we need */
                 for (m = mounts; m < mounts + n_mounts; ++m) {
-                        r = apply_mount(root_directory, m, tmp_dir, var_tmp_dir);
+                        r = apply_mount(root, m, tmp_dir, var_tmp_dir);
                         if (r < 0)
                                 goto finish;
                 }
@@ -1116,9 +1140,9 @@ int setup_namespace(
                 }
         }
 
-        if (root_directory) {
+        if (root) {
                 /* MS_MOVE does not work on MS_SHARED so the remount MS_SHARED will be done later */
-                r = mount_move_root(root_directory);
+                r = mount_move_root(root);
                 if (r < 0)
                         goto finish;
         }

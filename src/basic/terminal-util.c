@@ -245,6 +245,7 @@ int ask_string(char **ret, const char *text, ...) {
 
 int reset_terminal_fd(int fd, bool switch_to_text) {
         struct termios termios;
+        _cleanup_free_ char *utf8 = NULL;
         int r = 0;
 
         /* Set terminal to some sane defaults */
@@ -262,8 +263,8 @@ int reset_terminal_fd(int fd, bool switch_to_text) {
         if (switch_to_text)
                 (void) ioctl(fd, KDSETMODE, KD_TEXT);
 
-        /* Enable console unicode mode */
-        (void) ioctl(fd, KDSKBMODE, K_UNICODE);
+        /* Set default keyboard mode */
+        (void) vt_reset_keyboard(fd);
 
         if (tcgetattr(fd, &termios) < 0) {
                 r = -errno;
@@ -1242,4 +1243,79 @@ bool colors_enabled(void) {
         }
 
         return enabled;
+}
+
+int vt_default_utf8(void) {
+        _cleanup_free_ char *b = NULL;
+        int r;
+
+        /* Read the default VT UTF8 setting from the kernel */
+
+        r = read_one_line_file("/sys/module/vt/parameters/default_utf8", &b);
+        if (r < 0)
+                return r;
+
+        return parse_boolean(b);
+}
+
+int vt_reset_keyboard(int fd) {
+        int kb;
+
+        /* If we can't read the default, then default to unicode. It's 2017 after all. */
+        kb = vt_default_utf8() != 0 ? K_UNICODE : K_XLATE;
+
+        if (ioctl(fd, KDSKBMODE, kb) < 0)
+                return -errno;
+
+        return 0;
+}
+
+int vt_restore(int fd) {
+        static const struct vt_mode mode = {
+                .mode = VT_AUTO,
+        };
+        int r, q = 0;
+
+        r = ioctl(fd, KDSETMODE, KD_TEXT);
+        if (r < 0)
+                q = log_debug_errno(errno, "Failed to set VT in text mode, ignoring: %m");
+
+        r = vt_reset_keyboard(fd);
+        if (r < 0) {
+                log_debug_errno(r, "Failed to reset keyboard mode, ignoring: %m");
+                if (q >= 0)
+                        q = r;
+        }
+
+        r = ioctl(fd, VT_SETMODE, &mode);
+        if (r < 0) {
+                log_debug_errno(errno, "Failed to set VT_AUTO mode, ignoring: %m");
+                if (q >= 0)
+                        q = -errno;
+        }
+
+        r = fchown(fd, 0, (gid_t) -1);
+        if (r < 0) {
+                log_debug_errno(errno, "Failed to chown VT, ignoring: %m");
+                if (q >= 0)
+                        q = -errno;
+        }
+
+        return q;
+}
+
+int vt_release(int fd, bool restore) {
+        assert(fd >= 0);
+
+        /* This function releases the VT by acknowledging the VT-switch signal
+         * sent by the kernel and optionally reset the VT in text and auto
+         * VT-switching modes. */
+
+        if (ioctl(fd, VT_RELDISP, 1) < 0)
+                return -errno;
+
+        if (restore)
+                return vt_restore(fd);
+
+        return 0;
 }
