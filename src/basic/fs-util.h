@@ -45,6 +45,7 @@ int readlink_and_make_absolute_root(const char *root, const char *path, char **r
 int chmod_and_chown(const char *path, mode_t mode, uid_t uid, gid_t gid);
 
 int fchmod_umask(int fd, mode_t mode);
+int fchmod_opath(int fd, mode_t m);
 
 int fd_warn_permissions(const char *path, int fd);
 
@@ -58,6 +59,7 @@ int symlink_idempotent(const char *from, const char *to);
 int symlink_atomic(const char *from, const char *to);
 int mknod_atomic(const char *path, mode_t mode, dev_t dev);
 int mkfifo_atomic(const char *path, mode_t mode);
+int mkfifoat_atomic(int dir_fd, const char *path, mode_t mode);
 
 int get_files_in_directory(const char *path, char ***list);
 
@@ -79,9 +81,13 @@ union inotify_event_buffer {
 int inotify_add_watch_fd(int fd, int what, uint32_t mask);
 
 enum {
-        CHASE_PREFIX_ROOT = 1,   /* If set, the specified path will be prefixed by the specified root before beginning the iteration */
-        CHASE_NONEXISTENT = 2,   /* If set, it's OK if the path doesn't actually exist. */
-        CHASE_NO_AUTOFS = 4,     /* If set, return -EREMOTE if autofs mount point found */
+        CHASE_PREFIX_ROOT = 1U << 0,   /* If set, the specified path will be prefixed by the specified root before beginning the iteration */
+        CHASE_NONEXISTENT = 1U << 1,   /* If set, it's OK if the path doesn't actually exist. */
+        CHASE_NO_AUTOFS   = 1U << 2,   /* If set, return -EREMOTE if autofs mount point found */
+        CHASE_SAFE        = 1U << 3,   /* If set, return EPERM if we ever traverse from unprivileged to privileged files or directories */
+        CHASE_OPEN        = 1U << 4,   /* If set, return an O_PATH object to the final component */
+        CHASE_STEP        = 1U << 6,   /* If set, just execute a single step of the normalization */
+        CHASE_NOFOLLOW    = 1U << 7, /* Only valid with CHASE_OPEN: when the path's right-most component refers to symlink return O_PATH fd of the symlink, rather than following it. */
 };
 
 int chase_symlinks(const char *path_with_prefix, const char *root, unsigned flags, char **ret);

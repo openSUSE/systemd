@@ -147,6 +147,14 @@ static inline unsigned long ALIGN_POWER2(unsigned long u) {
                 !__builtin_types_compatible_p(typeof(x), typeof(&*(x))), \
                 sizeof(x)/sizeof((x)[0]),                                \
                 (void)0))
+
+/*
+ * STRLEN - return the length of a string literal, minus the trailing NUL byte.
+ *          Contrary to strlen(), this is a constant expression.
+ * @x: a string literal.
+ */
+#define STRLEN(x) (sizeof(""x"") - 1)
+
 /*
  * container_of - cast a member of a structure out to the containing structure
  * @ptr: the pointer to the member.
@@ -339,6 +347,8 @@ static inline unsigned long ALIGN_POWER2(unsigned long u) {
 
 #define SET_FLAG(v, flag, b) \
         (v) = (b) ? ((v) | (flag)) : ((v) & ~(flag))
+#define FLAGS_SET(v, flags) \
+        (((v) & (flags)) == (flags))
 
 #define CASE_F(X) case X:
 #define CASE_F_1(CASE, X) CASE_F(X)

@@ -59,6 +59,9 @@ int take_etc_passwd_lock(const char *root);
 #define UID_INVALID ((uid_t) -1)
 #define GID_INVALID ((gid_t) -1)
 
+#define UID_NOBODY ((uid_t) 65534U)
+#define GID_NOBODY ((gid_t) 65534U)
+
 /* Let's pick a UIDs within the 16bit range, so that we are compatible with containers using 16bit
  * user namespacing. At least on Fedora normal users are allocated until UID 60000, hence do not
  * allocate from below this. Also stay away from the upper end of the range as that is often used
