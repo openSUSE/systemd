@@ -771,6 +771,7 @@ static void dispatch_message_real(
                 o_uid[sizeof("OBJECT_UID=") + DECIMAL_STR_MAX(uid_t)],
                 o_gid[sizeof("OBJECT_GID=") + DECIMAL_STR_MAX(gid_t)],
                 o_owner_uid[sizeof("OBJECT_SYSTEMD_OWNER_UID=") + DECIMAL_STR_MAX(uid_t)];
+        _cleanup_free_ char *cmdline1 = NULL, *cmdline2 = NULL;
         uid_t object_uid;
         gid_t object_gid;
         char *x;
@@ -821,9 +822,12 @@ static void dispatch_message_real(
 
                 r = get_process_cmdline(ucred->pid, 0, false, &t);
                 if (r >= 0) {
-                        x = strjoina("_CMDLINE=", t);
+                        /* At most _SC_ARG_MAX (2MB usually), which is too much to put on stack.
+                         * Let's use a heap allocation for this one. */
+                        cmdline1 = strappend("_CMDLINE=", t);
                         free(t);
-                        IOVEC_SET_STRING(iovec[n++], x);
+                        if (cmdline1)
+                                IOVEC_SET_STRING(iovec[n++], cmdline1);
                 }
 
                 r = get_process_capeff(ucred->pid, &t);
@@ -968,9 +972,12 @@ static void dispatch_message_real(
 
                 r = get_process_cmdline(object_pid, 0, false, &t);
                 if (r >= 0) {
-                        x = strjoina("OBJECT_CMDLINE=", t);
+                        /* At most _SC_ARG_MAX (2MB usually), which is too much to put on stack.
+                         * Let's use a heap allocation for this one. */
+                        cmdline2 = strappend("OBJECT_CMDLINE=", t);
                         free(t);
-                        IOVEC_SET_STRING(iovec[n++], x);
+                        if (cmdline2)
+                                IOVEC_SET_STRING(iovec[n++], cmdline2);
                 }
 
 #ifdef HAVE_AUDIT
@@ -1359,8 +1366,7 @@ int server_process_datagram(sd_event_source *es, int fd, uint32_t revents, void 
                 return log_error_errno(errno, "recvmsg() failed: %m");
         }
 
-        CMSG_FOREACH(cmsg, &msghdr) {
-
+        CMSG_FOREACH(cmsg, &msghdr)
                 if (cmsg->cmsg_level == SOL_SOCKET &&
                     cmsg->cmsg_type == SCM_CREDENTIALS &&
                     cmsg->cmsg_len == CMSG_LEN(sizeof(struct ucred)))
@@ -1378,7 +1384,6 @@ int server_process_datagram(sd_event_source *es, int fd, uint32_t revents, void 
                         fds = (int*) CMSG_DATA(cmsg);
                         n_fds = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
                 }
-        }
 
         /* And a trailing NUL, just in case */
         s->buffer[n] = 0;

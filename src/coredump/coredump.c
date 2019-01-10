@@ -792,15 +792,16 @@ log:
         core_message = strjoin("MESSAGE=Process ", context[CONTEXT_PID],
                                " (", context[CONTEXT_COMM], ") of user ",
                                context[CONTEXT_UID], " dumped core.",
-                               journald_crash ? "\nCoredump diverted to " : NULL,
-                               journald_crash ? filename : NULL);
+                               journald_crash && filename ? "\nCoredump diverted to " : NULL,
+                               journald_crash && filename ? filename : NULL);
         if (!core_message)
                 return log_oom();
 
         if (journald_crash) {
-                /* We cannot log to the journal, so just print the MESSAGE.
+                /* We cannot log to the journal, so just print the message.
                  * The target was set previously to something safe. */
-                log_dispatch(LOG_ERR, 0, core_message);
+                assert(startswith(core_message, "MESSAGE="));
+                log_dispatch(LOG_ERR, 0, core_message + strlen("MESSAGE="));
                 return 0;
         }
 
