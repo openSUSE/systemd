@@ -6768,9 +6768,9 @@ static int run_editor(char **paths) {
         if (r < 0)
                 return r;
         if (r == 0) {
-                const char **args;
+                const char **args, *p;
                 char *editor, **editor_args = NULL;
-                char **tmp_path, **original_path, *p;
+                char **tmp_path, **original_path;
                 size_t n_editor_args = 0, i = 1;
                 size_t argc;
 
