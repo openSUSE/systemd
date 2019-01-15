@@ -1104,7 +1104,7 @@ static int fd_set_acls(Item *item, int fd, const char *path, const struct stat *
 
 static int path_set_acls(Item *item, const char *path) {
         int r = 0;
-#ifdef HAVE_ACL
+#if HAVE_ACL
         _cleanup_close_ int fd = -1;
 
         assert(item);
