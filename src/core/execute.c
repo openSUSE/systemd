@@ -1781,6 +1781,17 @@ static int exec_child(
         umask(context->umask);
 
         if (params->apply_permissions) {
+                int which_failed;
+
+                /* Let's set the resource limits before we call into PAM, so that pam_limits wins
+                 * over what is set here. (See below.) */
+
+                r = setrlimit_closest_all((const struct rlimit* const *) context->rlimit, &which_failed);
+                if (r < 0) {
+                        *exit_status = EXIT_LIMITS;
+                        return r;
+                }
+
                 r = enforce_groups(context, username, gid);
                 if (r < 0) {
                         *exit_status = EXIT_GROUP;
@@ -1813,6 +1824,9 @@ static int exec_child(
 #endif
 #endif
 #ifdef HAVE_PAM
+                /* Let's call into PAM after we set up our own idea of resource limits to that
+                 * pam_limits wins here. (See above.) */
+
                 if (context->pam_name && username) {
                         r = setup_pam(context->pam_name, username, uid, context->tty_path, &pam_env, fds, n_fds);
                         if (r < 0) {
@@ -1932,13 +1946,6 @@ static int exec_child(
         }
 
         if (params->apply_permissions) {
-                int which_failed;
-
-                r = setrlimit_closest_all((const struct rlimit* const *) context->rlimit, &which_failed);
-                if (r < 0) {
-                        *exit_status = EXIT_LIMITS;
-                        return r;
-                }
 
                 if (context->capability_bounding_set_drop) {
                         r = capability_bounding_set_drop(context->capability_bounding_set_drop, false);
