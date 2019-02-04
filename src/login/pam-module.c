@@ -285,27 +285,27 @@ _public_ PAM_EXTERN int pam_sm_open_session(
 
         seat = pam_getenv(handle, "XDG_SEAT");
         if (isempty(seat))
-                seat = getenv("XDG_SEAT");
+                seat = secure_getenv("XDG_SEAT");
 
         cvtnr = pam_getenv(handle, "XDG_VTNR");
         if (isempty(cvtnr))
-                cvtnr = getenv("XDG_VTNR");
+                cvtnr = secure_getenv("XDG_VTNR");
 
         type = pam_getenv(handle, "XDG_SESSION_TYPE");
         if (isempty(type))
-                type = getenv("XDG_SESSION_TYPE");
+                type = secure_getenv("XDG_SESSION_TYPE");
         if (isempty(type))
                 type = type_pam;
 
         class = pam_getenv(handle, "XDG_SESSION_CLASS");
         if (isempty(class))
-                class = getenv("XDG_SESSION_CLASS");
+                class = secure_getenv("XDG_SESSION_CLASS");
         if (isempty(class))
                 class = class_pam;
 
         desktop = pam_getenv(handle, "XDG_SESSION_DESKTOP");
         if (isempty(desktop))
-                desktop = getenv("XDG_SESSION_DESKTOP");
+                desktop = secure_getenv("XDG_SESSION_DESKTOP");
 
         tty = strempty(tty);
 
@@ -447,7 +447,7 @@ _public_ PAM_EXTERN int pam_sm_open_session(
                 r = export_legacy_dbus_address(handle, pw->pw_uid, runtime_path);
                 if (r != PAM_SUCCESS)
                         return r;
-        } else if (getenv("XDG_RUNTIME_DIR")) {
+        } else if (secure_getenv("XDG_RUNTIME_DIR")) {
                 _cleanup_free_ char *p = NULL;
                 
                 /* Make sure that after running YaST2 or the xdg-su scripts
