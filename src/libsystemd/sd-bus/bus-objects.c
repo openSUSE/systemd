@@ -1145,7 +1145,8 @@ static int object_manager_serialize_path_and_fallbacks(
                 const char *path,
                 sd_bus_error *error) {
 
-        char *prefix;
+        _cleanup_free_ char *prefix = NULL;
+        size_t pl;
         int r;
 
         assert(bus);
@@ -1161,7 +1162,12 @@ static int object_manager_serialize_path_and_fallbacks(
                 return 0;
 
         /* Second, add fallback vtables registered for any of the prefixes */
-        prefix = alloca(strlen(path) + 1);
+        pl = strlen(path);
+        assert(pl <= BUS_PATH_SIZE_MAX);
+        prefix = new(char, pl + 1);
+        if (!prefix)
+                return -ENOMEM;
+
         OBJECT_PATH_FOREACH_PREFIX(prefix, path) {
                 r = object_manager_serialize_path(bus, reply, prefix, path, true, error);
                 if (r < 0)
@@ -1357,6 +1363,7 @@ static int object_find_and_run(
 }
 
 int bus_process_object(sd_bus *bus, sd_bus_message *m) {
+        _cleanup_free_ char *prefix = NULL;
         int r;
         size_t pl;
         bool found_object = false;
@@ -1381,9 +1388,12 @@ int bus_process_object(sd_bus *bus, sd_bus_message *m) {
         assert(m->member);
 
         pl = strlen(m->path);
-        do {
-                char prefix[pl+1];
+        assert(pl <= BUS_PATH_SIZE_MAX);
+        prefix = new(char, pl + 1);
+        if (!prefix)
+                return -ENOMEM;
 
+        do {
                 bus->nodes_modified = false;
 
                 r = object_find_and_run(bus, m, m->path, false, &found_object);
@@ -1512,9 +1522,15 @@ static int bus_find_parent_object_manager(sd_bus *bus, struct node **out, const 
 
         n = hashmap_get(bus->nodes, path);
         if (!n) {
-                char *prefix;
+                _cleanup_free_ char *prefix = NULL;
+                size_t pl;
 
-                prefix = alloca(strlen(path) + 1);
+                pl = strlen(path);
+                assert(pl <= BUS_PATH_SIZE_MAX);
+                prefix = new(char, pl + 1);
+                if (!prefix)
+                        return -ENOMEM;
+
                 OBJECT_PATH_FOREACH_PREFIX(prefix, path) {
                         n = hashmap_get(bus->nodes, prefix);
                         if (n)
@@ -2102,8 +2118,9 @@ _public_ int sd_bus_emit_properties_changed_strv(
                 char **names) {
 
         BUS_DONT_DESTROY(bus);
+        _cleanup_free_ char *prefix = NULL;
         bool found_interface = false;
-        char *prefix;
+        size_t pl;
         int r;
 
         assert_return(bus, -EINVAL);
@@ -2121,6 +2138,12 @@ _public_ int sd_bus_emit_properties_changed_strv(
         if (names && names[0] == NULL)
                 return 0;
 
+        pl = strlen(path);
+        assert(pl <= BUS_PATH_SIZE_MAX);
+        prefix = new(char, pl + 1);
+        if (!prefix)
+                return -ENOMEM;
+
         do {
                 bus->nodes_modified = false;
 
@@ -2130,7 +2153,6 @@ _public_ int sd_bus_emit_properties_changed_strv(
                 if (bus->nodes_modified)
                         continue;
 
-                prefix = alloca(strlen(path) + 1);
                 OBJECT_PATH_FOREACH_PREFIX(prefix, path) {
                         r = emit_properties_changed_on_interface(bus, prefix, path, interface, true, &found_interface, names);
                         if (r != 0)
@@ -2261,7 +2283,8 @@ static int object_added_append_all_prefix(
 
 static int object_added_append_all(sd_bus *bus, sd_bus_message *m, const char *path) {
         _cleanup_set_free_ Set *s = NULL;
-        char *prefix;
+        _cleanup_free_ char *prefix = NULL;
+        size_t pl;
         int r;
 
         assert(bus);
@@ -2306,7 +2329,12 @@ static int object_added_append_all(sd_bus *bus, sd_bus_message *m, const char *p
         if (bus->nodes_modified)
                 return 0;
 
-        prefix = alloca(strlen(path) + 1);
+        pl = strlen(path);
+        assert(pl <= BUS_PATH_SIZE_MAX);
+        prefix = new(char, pl + 1);
+        if (!prefix)
+                return -ENOMEM;
+
         OBJECT_PATH_FOREACH_PREFIX(prefix, path) {
                 r = object_added_append_all_prefix(bus, m, s, prefix, path, true);
                 if (r < 0)
@@ -2444,7 +2472,8 @@ static int object_removed_append_all_prefix(
 
 static int object_removed_append_all(sd_bus *bus, sd_bus_message *m, const char *path) {
         _cleanup_set_free_ Set *s = NULL;
-        char *prefix;
+        _cleanup_free_ char *prefix = NULL;
+        size_t pl;
         int r;
 
         assert(bus);
@@ -2476,7 +2505,12 @@ static int object_removed_append_all(sd_bus *bus, sd_bus_message *m, const char 
         if (bus->nodes_modified)
                 return 0;
 
-        prefix = alloca(strlen(path) + 1);
+        pl = strlen(path);
+        assert(pl <= BUS_PATH_SIZE_MAX);
+        prefix = new(char, pl + 1);
+        if (!prefix)
+                return -ENOMEM;
+
         OBJECT_PATH_FOREACH_PREFIX(prefix, path) {
                 r = object_removed_append_all_prefix(bus, m, s, prefix, path, true);
                 if (r < 0)
@@ -2625,7 +2659,8 @@ static int interfaces_added_append_one(
                 const char *path,
                 const char *interface) {
 
-        char *prefix;
+        _cleanup_free_ char *prefix = NULL;
+        size_t pl;
         int r;
 
         assert(bus);
@@ -2639,7 +2674,12 @@ static int interfaces_added_append_one(
         if (bus->nodes_modified)
                 return 0;
 
-        prefix = alloca(strlen(path) + 1);
+        pl = strlen(path);
+        assert(pl <= BUS_PATH_SIZE_MAX);
+        prefix = new(char, pl + 1);
+        if (!prefix)
+                return -ENOMEM;
+
         OBJECT_PATH_FOREACH_PREFIX(prefix, path) {
                 r = interfaces_added_append_one_prefix(bus, m, prefix, path, interface, true);
                 if (r != 0)
