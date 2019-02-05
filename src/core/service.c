@@ -274,6 +274,19 @@ static void service_fd_store_unlink(ServiceFDStore *fs) {
         free(fs);
 }
 
+static void service_release_fd_store(Service *s) {
+        assert(s);
+
+        if (s->n_keep_fd_store > 0)
+                return;
+
+        log_unit_debug(UNIT(s), "Releasing all stored fds");
+        while (s->fd_store)
+                service_fd_store_unlink(s->fd_store);
+
+        assert(s->n_fd_store == 0);
+}
+
 static void service_release_resources(Unit *u) {
         Service *s = SERVICE(u);
 
@@ -282,16 +295,13 @@ static void service_release_resources(Unit *u) {
         if (!s->fd_store && s->stdin_fd < 0 && s->stdout_fd < 0 && s->stderr_fd < 0)
                 return;
 
-        log_unit_debug(u, "Releasing all resources.");
+        log_unit_debug(u, "Releasing resources.");
 
         s->stdin_fd = safe_close(s->stdin_fd);
         s->stdout_fd = safe_close(s->stdout_fd);
         s->stderr_fd = safe_close(s->stderr_fd);
 
-        while (s->fd_store)
-                service_fd_store_unlink(s->fd_store);
-
-        assert(s->n_fd_store == 0);
+        service_release_fd_store(s);
 }
 
 static void service_done(Unit *u) {
@@ -1446,6 +1456,10 @@ static void service_enter_dead(Service *s, ServiceResult f, bool allow_restart) 
         if (allow_restart && service_shall_restart(s))
                 s->will_auto_restart = true;
 
+        /* Make sure service_release_resources() doesn't destroy our FD store, while we are changing through
+         * SERVICE_FAILED/SERVICE_DEAD before entering into SERVICE_AUTO_RESTART. */
+        s->n_keep_fd_store ++;
+
         service_set_state(s, s->result != SERVICE_SUCCESS ? SERVICE_FAILED : SERVICE_DEAD);
 
         if (s->result != SERVICE_SUCCESS) {
@@ -1457,11 +1471,18 @@ static void service_enter_dead(Service *s, ServiceResult f, bool allow_restart) 
                 s->will_auto_restart = false;
 
                 r = service_arm_timer(s, s->restart_usec);
-                if (r < 0)
+                if (r < 0) {
+                        s->n_keep_fd_store--;
                         goto fail;
+                }
 
                 service_set_state(s, SERVICE_AUTO_RESTART);
         }
+
+        /* The new state is in effect, let's decrease the fd store ref counter again. Let's also readd us to the GC
+         * queue, so that the fd store is possibly gc'ed again */
+        s->n_keep_fd_store--;
+        unit_add_to_gc_queue(UNIT(s));
 
         /* The next restart might not be a manual stop, hence reset the flag indicating manual stops */
         s->forbid_restart = false;
@@ -3270,6 +3291,22 @@ static int service_kill(Unit *u, KillWho who, int signo, sd_bus_error *error) {
         return unit_kill_common(u, who, signo, s->main_pid, s->control_pid, error);
 }
 
+static int service_main_pid(Unit *u) {
+        Service *s = SERVICE(u);
+
+        assert(s);
+
+        return s->main_pid;
+}
+
+static int service_control_pid(Unit *u) {
+        Service *s = SERVICE(u);
+
+        assert(s);
+
+        return s->control_pid;
+}
+
 static const char* const service_restart_table[_SERVICE_RESTART_MAX] = {
         [SERVICE_RESTART_NO] = "no",
         [SERVICE_RESTART_ON_SUCCESS] = "on-success",
@@ -3380,6 +3417,9 @@ const UnitVTable service_vtable = {
 
         .notify_cgroup_empty = service_notify_cgroup_empty_event,
         .notify_message = service_notify_message,
+
+        .main_pid = service_main_pid,
+        .control_pid = service_control_pid,
 
         .bus_name_owner_change = service_bus_name_owner_change,
 

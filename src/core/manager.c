@@ -1768,14 +1768,28 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t 
 }
 
 static void invoke_sigchld_event(Manager *m, Unit *u, const siginfo_t *si) {
+        uint64_t iteration;
+
         assert(m);
         assert(u);
         assert(si);
 
+        sd_event_get_iteration(m->event, &iteration);
+
         log_unit_debug(u, "Child "PID_FMT" belongs to %s", si->si_pid, u->id);
 
         unit_unwatch_pid(u, si->si_pid);
-        UNIT_VTABLE(u)->sigchld_event(u, si->si_pid, si->si_code, si->si_status);
+
+        if (UNIT_VTABLE(u)->sigchld_event) {
+                if (set_size(u->pids) <= 1 ||
+                    iteration != u->sigchldgen ||
+                    unit_main_pid(u) == si->si_pid ||
+                    unit_control_pid(u) == si->si_pid) {
+                        UNIT_VTABLE(u)->sigchld_event(u, si->si_pid, si->si_code, si->si_status);
+                        u->sigchldgen = iteration;
+                } else
+                        log_debug("%s already issued a sigchld this iteration %" PRIu64 ", skipping. Pids still being watched %d", u->id, iteration, set_size(u->pids));
+         }
 }
 
 static int manager_dispatch_sigchld(Manager *m) {
@@ -2501,11 +2515,11 @@ static int manager_deserialize_one_unit(Manager *m, const char *unit, FILE *f, F
 }
 
 static int manager_deserialize_units(Manager *m, FILE *f, FDSet *fds) {
-        _cleanup_free_ char *line = NULL;
         const char *unit_name;
         int r;
 
         for (;;) {
+                _cleanup_free_ char *line = NULL;
                 /* Start marker */
                 r = read_line(f, LONG_LINE_MAX, &line);
                 if (r < 0)

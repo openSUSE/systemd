@@ -3489,13 +3489,13 @@ dist_udevrules_DATA += \
 	rules/60-persistent-storage.rules \
 	rules/60-serial.rules \
 	rules/60-ssd-scheduler.rules \
-	rules/64-btrfs.rules \
 	rules/70-mouse.rules \
 	rules/75-net-description.rules \
 	rules/78-sound-card.rules \
 	rules/80-net-setup-link.rules
 
 nodist_udevrules_DATA += \
+	rules/64-btrfs.rules \
 	rules/99-systemd.rules
 
 udevconfdir = $(sysconfdir)/udev
@@ -3506,6 +3506,7 @@ pkgconfigdata_DATA += \
 	src/udev/udev.pc
 
 EXTRA_DIST += \
+	rules/64-btrfs.rules.in \
 	rules/99-systemd.rules.in \
 	src/udev/udev.pc.in
 

@@ -159,6 +159,9 @@ struct Unit {
          * process SIGCHLD for */
         Set *pids;
 
+        /* Used in sigchld event invocation to avoid repeat events being invoked */
+        uint64_t sigchldgen;
+
         /* Used during GC sweeps */
         unsigned gc_marker;
 
@@ -340,8 +343,7 @@ struct UnitVTable {
          * way */
         bool (*check_gc)(Unit *u);
 
-        /* When the unit is not running and no job for it queued we
-         * shall release its runtime resources */
+        /* When the unit is not running and no job for it queued we shall release its runtime resources */
         void (*release_resources)(Unit *u);
 
         /* Invoked on every child that died */
@@ -381,6 +383,12 @@ struct UnitVTable {
         void (*time_change)(Unit *u);
 
         int (*get_timeout)(Unit *u, uint64_t *timeout);
+
+        /* Returns the main PID if there is any defined, or 0. */
+        pid_t (*main_pid)(Unit *u);
+
+        /* Returns the main PID if there is any defined, or 0. */
+        pid_t (*control_pid)(Unit *u);
 
         /* This is called for each unit type and should be used to
          * enumerate existing devices and load them. However,
@@ -594,6 +602,9 @@ int unit_require_mounts_for(Unit *u, const char *path);
 bool unit_type_supported(UnitType t);
 
 bool unit_is_pristine(Unit *u);
+
+pid_t unit_control_pid(Unit *u);
+pid_t unit_main_pid(Unit *u);
 
 static inline bool unit_supported(Unit *u) {
         return unit_type_supported(u->type);

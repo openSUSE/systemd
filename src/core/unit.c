@@ -98,6 +98,7 @@ Unit *unit_new(Manager *m, size_t size) {
         u->unit_file_preset = -1;
         u->on_failure_job_mode = JOB_REPLACE;
         u->cgroup_inotify_wd = -1;
+        u->sigchldgen = 0;
 
         RATELIMIT_INIT(u->auto_stop_ratelimit, 10 * USEC_PER_SEC, 16);
 
@@ -306,14 +307,12 @@ bool unit_check_gc(Unit *u) {
 
         state = unit_active_state(u);
 
-        /* If the unit is inactive and failed and no job is queued for
-         * it, then release its runtime resources */
+        /* If the unit is inactive and failed and no job is queued for it, then release its runtime resources */
         if (UNIT_IS_INACTIVE_OR_FAILED(state) &&
             UNIT_VTABLE(u)->release_resources)
                 UNIT_VTABLE(u)->release_resources(u);
 
-        /* But we keep the unit object around for longer when it is
-         * referenced or configured to not be gc'ed */
+        /* But we keep the unit object around for longer when it is referenced or configured to not be gc'ed */
         if (state != UNIT_INACTIVE)
                 return true;
 
@@ -3803,4 +3802,22 @@ bool unit_is_pristine(Unit *u) {
                  !strv_isempty(u->dropin_paths) ||
                  u->job ||
                  u->merged_into);
+}
+
+pid_t unit_control_pid(Unit *u) {
+        assert(u);
+
+        if (UNIT_VTABLE(u)->control_pid)
+                return UNIT_VTABLE(u)->control_pid(u);
+
+        return 0;
+}
+
+pid_t unit_main_pid(Unit *u) {
+        assert(u);
+
+        if (UNIT_VTABLE(u)->main_pid)
+                return UNIT_VTABLE(u)->main_pid(u);
+
+        return 0;
 }
