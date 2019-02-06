@@ -38,6 +38,9 @@
 #define ENTRY_SIZE_MAX (1024*1024*770u)
 #define DATA_SIZE_MAX (1024*1024*768u)
 
+/* The maximum number of fields in an entry */
+#define ENTRY_FIELD_COUNT_MAX 1024
+
 static bool valid_user_field(const char *p, size_t l) {
         const char *a;
 
@@ -137,6 +140,10 @@ void server_process_native_message(
                 }
 
                 /* A property follows */
+                if (n > ENTRY_FIELD_COUNT_MAX) {
+                        log_debug("Received an entry that has more than " STRINGIFY(ENTRY_FIELD_COUNT_MAX) " fields, ignoring entry.");
+                        goto finish;
+                }
 
                 /* n received properties, +1 for _TRANSPORT */
                 if (!GREEDY_REALLOC(iovec, m, n + 1 + N_IOVEC_META_FIELDS +
