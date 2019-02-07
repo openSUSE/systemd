@@ -453,6 +453,21 @@ static int service_add_fd_store_set(Service *s, FDSet *fds, const char *name) {
         return 0;
 }
 
+static void service_remove_fd_store(Service *s, const char *name) {
+        ServiceFDStore *fs, *n;
+
+        assert(s);
+        assert(name);
+
+        LIST_FOREACH_SAFE(fd_store, fs, n, s->fd_store) {
+                if (!streq(fs->fdname, name))
+                        continue;
+
+                log_unit_debug(UNIT(s), "Got explicit request to remove fd %i (%s), closing.", fs->fd, name);
+                service_fd_store_unlink(fs);
+        }
+}
+
 static int service_arm_timer(Service *s, usec_t usec) {
         int r;
 
@@ -3381,7 +3396,28 @@ static void service_notify_message(Unit *u, pid_t pid, char **tags, FDSet *fds) 
         if (strv_find(tags, "WATCHDOG=1"))
                 service_reset_watchdog(s);
 
-        if (strv_find(tags, "FDSTORE=1")) {
+        e = strv_find_startswith(tags, "WATCHDOG_USEC=");
+        if (e) {
+                usec_t watchdog_override_usec;
+                if (safe_atou64(e, &watchdog_override_usec) < 0)
+                        log_unit_warning(u, "Failed to parse WATCHDOG_USEC=%s", e);
+                else
+                        service_reset_watchdog_timeout(s, watchdog_override_usec);
+        }
+
+        /* Process FD store messages. Either FDSTOREREMOVE=1 for removal, or FDSTORE=1 for addition. In both cases,
+         * process FDNAME= for picking the file descriptor name to use. Note that FDNAME= is required when removing
+         * fds, but optional when pushing in new fds, for compatibility reasons. */
+        if (strv_find(tags, "FDSTOREREMOVE=1")) {
+                const char *name;
+
+                name = strv_find_startswith(tags, "FDNAME=");
+                if (!name || !fdname_is_valid(name))
+                        log_unit_warning(u, "FDSTOREREMOVE=1 requested, but no valid file descriptor name passed, ignoring.");
+                else
+                        service_remove_fd_store(s, name);
+
+        } else if (strv_find(tags, "FDSTORE=1")) {
                 const char *name;
 
                 name = strv_find_startswith(tags, "FDNAME=");
@@ -3390,7 +3426,7 @@ static void service_notify_message(Unit *u, pid_t pid, char **tags, FDSet *fds) 
                         name = NULL;
                 }
 
-                service_add_fd_store_set(s, fds, name);
+                (void) service_add_fd_store_set(s, fds, name);
         }
 
         e = strv_find_startswith(tags, "WATCHDOG_USEC=");

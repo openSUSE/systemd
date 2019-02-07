@@ -101,17 +101,15 @@ static int session_device_notify(SessionDevice *sd, enum SessionDeviceNotificati
 }
 
 static int sd_eviocrevoke(int fd) {
-        static bool warned;
-        int r;
+        static bool warned = false;
 
         assert(fd >= 0);
 
-        r = ioctl(fd, EVIOCREVOKE, NULL);
-        if (r < 0) {
-                r = -errno;
-                if (r == -EINVAL && !warned) {
+        if (ioctl(fd, EVIOCREVOKE, NULL) < 0) {
+
+                if (errno == EINVAL && !warned) {
+                        log_warning_errno(errno, "Kernel does not support evdev-revocation: %m");
                         warned = true;
-                        log_warning("kernel does not support evdev-revocation");
                 }
         }
 
@@ -409,9 +407,26 @@ error:
 void session_device_free(SessionDevice *sd) {
         assert(sd);
 
+        /* Make sure to remove the pushed fd. */
+        if (sd->pushed_fd) {
+                _cleanup_free_ char *m = NULL;
+                const char *id;
+                int r;
+
+                /* Session ID does not contain separators. */
+                id = sd->session->id;
+                assert(*(id + strcspn(id, "-\n")) == '\0');
+
+                r = asprintf(&m, "FDSTOREREMOVE=1\n"
+                                 "FDNAME=session-%s-device-%u-%u\n",
+                                 id, major(sd->dev), minor(sd->dev));
+                if (r >= 0)
+                        (void) sd_notify(false, m);
+        }
+
         session_device_stop(sd);
         session_device_notify(sd, SESSION_DEVICE_RELEASE);
-        close_nointr(sd->fd);
+        safe_close(sd->fd);
 
         LIST_REMOVE(sd_by_device, sd->device->session_devices, sd);
 
@@ -488,34 +503,47 @@ unsigned int session_device_try_pause_all(Session *s) {
 }
 
 int session_device_save(SessionDevice *sd) {
-        _cleanup_free_ char *state = NULL;
+        _cleanup_free_ char *m = NULL;
+        const char *id;
         int r;
 
         assert(sd);
 
-        /* Store device fd in PID1. It will send it back to us on
-         * restart so revocation will continue to work. To make things
-         * simple, send fds for all type of devices even if they don't
-         * support the revocation mechanism so we don't have to handle
-         * them differently later.
+        /* Store device fd in PID1. It will send it back to us on restart so revocation will continue to work. To make
+         * things simple, send fds for all type of devices even if they don't support the revocation mechanism so we
+         * don't have to handle them differently later.
          *
-         * Note: for device supporting revocation, PID1 will drop a
-         * stored fd automatically if the corresponding device is
-         * revoked. */
-        r = asprintf(&state, "FDSTORE=1\n"
-                             "FDNAME=session-%s", sd->session->id);
-        if (r < 0)
-                return -ENOMEM;
+         * Note: for device supporting revocation, PID1 will drop a stored fd automatically if the corresponding device
+         * is revoked. */
 
-        return sd_pid_notify_with_fds(0, false, state, &sd->fd, 1);
+        if (sd->pushed_fd)
+                return 0;
+
+        /* Session ID does not contain separators. */
+        id = sd->session->id;
+        assert(*(id + strcspn(id, "-\n")) == '\0');
+
+        r = asprintf(&m, "FDSTORE=1\n"
+                         "FDNAME=session-%s-device-%u-%u\n",
+                         id, major(sd->dev), minor(sd->dev));
+        if (r < 0)
+                return r;
+
+        r = sd_pid_notify_with_fds(0, false, m, &sd->fd, 1);
+        if (r < 0)
+                return r;
+
+        sd->pushed_fd = true;
+        return 1;
 }
 
 void session_device_attach_fd(SessionDevice *sd, int fd, bool active) {
-        assert(fd > 0);
+        assert(fd >= 0);
         assert(sd);
         assert(sd->fd < 0);
         assert(!sd->active);
 
         sd->fd = fd;
+        sd->pushed_fd = true;
         sd->active = active;
 }
