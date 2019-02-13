@@ -879,7 +879,7 @@ static int bus_socket_read_message_need(sd_bus *bus, size_t *need) {
 }
 
 static int bus_socket_make_message(sd_bus *bus, size_t size) {
-        sd_bus_message *t;
+        sd_bus_message *t = NULL;
         void *b;
         int r;
 
@@ -904,7 +904,9 @@ static int bus_socket_make_message(sd_bus *bus, size_t size) {
                                     bus->fds, bus->n_fds,
                                     NULL,
                                     &t);
-        if (r < 0) {
+        if (r == -EBADMSG)
+                log_debug_errno(r, "Received invalid message from connection %s, dropping.", strna(bus->description));
+        else if (r < 0) {
                 free(b);
                 return r;
         }
@@ -915,7 +917,8 @@ static int bus_socket_make_message(sd_bus *bus, size_t size) {
         bus->fds = NULL;
         bus->n_fds = 0;
 
-        bus->rqueue[bus->rqueue_size++] = t;
+        if (t)
+                bus->rqueue[bus->rqueue_size++] = t;
 
         return 1;
 }
