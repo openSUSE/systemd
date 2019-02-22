@@ -1660,7 +1660,7 @@ static bool exec_needs_mount_namespace(
         if (context->n_bind_mounts > 0)
                 return true;
 
-        if (context->mount_flags != 0)
+        if (!IN_SET(context->mount_flags, 0, MS_SHARED))
                 return true;
 
         if (context->private_tmp && runtime && (runtime->tmp_dir || runtime->var_tmp_dir))
@@ -1998,6 +1998,9 @@ static int apply_mount_namespace(
                 ns_info.ignore_protect_paths = true;
 
         apply_restrictions = (params->flags & EXEC_APPLY_PERMISSIONS) && !command->privileged;
+
+        if (context->mount_flags == MS_SHARED)
+                log_unit_debug(u, "shared mount propagation hidden by other fs namespacing unit settings: ignoring");
 
         r = setup_namespace(root_dir, root_image,
                             &ns_info, rw,
