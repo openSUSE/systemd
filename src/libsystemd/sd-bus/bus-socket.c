@@ -922,13 +922,16 @@ static int bus_socket_make_message(sd_bus *bus, size_t size) {
                                     !bus->bus_client && bus->ucred_valid ? &bus->ucred : NULL,
                                     !bus->bus_client && bus->label[0] ? bus->label : NULL,
                                     &t);
-        if (r == -EBADMSG)
+
+        if (r == -EBADMSG) {
                 log_debug("Received invalid message, dropping.");
-        else if (r < 0) {
+                free(bus->rbuffer); /* We want to drop current rbuffer and proceed with whatever remains in b */
+        } else if (r < 0) {
                 free(b);
                 return r;
         }
 
+        /* rbuffer ownership was either transferred to t, or we got EBADMSG and dropped it. */
         bus->rbuffer = b;
         bus->rbuffer_size -= size;
 
