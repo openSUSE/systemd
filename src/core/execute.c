@@ -1292,6 +1292,7 @@ static bool context_has_no_new_privileges(const ExecContext *c) {
         return context_has_address_families(c) ||
                 c->memory_deny_write_execute ||
                 c->restrict_realtime ||
+                c->restrict_suid_sgid ||
                 exec_context_restrict_namespaces_set(c) ||
                 c->protect_kernel_tunables ||
                 c->protect_kernel_modules ||
@@ -1388,6 +1389,19 @@ static int apply_restrict_realtime(const Unit* u, const ExecContext *c) {
                 return 0;
 
         return seccomp_restrict_realtime();
+}
+
+static int apply_restrict_suid_sgid(const Unit* u, const ExecContext *c) {
+        assert(u);
+        assert(c);
+
+        if (!c->restrict_suid_sgid)
+                return 0;
+
+        if (skip_seccomp_unavailable(u, "RestrictSUIDSGID="))
+                return 0;
+
+        return seccomp_restrict_suid_sgid();
 }
 
 static int apply_protect_sysctl(const Unit *u, const ExecContext *c) {
@@ -2838,6 +2852,12 @@ static int exec_child(
                         return r;
                 }
 
+                r = apply_restrict_suid_sgid(unit, context);
+                if (r < 0) {
+                        *exit_status = EXIT_SECCOMP;
+                        return log_unit_error_errno(unit, r, "Failed to apply SUID/SGID restrictions: %m");
+                }
+
                 r = apply_restrict_namespaces(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_SECCOMP;
@@ -3398,7 +3418,8 @@ void exec_context_dump(ExecContext *c, FILE* f, const char *prefix) {
                 "%sMountAPIVFS: %s\n"
                 "%sIgnoreSIGPIPE: %s\n"
                 "%sMemoryDenyWriteExecute: %s\n"
-                "%sRestrictRealtime: %s\n",
+                "%sRestrictRealtime: %s\n"
+                "%sRestrictSUIDSGID: %s\n",
                 prefix, c->umask,
                 prefix, c->working_directory ? c->working_directory : "/",
                 prefix, c->root_directory ? c->root_directory : "/",
@@ -3415,7 +3436,8 @@ void exec_context_dump(ExecContext *c, FILE* f, const char *prefix) {
                 prefix, yes_no(c->mount_apivfs),
                 prefix, yes_no(c->ignore_sigpipe),
                 prefix, yes_no(c->memory_deny_write_execute),
-                prefix, yes_no(c->restrict_realtime));
+                prefix, yes_no(c->restrict_realtime),
+                prefix, yes_no(c->restrict_suid_sgid));
 
         if (c->root_image)
                 fprintf(f, "%sRootImage: %s\n", prefix, c->root_image);
