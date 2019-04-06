@@ -78,8 +78,28 @@ static bool ignore_proc(pid_t pid) {
         return false;
 }
 
+static void log_children_no_yet_killed(Set *pids) {
+        void *p;
+        Iterator i;
+        _cleanup_free_ char *lst_child = NULL;
+
+        SET_FOREACH(p, pids, i) {
+                _cleanup_free_ char *s = NULL;
+
+                if (get_process_comm(PTR_TO_PID(p), &s) == 0) {
+                        if (!strextend(&lst_child, ", ", s, NULL))
+                                break;
+                }
+        }
+
+        if (!isempty(lst_child))
+                log_notice("Waiting for process:%s", lst_child + 1);
+}
+
 static int wait_for_children(Set *pids, sigset_t *mask) {
         usec_t until;
+        usec_t date_log_child;
+        usec_t n;
 
         assert(mask);
 
@@ -89,11 +109,15 @@ static int wait_for_children(Set *pids, sigset_t *mask) {
         if (set_isempty(pids))
                 return 0;
 
-        until = now(CLOCK_MONOTONIC) + DEFAULT_TIMEOUT_USEC;
+        n = now(CLOCK_MONOTONIC);
+        until = n + DEFAULT_TIMEOUT_USEC;
+        date_log_child = n + 10u * USEC_PER_SEC;
+        if (date_log_child > until)
+                date_log_child = n + DEFAULT_TIMEOUT_USEC / 2u;
+
         for (;;) {
                 struct timespec ts;
                 int k;
-                usec_t n;
                 void *p;
                 Iterator i;
 
@@ -136,10 +160,20 @@ static int wait_for_children(Set *pids, sigset_t *mask) {
                         return 0;
 
                 n = now(CLOCK_MONOTONIC);
+                if (date_log_child > 0 && n >= date_log_child) {
+                        log_children_no_yet_killed(pids);
+                        /* Log the children not yet killed only once */
+                        date_log_child = 0;
+                }
+
                 if (n >= until)
                         return set_size(pids);
 
-                timespec_store(&ts, until - n);
+                if (date_log_child > 0)
+                        timespec_store(&ts, MIN(until - n, date_log_child - n));
+                else
+                        timespec_store(&ts, until - n);
+
                 k = sigtimedwait(mask, NULL, &ts);
                 if (k != SIGCHLD) {
 
