@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <string.h>
 
+#include "alloc-util.h"
 #include "fs-util.h"
 #include "mkdir.h"
 #include "path-util.h"
@@ -29,15 +30,31 @@
 #include "user-util.h"
 #include "util.h"
 
-int mkdir_safe_internal(const char *path, mode_t mode, uid_t uid, gid_t gid, mkdir_func_t _mkdir) {
+int mkdir_safe_internal(const char *path, mode_t mode, uid_t uid, gid_t gid, bool follow_symlink, mkdir_func_t _mkdir) {
         struct stat st;
+        int r;
 
-        if (_mkdir(path, mode) >= 0)
-                if (chmod_and_chown(path, mode, uid, gid) < 0)
-                        return -errno;
+        if (_mkdir(path, mode) >= 0) {
+                r = chmod_and_chown(path, mode, uid, gid);
+                if (r < 0)
+                        return r;
+        }
 
         if (lstat(path, &st) < 0)
                 return -errno;
+
+        if (follow_symlink && S_ISLNK(st.st_mode)) {
+                _cleanup_free_ char *p = NULL;
+
+                r = chase_symlinks(path, NULL, CHASE_NONEXISTENT, &p);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        return mkdir_safe_internal(p, mode, uid, gid, false, _mkdir);
+
+                if (lstat(p, &st) < 0)
+                        return -errno;
+        }
 
         if ((st.st_mode & 0007) > (mode & 0007) ||
             (st.st_mode & 0070) > (mode & 0070) ||
@@ -50,8 +67,14 @@ int mkdir_safe_internal(const char *path, mode_t mode, uid_t uid, gid_t gid, mkd
         return 0;
 }
 
-int mkdir_safe(const char *path, mode_t mode, uid_t uid, gid_t gid) {
-        return mkdir_safe_internal(path, mode, uid, gid, mkdir);
+int mkdirat_errno_wrapper(int dirfd, const char *pathname, mode_t mode) {
+        if (mkdirat(dirfd, pathname, mode) < 0)
+                return -errno;
+        return 0;
+}
+
+int mkdir_safe(const char *path, mode_t mode, uid_t uid, gid_t gid, bool follow_symlink) {
+        return mkdir_safe_internal(path, mode, uid, gid, follow_symlink, mkdir);
 }
 
 int mkdir_parents_internal(const char *prefix, const char *path, mode_t mode, mkdir_func_t _mkdir) {

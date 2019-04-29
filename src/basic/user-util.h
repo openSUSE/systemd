@@ -58,6 +58,9 @@ int take_etc_passwd_lock(const char *root);
 #define UID_INVALID ((uid_t) -1)
 #define GID_INVALID ((gid_t) -1)
 
+#define UID_NOBODY ((uid_t) 65534U)
+#define GID_NOBODY ((gid_t) 65534U)
+
 /* The following macros add 1 when converting things, since UID 0 is a
  * valid UID, while the pointer NULL is special */
 #define PTR_TO_UID(p) ((uid_t) (((uintptr_t) (p))-1))

@@ -88,6 +88,24 @@ char *path_make_absolute(const char *p, const char *prefix) {
         return strjoin(prefix, "/", p, NULL);
 }
 
+int safe_getcwd(char **ret) {
+        char *cwd;
+
+        cwd = get_current_dir_name();
+        if (!cwd)
+                return negative_errno();
+
+        /* Let's make sure the directory is really absolute, to protect us from the logic behind
+         * CVE-2018-1000001 */
+        if (cwd[0] != '/') {
+                free(cwd);
+                return -ENOMEDIUM;
+        }
+
+        *ret = cwd;
+        return 0;
+}
+
 int path_make_absolute_cwd(const char *p, char **ret) {
         char *c;
 
@@ -290,9 +308,7 @@ char **path_strv_resolve(char **l, const char *prefix) {
                         } else {
                                 /* canonicalized path goes outside of
                                  * prefix, keep the original path instead */
-                                free(u);
-                                u = orig;
-                                orig = NULL;
+                                free_and_replace(u, orig);
                         }
                 } else
                         free(t);
@@ -696,10 +712,7 @@ bool filename_is_valid(const char *p) {
         if (isempty(p))
                 return false;
 
-        if (streq(p, "."))
-                return false;
-
-        if (streq(p, ".."))
+        if (dot_or_dot_dot(p))
                 return false;
 
         e = strchrnul(p, '/');
@@ -717,14 +730,17 @@ bool path_is_safe(const char *p) {
         if (isempty(p))
                 return false;
 
-        if (streq(p, "..") || startswith(p, "../") || endswith(p, "/..") || strstr(p, "/../"))
+        if (dot_or_dot_dot(p))
+                return false;
+
+        if (startswith(p, "../") || endswith(p, "/..") || strstr(p, "/../"))
                 return false;
 
         if (strlen(p)+1 > PATH_MAX)
                 return false;
 
         /* The following two checks are not really dangerous, but hey, they still are confusing */
-        if (streq(p, ".") || startswith(p, "./") || endswith(p, "/.") || strstr(p, "/./"))
+        if (startswith(p, "./") || endswith(p, "/.") || strstr(p, "/./"))
                 return false;
 
         if (strstr(p, "//"))
@@ -760,34 +776,37 @@ char *file_in_same_dir(const char *path, const char *filename) {
         return ret;
 }
 
-bool hidden_file_allow_backup(const char *filename) {
+bool hidden_or_backup_file(const char *filename) {
+        const char *p;
+
         assert(filename);
 
-        return
-                filename[0] == '.' ||
-                streq(filename, "lost+found") ||
-                streq(filename, "aquota.user") ||
-                streq(filename, "aquota.group") ||
-                endswith(filename, ".rpmnew") ||
-                endswith(filename, ".rpmsave") ||
-                endswith(filename, ".rpmorig") ||
-                endswith(filename, ".dpkg-old") ||
-                endswith(filename, ".dpkg-new") ||
-                endswith(filename, ".dpkg-tmp") ||
-                endswith(filename, ".dpkg-dist") ||
-                endswith(filename, ".dpkg-bak") ||
-                endswith(filename, ".dpkg-backup") ||
-                endswith(filename, ".dpkg-remove") ||
-                endswith(filename, ".swp");
-}
-
-bool hidden_file(const char *filename) {
-        assert(filename);
-
-        if (endswith(filename, "~"))
+        if (filename[0] == '.' ||
+            streq(filename, "lost+found") ||
+            streq(filename, "aquota.user") ||
+            streq(filename, "aquota.group") ||
+            endswith(filename, "~"))
                 return true;
 
-        return hidden_file_allow_backup(filename);
+        p = strrchr(filename, '.');
+        if (!p)
+                return false;
+
+        return STR_IN_SET(p + 1,
+                          "rpmnew",
+                          "rpmsave",
+                          "rpmorig",
+                          "dpkg-old",
+                          "dpkg-new",
+                          "dpkg-tmp",
+                          "dpkg-dist",
+                          "dpkg-bak",
+                          "dpkg-backup",
+                          "dpkg-remove",
+                          "ucf-new",
+                          "ucf-old",
+                          "ucf-dist",
+                          "swp");
 }
 
 bool is_device_path(const char *path) {
@@ -798,4 +817,17 @@ bool is_device_path(const char *path) {
         return
                 path_startswith(path, "/dev/") ||
                 path_startswith(path, "/sys/");
+}
+
+bool dot_or_dot_dot(const char *path) {
+        if (!path)
+                return false;
+        if (path[0] != '.')
+                return false;
+        if (path[1] == 0)
+                return true;
+        if (path[1] != '.')
+                return false;
+
+        return path[2] == 0;
 }

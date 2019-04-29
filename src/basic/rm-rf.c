@@ -20,6 +20,7 @@
 ***/
 
 #include "btrfs-util.h"
+#include "dirent-util.h"
 #include "fd-util.h"
 #include "mount-util.h"
 #include "path-util.h"
@@ -30,6 +31,7 @@
 
 int rm_rf_children(int fd, RemoveFlags flags, struct stat *root_dev) {
         _cleanup_closedir_ DIR *d = NULL;
+        struct dirent *de;
         int ret = 0, r;
 
         assert(fd >= 0);
@@ -64,18 +66,9 @@ int rm_rf_children(int fd, RemoveFlags flags, struct stat *root_dev) {
                 return errno == ENOENT ? 0 : -errno;
         }
 
-        for (;;) {
-                struct dirent *de;
+        FOREACH_DIRENT_ALL(de, d, return -errno) {
                 bool is_dir;
                 struct stat st;
-
-                errno = 0;
-                de = readdir(d);
-                if (!de) {
-                        if (errno != 0 && ret == 0)
-                                ret = -errno;
-                        return ret;
-                }
 
                 if (streq(de->d_name, ".") || streq(de->d_name, ".."))
                         continue;
@@ -164,6 +157,7 @@ int rm_rf_children(int fd, RemoveFlags flags, struct stat *root_dev) {
                         }
                 }
         }
+        return ret;
 }
 
 int rm_rf(const char *path, RemoveFlags flags) {
@@ -175,7 +169,7 @@ int rm_rf(const char *path, RemoveFlags flags) {
         /* We refuse to clean the root file system with this
          * call. This is extra paranoia to never cause a really
          * seriously broken system. */
-        if (path_equal(path, "/")) {
+        if (path_equal_or_files_same(path, "/")) {
                 log_error("Attempted to remove entire root file system, and we can't allow that.");
                 return -EPERM;
         }

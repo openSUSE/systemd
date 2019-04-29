@@ -16,6 +16,10 @@ fi
 BASICTOOLS="sh bash setsid loadkeys setfont login sulogin gzip sleep echo mount umount cryptsetup date dmsetup modprobe"
 DEBUGTOOLS="df free ls stty cat ps ln ip route dmesg dhclient mkdir cp ping dhclient strace less grep id tty touch du sort hostname"
 
+STATEDIR="${BUILD_DIR:-.}/test/$(basename $(dirname $(realpath $0)))"
+STATEFILE="$STATEDIR/.testdir"
+TESTLOG="$STATEDIR/test.log"
+
 function find_qemu_bin() {
     # SUSE and Red Hat call the binary qemu-kvm
     # Debian and Gentoo call it kvm
@@ -132,10 +136,15 @@ install_systemd() {
     strip_binaries
 }
 
+get_ldpath() {
+    local _bin="$1"
+    objdump -p "$_bin" 2>/dev/null | awk "/R(UN)?PATH/ { print \"$initdir\" \$2 }" | paste -sd :
+}
+
 install_missing_libraries() {
     # install possible missing libraries
-    for i in $initdir/{sbin,bin}/* $initdir/lib/systemd/*; do
-        inst_libs $i
+    for i in $initdir{,/usr}/{sbin,bin}/* $initdir{,/usr}/lib/systemd/*; do
+        LD_LIBRARY_PATH=$(get_ldpath $i) inst_libs $i
     done
 }
 
@@ -166,6 +175,10 @@ check_result_nspawn() {
 }
 
 strip_binaries() {
+    if [[ "$STRIP_BINARIES" = "no" ]]; then
+        ddebug "Don't strip binaries"
+        return 0
+    fi
     ddebug "Strip binaries"
     find "$initdir" -executable -not -path '*/lib/modules/*.ko' -type f | xargs strip --strip-unneeded | ddebug
 }
@@ -378,7 +391,6 @@ inst_libs() {
 }
 
 import_testdir() {
-    STATEFILE=".testdir"
     [[ -e $STATEFILE ]] && . $STATEFILE
     if [[ -z "$TESTDIR" ]] || [[ ! -d "$TESTDIR" ]]; then
         TESTDIR=$(mktemp --tmpdir=/var/tmp -d -t systemd-test.XXXXXX)
@@ -1147,6 +1159,8 @@ do_test() {
         [[ -d $usrlibdir ]] && libdirs+=" $usrlibdir" && break
     done
 
+    mkdir -p "$STATEDIR"
+
     import_testdir
     import_initdir
 
@@ -1170,7 +1184,7 @@ do_test() {
                 echo "TEST CLEANUP: $TEST_DESCRIPTION"
                 test_cleanup
                 rm -fr "$TESTDIR"
-                rm -f .testdir
+                rm -f "$STATEFILE"
                 exit $?;;
             --all)
                 echo -n "TEST: $TEST_DESCRIPTION ";
@@ -1179,16 +1193,16 @@ do_test() {
                     ret=$?
                     test_cleanup
                     rm -fr "$TESTDIR"
-                    rm -f .testdir
+                    rm -f "$STATEFILE"
                     exit $ret
-                ) </dev/null >test.log 2>&1
+                ) </dev/null >"$TESTLOG" 2>&1
                 ret=$?
                 if [ $ret -eq 0 ]; then
-                    rm test.log
+                    rm "$TESTLOG"
                     echo "[OK]"
                 else
                     echo "[FAILED]"
-                    echo "see $(pwd)/test.log"
+                    echo "see $TESTLOG"
                 fi
                 exit $ret;;
             *) break ;;

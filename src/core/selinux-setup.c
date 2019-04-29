@@ -46,7 +46,7 @@ int mac_selinux_setup(bool *loaded_policy) {
 #ifdef HAVE_SELINUX
         int enforce = 0;
         usec_t before_load, after_load;
-        security_context_t con;
+        char *con;
         int r;
         union selinux_callback cb;
         bool initialized = false;
@@ -90,7 +90,7 @@ int mac_selinux_setup(bool *loaded_policy) {
                         log_open();
                         log_error("Failed to compute init label, ignoring.");
                 } else {
-                        r = setcon(label);
+                        r = setcon_raw(label);
 
                         log_open();
                         if (r < 0)

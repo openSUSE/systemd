@@ -126,14 +126,12 @@ int change_uid_gid(const char *user, char **_home) {
         fd = -1;
 
         if (!fgets(line, sizeof(line), f)) {
-
                 if (!ferror(f)) {
                         log_error("Failed to resolve user %s.", user);
                         return -ESRCH;
                 }
 
-                log_error_errno(errno, "Failed to read from getent: %m");
-                return -errno;
+                return log_error_errno(errno, "Failed to read from getent: %m");
         }
 
         truncate_nl(line);
@@ -216,8 +214,7 @@ int change_uid_gid(const char *user, char **_home) {
                         return -ESRCH;
                 }
 
-                log_error_errno(errno, "Failed to read from getent: %m");
-                return -errno;
+                return log_error_errno(errno, "Failed to read from getent: %m");
         }
 
         truncate_nl(line);
@@ -249,7 +246,7 @@ int change_uid_gid(const char *user, char **_home) {
         if (r < 0)
                 return log_error_errno(r, "Failed to make home root directory: %m");
 
-        r = mkdir_safe(home, 0755, uid, gid);
+        r = mkdir_safe(home, 0755, uid, gid, false);
         if (r < 0 && r != -EEXIST)
                 return log_error_errno(r, "Failed to make home directory: %m");
 

@@ -88,7 +88,7 @@ int cg_read_pid(FILE *f, pid_t *_pid) {
                 if (feof(f))
                         return 0;
 
-                return errno ? -errno : -EIO;
+                return errno > 0 ? -errno : -EIO;
         }
 
         if (ul <= 0)
@@ -131,8 +131,7 @@ int cg_read_subgroup(DIR *d, char **fn) {
                 if (de->d_type != DT_DIR)
                         continue;
 
-                if (streq(de->d_name, ".") ||
-                    streq(de->d_name, ".."))
+                if (dot_or_dot_dot(de->d_name))
                         continue;
 
                 b = strdup(de->d_name);

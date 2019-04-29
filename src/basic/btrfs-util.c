@@ -35,7 +35,6 @@
 #include "macro.h"
 #include "missing.h"
 #include "path-util.h"
-#include "selinux-util.h"
 #include "smack-util.h"
 #include "stat-util.h"
 #include "string-util.h"
@@ -133,8 +132,40 @@ int btrfs_is_subvol(const char *path) {
         return btrfs_is_subvol_fd(fd);
 }
 
-int btrfs_subvol_make(const char *path) {
+int btrfs_subvol_make_fd(int fd, const char *subvolume) {
         struct btrfs_ioctl_vol_args args = {};
+        _cleanup_close_ int real_fd = -1;
+        int r;
+
+        assert(subvolume);
+
+        r = validate_subvolume_name(subvolume);
+        if (r < 0)
+                return r;
+
+        r = fcntl(fd, F_GETFL);
+        if (r < 0)
+                return -errno;
+        if ((r & O_PATH) == O_PATH) {
+                /* An O_PATH fd was specified, let's convert here to a proper one, as btrfs ioctl's can't deal with
+                 * O_PATH. */
+
+                real_fd = fd_reopen(fd, O_RDONLY|O_CLOEXEC|O_DIRECTORY);
+                if (real_fd < 0)
+                        return real_fd;
+
+                fd = real_fd;
+        }
+
+        strncpy(args.name, subvolume, sizeof(args.name)-1);
+
+        if (ioctl(fd, BTRFS_IOC_SUBVOL_CREATE, &args) < 0)
+                return -errno;
+
+        return 0;
+}
+
+int btrfs_subvol_make(const char *path) {
         _cleanup_close_ int fd = -1;
         const char *subvolume;
         int r;
@@ -149,30 +180,7 @@ int btrfs_subvol_make(const char *path) {
         if (fd < 0)
                 return fd;
 
-        strncpy(args.name, subvolume, sizeof(args.name)-1);
-
-        if (ioctl(fd, BTRFS_IOC_SUBVOL_CREATE, &args) < 0)
-                return -errno;
-
-        return 0;
-}
-
-int btrfs_subvol_make_label(const char *path) {
-        int r;
-
-        assert(path);
-
-        r = mac_selinux_create_file_prepare(path, S_IFDIR);
-        if (r < 0)
-                return r;
-
-        r = btrfs_subvol_make(path);
-        mac_selinux_create_file_clear();
-
-        if (r < 0)
-                return r;
-
-        return mac_smack_fix(path, false, false);
+        return btrfs_subvol_make_fd(fd, subvolume);
 }
 
 int btrfs_subvol_set_read_only_fd(int fd, bool b) {

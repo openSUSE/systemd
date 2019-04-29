@@ -306,6 +306,7 @@ static int enumerate_dir_d(Hashmap *top, Hashmap *bottom, Hashmap *drops, const 
 
 static int enumerate_dir(Hashmap *top, Hashmap *bottom, Hashmap *drops, const char *path, bool dropins) {
         _cleanup_closedir_ DIR *d;
+        struct dirent *de;
 
         assert(top);
         assert(bottom);
@@ -322,15 +323,9 @@ static int enumerate_dir(Hashmap *top, Hashmap *bottom, Hashmap *drops, const ch
                 return log_error_errno(errno, "Failed to open %s: %m", path);
         }
 
-        for (;;) {
-                struct dirent *de;
+        FOREACH_DIRENT_ALL(de, d, return -errno) {
                 int k;
                 char *p;
-
-                errno = 0;
-                de = readdir(d);
-                if (!de)
-                        return -errno;
 
                 dirent_ensure_type(d, de);
 
@@ -363,6 +358,7 @@ static int enumerate_dir(Hashmap *top, Hashmap *bottom, Hashmap *drops, const ch
                         return k;
                 }
         }
+        return 0;
 }
 
 static bool should_skip_path(const char *prefix, const char *suffix) {

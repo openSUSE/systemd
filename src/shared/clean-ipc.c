@@ -205,7 +205,7 @@ static int clean_posix_shm_internal(DIR *dir, uid_t uid) {
         FOREACH_DIRENT(de, dir, goto fail) {
                 struct stat st;
 
-                if (STR_IN_SET(de->d_name, "..", "."))
+                if (dot_or_dot_dot(de->d_name))
                         continue;
 
                 if (fstatat(dirfd(dir), de->d_name, &st, AT_SYMLINK_NOFOLLOW) < 0) {
@@ -294,7 +294,7 @@ static int clean_posix_mq(uid_t uid) {
                 struct stat st;
                 char fn[1+strlen(de->d_name)+1];
 
-                if (STR_IN_SET(de->d_name, "..", "."))
+                if (dot_or_dot_dot(de->d_name))
                         continue;
 
                 if (fstatat(dirfd(dir), de->d_name, &st, AT_SYMLINK_NOFOLLOW) < 0) {
