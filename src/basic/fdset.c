@@ -19,7 +19,6 @@
   along with systemd; If not, see <http://www.gnu.org/licenses/>.
 ***/
 
-#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 
@@ -161,11 +160,8 @@ int fdset_new_fill(FDSet **_s) {
                 goto finish;
         }
 
-        while ((de = readdir(d))) {
+        FOREACH_DIRENT(de, d, return -errno) {
                 int fd = -1;
-
-                if (hidden_file(de->d_name))
-                        continue;
 
                 r = safe_atoi(de->d_name, &fd);
                 if (r < 0)

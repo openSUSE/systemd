@@ -21,8 +21,10 @@
 
 #include "dirent-util.h"
 #include "fd-util.h"
+#include "fs-util.h"
 #include "parse-util.h"
 #include "socket-util.h"
+#include "stdio-util.h"
 #include "util.h"
 
 int close_nointr(int fd) {
@@ -219,11 +221,8 @@ int close_all_fds(const int except[], unsigned n_except) {
                 return r;
         }
 
-        while ((de = readdir(d))) {
+        FOREACH_DIRENT(de, d, return -errno) {
                 int fd = -1;
-
-                if (hidden_file(de->d_name))
-                        continue;
 
                 if (safe_atoi(de->d_name, &fd) < 0)
                         /* Let's better ignore this, just in case */
@@ -348,4 +347,31 @@ bool fdname_is_valid(const char *s) {
         }
 
         return p - s < 256;
+}
+
+int fd_get_path(int fd, char **ret) {
+        char procfs_path[strlen("/proc/self/fd/") + DECIMAL_STR_MAX(int)];
+
+        xsprintf(procfs_path, "/proc/self/fd/%i", fd);
+
+        return readlink_malloc(procfs_path, ret);
+}
+
+int fd_reopen(int fd, int flags) {
+        char procfs_path[strlen("/proc/self/fd/") + DECIMAL_STR_MAX(int)];
+        int new_fd;
+
+        /* Reopens the specified fd with new flags. This is useful for convert an O_PATH fd into a regular one, or to
+         * turn O_RDWR fds into O_RDONLY fds.
+         *
+         * This doesn't work on sockets (since they cannot be open()ed, ever).
+         *
+         * This implicitly resets the file read index to 0. */
+
+        xsprintf(procfs_path, "/proc/self/fd/%i", fd);
+        new_fd = open(procfs_path, flags);
+        if (new_fd < 0)
+                return -errno;
+
+        return new_fd;
 }

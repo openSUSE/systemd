@@ -20,7 +20,6 @@
 ***/
 
 #include <ctype.h>
-#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
@@ -546,27 +545,16 @@ void *xbsearch_r(const void *key, const void *base, size_t nmemb, size_t size,
 int on_ac_power(void) {
         bool found_offline = false, found_online = false;
         _cleanup_closedir_ DIR *d = NULL;
+        struct dirent *de;
 
         d = opendir("/sys/class/power_supply");
         if (!d)
                 return errno == ENOENT ? true : -errno;
 
-        for (;;) {
-                struct dirent *de;
+        FOREACH_DIRENT(de, d, return -errno) {
                 _cleanup_close_ int fd = -1, device = -1;
                 char contents[6];
                 ssize_t n;
-
-                errno = 0;
-                de = readdir(d);
-                if (!de && errno != 0)
-                        return -errno;
-
-                if (!de)
-                        break;
-
-                if (hidden_file(de->d_name))
-                        continue;
 
                 device = openat(dirfd(d), de->d_name, O_DIRECTORY|O_RDONLY|O_CLOEXEC|O_NOCTTY);
                 if (device < 0) {
@@ -617,47 +605,6 @@ int on_ac_power(void) {
         }
 
         return found_online || !found_offline;
-}
-
-bool id128_is_valid(const char *s) {
-        size_t i, l;
-
-        l = strlen(s);
-        if (l == 32) {
-
-                /* Simple formatted 128bit hex string */
-
-                for (i = 0; i < l; i++) {
-                        char c = s[i];
-
-                        if (!(c >= '0' && c <= '9') &&
-                            !(c >= 'a' && c <= 'z') &&
-                            !(c >= 'A' && c <= 'Z'))
-                                return false;
-                }
-
-        } else if (l == 36) {
-
-                /* Formatted UUID */
-
-                for (i = 0; i < l; i++) {
-                        char c = s[i];
-
-                        if ((i == 8 || i == 13 || i == 18 || i == 23)) {
-                                if (c != '-')
-                                        return false;
-                        } else {
-                                if (!(c >= '0' && c <= '9') &&
-                                    !(c >= 'a' && c <= 'z') &&
-                                    !(c >= 'A' && c <= 'Z'))
-                                        return false;
-                        }
-                }
-
-        } else
-                return false;
-
-        return true;
 }
 
 int container_get_leader(const char *machine, pid_t *pid) {

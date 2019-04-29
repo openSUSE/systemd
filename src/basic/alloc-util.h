@@ -44,6 +44,14 @@ static inline void *mfree(void *memory) {
         return NULL;
 }
 
+#define free_and_replace(a, b)                  \
+        ({                                      \
+                free(a);                        \
+                (a) = (b);                      \
+                (b) = NULL;                     \
+                0;                              \
+        })
+
 void* memdup(const void *p, size_t l) _alloc_(2);
 
 static inline void freep(void *p) {
@@ -105,4 +113,13 @@ void* greedy_realloc0(void **p, size_t *allocated, size_t need, size_t size);
                 size_t _size_ = (size);                                 \
                 _new_ = alloca_align(_size_, (align));                  \
                 (void*)memset(_new_, 0, _size_);                        \
+        })
+
+/* Takes inspiration from Rusts's Option::take() method: reads and returns a pointer, but at the same time resets it to
+ * NULL. See: https://doc.rust-lang.org/std/option/enum.Option.html#method.take */
+#define TAKE_PTR(ptr)                           \
+        ({                                      \
+                typeof(ptr) _ptr_ = (ptr);      \
+                (ptr) = NULL;                   \
+                _ptr_;                          \
         })

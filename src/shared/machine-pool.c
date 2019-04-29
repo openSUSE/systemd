@@ -29,6 +29,7 @@
 #include "fd-util.h"
 #include "fileio.h"
 #include "fs-util.h"
+#include "label.h"
 #include "lockfile-util.h"
 #include "machine-pool.h"
 #include "mkdir.h"

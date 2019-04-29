@@ -55,12 +55,10 @@ int dirent_ensure_type(DIR *d, struct dirent *de) {
 bool dirent_is_file(const struct dirent *de) {
         assert(de);
 
-        if (hidden_file(de->d_name))
+        if (!IN_SET(de->d_type, DT_REG, DT_LNK, DT_UNKNOWN))
                 return false;
 
-        if (de->d_type != DT_REG &&
-            de->d_type != DT_LNK &&
-            de->d_type != DT_UNKNOWN)
+        if (hidden_or_backup_file(de->d_name))
                 return false;
 
         return true;
@@ -69,13 +67,22 @@ bool dirent_is_file(const struct dirent *de) {
 bool dirent_is_file_with_suffix(const struct dirent *de, const char *suffix) {
         assert(de);
 
-        if (de->d_type != DT_REG &&
-            de->d_type != DT_LNK &&
-            de->d_type != DT_UNKNOWN)
+        if (!IN_SET(de->d_type, DT_REG, DT_LNK, DT_UNKNOWN))
                 return false;
 
-        if (hidden_file_allow_backup(de->d_name))
+        if (de->d_name[0] == '.')
                 return false;
 
         return endswith(de->d_name, suffix);
+}
+
+struct dirent* readdir_no_dot(DIR *dirp) {
+        struct dirent* d;
+
+        for (;;) {
+                d = readdir(dirp);
+                if (d && dot_or_dot_dot(d->d_name))
+                        continue;
+                return d;
+        }
 }

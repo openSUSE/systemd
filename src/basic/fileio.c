@@ -157,7 +157,7 @@ int read_one_line_file(const char *fn, char **line) {
         if (!fgets(t, sizeof(t), f)) {
 
                 if (ferror(f))
-                        return errno ? -errno : -EIO;
+                        return errno > 0 ? -errno : -EIO;
 
                 t[0] = 0;
         }
@@ -1056,7 +1056,7 @@ int fflush_and_check(FILE *f) {
         fflush(f);
 
         if (ferror(f))
-                return errno ? -errno : -EIO;
+                return errno > 0 ? -errno : -EIO;
 
         return 0;
 }
@@ -1196,7 +1196,10 @@ int tempfn_random_child(const char *p, const char *extra, char **ret) {
         if (!t)
                 return -ENOMEM;
 
-        x = stpcpy(stpcpy(stpcpy(t, p), "/.#"), extra);
+        if (isempty(p))
+                x = stpcpy(stpcpy(t, ".#"), extra);
+        else
+                x = stpcpy(stpcpy(stpcpy(t, p), "/.#"), extra);
 
         u = random_u64();
         for (i = 0; i < 16; i++) {

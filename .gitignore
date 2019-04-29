@@ -190,7 +190,9 @@
 /test-fdset
 /test-fileio
 /test-firewall-util
+/test-fs-util
 /test-fstab-util
+/test-glob-util
 /test-hashmap
 /test-hostname
 /test-hostname-util
