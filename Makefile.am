@@ -2322,6 +2322,7 @@ nodist_tmpfiles_DATA = \
 
 dist_tmpfiles_DATA = \
 	tmpfiles.d/systemd-nologin.conf \
+	tmpfiles.d/systemd-tmp.conf \
 	tmpfiles.d/tmp.conf \
 	tmpfiles.d/x11.conf \
 	tmpfiles.d/var.conf \
