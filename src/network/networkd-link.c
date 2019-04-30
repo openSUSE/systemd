@@ -410,7 +410,7 @@ void link_update_operstate(Link *link, bool also_update_master) {
         if (operstate >= LINK_OPERSTATE_CARRIER) {
                 Link *slave;
 
-                HASHMAP_FOREACH(slave, link->slaves, i) {
+                SET_FOREACH(slave, link->slaves, i) {
                         link_update_operstate(slave, false);
 
                         if (slave->operstate < LINK_OPERSTATE_CARRIER)
@@ -606,17 +606,8 @@ static int link_new(Manager *manager, sd_netlink_message *message, Link **ret) {
         return 0;
 }
 
-static void link_detach_from_manager(Link *link) {
-        if (!link || !link->manager)
-                return;
-
-        hashmap_remove(link->manager->links, INT_TO_PTR(link->ifindex));
-        set_remove(link->manager->links_requesting_uuid, link);
-        link_clean(link);
-}
-
 static Link *link_free(Link *link) {
-        Link *carrier, *master;
+        Link *carrier;
         Address *address;
         Route *route;
         Iterator i;
@@ -664,10 +655,7 @@ static Link *link_free(Link *link) {
         sd_ndisc_unref(link->ndisc);
         sd_radv_unref(link->radv);
 
-        link_detach_from_manager(link);
-
         free(link->ifname);
-
         free(link->kind);
 
         (void) unlink(link->state_file);
@@ -683,17 +671,7 @@ static Link *link_free(Link *link) {
                 hashmap_remove(link->bound_by_links, INT_TO_PTR(carrier->ifindex));
         hashmap_free(link->bound_by_links);
 
-        hashmap_free(link->slaves);
-
-        if (link->network) {
-                if (link->network->bond &&
-                    link_get(link->manager, link->network->bond->ifindex, &master) >= 0)
-                        (void) hashmap_remove(master->slaves, INT_TO_PTR(link->ifindex));
-
-                if (link->network->bridge &&
-                    link_get(link->manager, link->network->bridge->ifindex, &master) >= 0)
-                        (void) hashmap_remove(master->slaves, INT_TO_PTR(link->ifindex));
-        }
+        set_free_with_destructor(link->slaves, link_unref);
 
         return mfree(link);
 }
@@ -1452,7 +1430,7 @@ static int set_mtu_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *link) 
 
         log_link_debug(link, "Setting MTU done.");
 
-        if (link->state == LINK_STATE_PENDING)
+        if (link->state == LINK_STATE_INITIALIZED)
                 (void) link_configure_after_setting_mtu(link);
 
         return 1;
@@ -1746,28 +1724,6 @@ static int link_set_bond(Link *link) {
         link_ref(link);
 
         return r;
-}
-
-static int link_append_to_master(Link *link, NetDev *netdev) {
-        Link *master;
-        int r;
-
-        assert(link);
-        assert(netdev);
-
-        r = link_get(link->manager, netdev->ifindex, &master);
-        if (r < 0)
-                return r;
-
-        r = hashmap_ensure_allocated(&master->slaves, NULL);
-        if (r < 0)
-                return r;
-
-        r = hashmap_put(master->slaves, INT_TO_PTR(link->ifindex), link);
-        if (r < 0)
-                return r;
-
-        return 0;
 }
 
 static int link_lldp_save(Link *link) {
@@ -2532,6 +2488,55 @@ static void link_free_carrier_maps(Link *link) {
         return;
 }
 
+static int link_append_to_master(Link *link, NetDev *netdev) {
+        Link *master;
+        int r;
+
+        assert(link);
+        assert(netdev);
+
+        r = link_get(link->manager, netdev->ifindex, &master);
+        if (r < 0)
+                return r;
+
+        r = set_ensure_allocated(&master->slaves, NULL);
+        if (r < 0)
+                return r;
+
+        r = set_put(master->slaves, link);
+        if (r < 0)
+                return r;
+
+        link_ref(link);
+        return 0;
+}
+
+static void link_drop_from_master(Link *link, NetDev *netdev) {
+        Link *master;
+
+        assert(link);
+
+        if (!link->manager || !netdev)
+                return;
+
+        if (link_get(link->manager, netdev->ifindex, &master) < 0)
+                return;
+
+        link_unref(set_remove(master->slaves, link));
+}
+
+static void link_detach_from_manager(Link *link) {
+        if (!link || !link->manager)
+                return;
+
+        link_unref(set_remove(link->manager->links_requesting_uuid, link));
+        link_clean(link);
+
+        /* The following must be called at last. */
+        assert_se(hashmap_remove(link->manager->links, INT_TO_PTR(link->ifindex)) == link);
+        link_unref(link);
+}
+
 void link_drop(Link *link) {
         if (!link || link->state == LINK_STATE_LINGER)
                 return;
@@ -2540,15 +2545,15 @@ void link_drop(Link *link) {
 
         link_free_carrier_maps(link);
 
+        if (link->network) {
+                link_drop_from_master(link, link->network->bridge);
+                link_drop_from_master(link, link->network->bond);
+        }
+
         log_link_debug(link, "Link removed");
 
         (void) unlink(link->state_file);
-
         link_detach_from_manager(link);
-
-        link_unref(link);
-
-        return;
 }
 
 static int link_joined(Link *link) {
@@ -2641,7 +2646,7 @@ static int link_enter_join_netdev(Link *link) {
 
         assert(link);
         assert(link->network);
-        assert(link->state == LINK_STATE_PENDING);
+        assert(link->state == LINK_STATE_INITIALIZED);
 
         link_set_state(link, LINK_STATE_CONFIGURING);
 
@@ -3054,7 +3059,7 @@ static int link_configure(Link *link) {
 
         assert(link);
         assert(link->network);
-        assert(link->state == LINK_STATE_PENDING);
+        assert(link->state == LINK_STATE_INITIALIZED);
 
         if (STRPTR_IN_SET(link->kind, "can", "vcan"))
                 return link_configure_can(link);
@@ -3203,7 +3208,7 @@ static int link_configure_after_setting_mtu(Link *link) {
 
         assert(link);
         assert(link->network);
-        assert(link->state == LINK_STATE_PENDING);
+        assert(link->state == LINK_STATE_INITIALIZED);
 
         if (link->setting_mtu)
                 return 0;
@@ -3354,10 +3359,13 @@ static int link_initialized_and_synced(Link *link) {
         assert(link->ifname);
         assert(link->manager);
 
-        if (link->state != LINK_STATE_PENDING)
+        /* We may get called either from the asynchronous netlink callback,
+         * or directly for link_add() if running in a container. See link_add(). */
+        if (!IN_SET(link->state, LINK_STATE_PENDING, LINK_STATE_INITIALIZED))
                 return 1;
 
         log_link_debug(link, "Link state is up-to-date");
+        link_set_state(link, LINK_STATE_INITIALIZED);
 
         r = link_new_bound_by_list(link);
         if (r < 0)
@@ -3433,6 +3441,7 @@ int link_initialized(Link *link, sd_device *device) {
                 return 0;
 
         log_link_debug(link, "udev initialized link");
+        link_set_state(link, LINK_STATE_INITIALIZED);
 
         link->sd_device = sd_device_ref(device);
 
@@ -4351,6 +4360,7 @@ void link_clean(Link *link) {
 
 static const char* const link_state_table[_LINK_STATE_MAX] = {
         [LINK_STATE_PENDING] = "pending",
+        [LINK_STATE_INITIALIZED] = "initialized",
         [LINK_STATE_CONFIGURING] = "configuring",
         [LINK_STATE_CONFIGURED] = "configured",
         [LINK_STATE_UNMANAGED] = "unmanaged",
