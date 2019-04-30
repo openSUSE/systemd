@@ -2948,7 +2948,7 @@ static int inner_child(
                 if (is_seccomp_available()) {
 
                         r = seccomp_load(arg_seccomp);
-                        if (IN_SET(r, -EPERM, -EACCES))
+                        if (ERRNO_IS_SECCOMP_FATAL(r))
                                 return log_error_errno(r, "Failed to install seccomp filter: %m");
                         if (r < 0)
                                 log_debug_errno(r, "Failed to install seccomp filter: %m");
@@ -3262,7 +3262,7 @@ static int outer_child(
                         arg_userns_mode != USER_NAMESPACE_NO,
                         arg_uid_shift,
                         arg_uid_range,
-                        arg_selinux_context);
+                        arg_selinux_apifs_context);
         if (r < 0)
                 return r;
 

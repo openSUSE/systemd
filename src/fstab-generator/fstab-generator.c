@@ -290,6 +290,49 @@ static int write_requires_mounts_for(FILE *f, const char *opts) {
         return 0;
 }
 
+static bool crypttab_noauto(const char *what) {
+        _cleanup_fclose_ FILE *f = NULL;
+        unsigned n = 0;
+
+        f = fopen("/etc/crypttab", "re");
+        if (!f) {
+                if (errno != ENOENT)
+                    log_error("Failed to open /etc/crypttab: %m");
+
+                return false;
+        }
+
+
+        for (;;) {
+                char line[LINE_MAX], *l;
+                _cleanup_free_ char *name = NULL, *device = NULL, *password = NULL, *options = NULL;
+                int k;
+
+                if (!fgets(line, sizeof(line), f))
+                        break;
+
+                n++;
+
+                l = strstrip(line);
+                if (*l == '#' || *l == 0)
+                        continue;
+
+                k = sscanf(l, "%ms %ms %ms %ms", &name, &device, &password, &options);
+                if (k < 2 || k > 4) {
+                        log_error("Failed to parse /etc/crypttab:%u, ignoring.", n);
+                        continue;
+                }
+
+                if (strcmp((what + 12), name) == 0) {
+                        if (options && strstr(options, "noauto"))
+                                return true;
+
+                        return false;
+                }
+        }
+        return false;
+}
+
 static int add_mount(
                 const char *dest,
                 const char *what,
@@ -338,6 +381,11 @@ static int add_mount(
 
                 SET_FLAG(flags, NOAUTO | NOFAIL | AUTOMOUNT, false);
         }
+
+        /* SUSE specific: boo#742774 */
+        if (!(flags & NOAUTO))
+                if(crypttab_noauto(what))
+                        flags |= NOAUTO;
 
         r = unit_name_from_path(where, ".mount", &name);
         if (r < 0)

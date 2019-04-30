@@ -18,6 +18,8 @@
 #include <sysexits.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
 
 #include "sd-path.h"
 
@@ -534,6 +536,7 @@ static int dir_cleanup(
                 struct stat s;
                 usec_t age;
                 _cleanup_free_ char *sub_path = NULL;
+                Item *found;
 
                 if (dot_or_dot_dot(dent->d_name))
                         continue;
@@ -569,15 +572,41 @@ static int dir_cleanup(
                         goto finish;
                 }
 
-                /* Is there an item configured for this path? */
-                if (ordered_hashmap_get(items, sub_path)) {
-                        log_debug("Ignoring \"%s\": a separate entry exists.", sub_path);
-                        continue;
-                }
+                /* evaluate username arguments in ignore statements */
+                found = find_glob(globs, sub_path);
 
-                if (find_glob(globs, sub_path)) {
-                        log_debug("Ignoring \"%s\": a separate glob exists.", sub_path);
-                        continue;
+                if (i->type == CREATE_DIRECTORY && found && found->argument) {
+                        struct passwd *pw;
+                        char *userfound = NULL, *args = strdup(found->argument);
+                        bool match = false;
+
+                        while ((userfound = strsep(&args, ","))) {
+                                pw = getpwnam(userfound);
+
+                                if (pw) {
+                                        if (s.st_uid == pw->pw_uid) {
+                                                match = true;
+                                                break;
+                                        }
+                                }
+                        }
+
+                        if (match) {
+                                log_debug("Ignoring \"%s\" of user \"%s\".", sub_path, pw->pw_name);
+                                match=false;
+                                continue;
+                        }
+                } else {
+                        /* Is there an item configured for this path? */
+                        if (ordered_hashmap_get(items, sub_path)) {
+                                log_debug("Ignoring \"%s\": a separate entry exists.", sub_path);
+                                continue;
+                        }
+
+                        if (found) {
+                                log_debug("Ignoring \"%s\": a separate glob exists.", sub_path);
+                                continue;
+                        }
                 }
 
                 if (S_ISDIR(s.st_mode)) {
@@ -2566,8 +2595,6 @@ static int parse_line(const char *fname, unsigned line, const char *buffer, bool
         case EMPTY_DIRECTORY:
         case TRUNCATE_DIRECTORY:
         case CREATE_FIFO:
-        case IGNORE_PATH:
-        case IGNORE_DIRECTORY_PATH:
         case REMOVE_PATH:
         case RECURSIVE_REMOVE_PATH:
         case ADJUST_MODE:
@@ -2578,6 +2605,8 @@ static int parse_line(const char *fname, unsigned line, const char *buffer, bool
 
                 break;
 
+        case IGNORE_PATH:
+        case IGNORE_DIRECTORY_PATH:
         case CREATE_FILE:
         case TRUNCATE_FILE:
                 break;

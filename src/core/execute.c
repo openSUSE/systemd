@@ -2569,6 +2569,9 @@ static int setup_keyring(
         assert(context);
         assert(p);
 
+        /* SUSE: pam_keyinit is still not fully integrated to SUSE's PAM stack... */
+        return 0;
+
         /* Let's set up a new per-service "session" kernel keyring for each system service. This has the benefit that
          * each service runs with its own keyring shared among all processes of the service, but with no hook-up beyond
          * that scope, and in particular no link to the per-UID keyring. If we don't do this the keyring will be

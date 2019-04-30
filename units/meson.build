@@ -88,8 +88,6 @@ units = [
          'sockets.target.wants/'],
         ['systemd-journal-gatewayd.socket',     'ENABLE_REMOTE HAVE_MICROHTTPD'],
         ['systemd-journal-remote.socket',       'ENABLE_REMOTE HAVE_MICROHTTPD'],
-        ['systemd-journald-audit.socket',       '',
-         'sockets.target.wants/'],
         ['systemd-journald-dev-log.socket',     '',
          'sockets.target.wants/'],
         ['systemd-journald.socket',             '',
@@ -111,6 +109,8 @@ units = [
          'local-fs.target.wants/'],
         ['umount.target',                       ''],
         ['user.slice',                          ''],
+        ['var-run.mount',                       'HAVE_SYSV_COMPAT',        'local-fs.target.wants/'],
+        ['var-lock.mount',                      'HAVE_SYSV_COMPAT',        'local-fs.target.wants/'],
         ['var-lib-machines.mount',              'ENABLE_MACHINED',
          'remote-fs.target.wants/ machines.target.wants/'],
 ]
