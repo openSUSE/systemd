@@ -669,9 +669,6 @@ EXTRA_DIST += \
 	units/rc-local.service.in \
 	units/halt-local.service.in
 
-GENERAL_ALIASES += \
-	$(systemunitdir)/machines.target $(pkgsysconfdir)/system/multi-user.target.wants/machines.target
-
 dist_doc_DATA = \
 	README \
 	NEWS \
@@ -2679,6 +2676,7 @@ nodist_tmpfiles_DATA = \
 
 dist_tmpfiles_DATA = \
 	tmpfiles.d/systemd-nologin.conf \
+	tmpfiles.d/systemd-tmp.conf \
 	tmpfiles.d/tmp.conf \
 	tmpfiles.d/x11.conf \
 	tmpfiles.d/home.conf \
@@ -5261,9 +5259,6 @@ rootlibexec_PROGRAMS += \
 nodist_systemunit_DATA += \
 	units/systemd-timesyncd.service
 
-GENERAL_ALIASES += \
-	$(systemunitdir)/systemd-timesyncd.service $(pkgsysconfdir)/system/sysinit.target.wants/systemd-timesyncd.service
-
 nodist_pkgsysconf_DATA += \
 	src/timesync/timesyncd.conf
 
@@ -5687,10 +5682,6 @@ dist_dbuspolicy_DATA += \
 dist_dbussystemservice_DATA += \
 	src/resolve/org.freedesktop.resolve1.service
 
-GENERAL_ALIASES += \
-	$(systemunitdir)/systemd-resolved.service $(pkgsysconfdir)/system/multi-user.target.wants/systemd-resolved.service \
-	$(systemunitdir)/systemd-resolved.service $(pkgsysconfdir)/system/dbus-org.freedesktop.resolve1.service
-
 nodist_pkgsysconf_DATA += \
 	src/resolve/resolved.conf
 
@@ -6027,12 +6018,6 @@ dist_dbussystemservice_DATA += \
 
 dist_dbuspolicy_DATA += \
 	src/network/org.freedesktop.network1.conf
-
-GENERAL_ALIASES += \
-	$(systemunitdir)/systemd-networkd.socket $(pkgsysconfdir)/system/sockets.target.wants/systemd-networkd.socket \
-	$(systemunitdir)/systemd-networkd.service $(pkgsysconfdir)/system/multi-user.target.wants/systemd-networkd.service \
-	$(systemunitdir)/systemd-networkd-wait-online.service $(pkgsysconfdir)/system/network-online.target.wants/systemd-networkd-wait-online.service \
-	$(systemunitdir)/systemd-networkd.service $(pkgsysconfdir)/system/dbus-org.freedesktop.network1.service
 
 polkitrules_files += \
 	src/network/systemd-networkd.rules
@@ -6615,8 +6600,6 @@ SYSTEM_UNIT_ALIASES += \
 	getty@.service autovt@.service
 
 GENERAL_ALIASES += \
-	$(systemunitdir)/remote-fs.target $(pkgsysconfdir)/system/multi-user.target.wants/remote-fs.target \
-	$(systemunitdir)/getty@.service $(pkgsysconfdir)/system/getty.target.wants/getty@tty1.service \
 	$(pkgsysconfdir)/user $(sysconfdir)/xdg/systemd/user \
 	$(dbussystemservicedir)/org.freedesktop.systemd1.service $(dbussessionservicedir)/org.freedesktop.systemd1.service
 
