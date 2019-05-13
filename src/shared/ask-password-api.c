@@ -83,7 +83,7 @@ static int retrieve_key(key_serial_t serial, char ***ret) {
                 if (n < m)
                         break;
 
-                memory_erase(p, n);
+                memory_erase(p, m);
 
                 if (m > LONG_MAX / 2) /* overflow check */
                         return -ENOMEM;
