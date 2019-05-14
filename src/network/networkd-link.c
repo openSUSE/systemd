@@ -321,8 +321,7 @@ static int link_enable_ipv6(Link *link) {
 
         r = sysctl_write_ip_property_boolean(AF_INET6, link->ifname, "disable_ipv6", disabled);
         if (r < 0)
-                log_link_warning_errno(link, r, "Cannot %s IPv6 for interface %s: %m",
-                                       enable_disable(!disabled), link->ifname);
+                log_link_warning_errno(link, r, "Cannot %s IPv6: %m", enable_disable(!disabled));
         else
                 log_link_info(link, "IPv6 successfully %sd", enable_disable(!disabled));
 
@@ -3840,7 +3839,7 @@ int link_update(Link *link, sd_netlink_message *m) {
         assert(m);
 
         if (link->state == LINK_STATE_LINGER) {
-                log_link_info(link, "Link readded");
+                log_link_info(link, "Link re-added");
                 link_set_state(link, LINK_STATE_CONFIGURING);
 
                 r = link_new_carrier_maps(link);
