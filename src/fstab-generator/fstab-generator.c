@@ -380,6 +380,11 @@ static int add_mount(
         if (!isempty(filtered) && !streq(filtered, "defaults"))
                 fprintf(f, "Options=%s\n", filtered);
 
+        r = generator_write_device_deps(arg_dest, what, where, opts);
+        if (r < 0)
+                return r;
+
+
         r = fflush_and_check(f);
         if (r < 0)
                 return log_error_errno(r, "Failed to write unit file %s: %m", unit);
