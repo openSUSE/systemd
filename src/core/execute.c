@@ -1961,7 +1961,8 @@ static int apply_mount_namespace(
                 ExecCommand *command,
                 const ExecContext *context,
                 const ExecParameters *params,
-                ExecRuntime *runtime) {
+                ExecRuntime *runtime,
+                char **error_path) {
 
         _cleanup_strv_free_ char **rw = NULL;
         char *tmp = NULL, *var = NULL;
@@ -2025,7 +2026,8 @@ static int apply_mount_namespace(
                             apply_restrictions ? context->protect_home : PROTECT_HOME_NO,
                             apply_restrictions ? context->protect_system : PROTECT_SYSTEM_NO,
                             context->mount_flags,
-                            DISSECT_IMAGE_DISCARD_ON_LOOP);
+                            DISSECT_IMAGE_DISCARD_ON_LOOP,
+                            error_path);
 
         /* If we couldn't set up the namespace this is probably due to a
          * missing capability. In this case, silently proceeed. */
@@ -2618,10 +2620,13 @@ static int exec_child(
 
         needs_mount_namespace = exec_needs_mount_namespace(context, params, runtime);
         if (needs_mount_namespace) {
-                r = apply_mount_namespace(unit, command, context, params, runtime);
+                _cleanup_free_ char *error_path = NULL;
+
+                r = apply_mount_namespace(unit, command, context, params, runtime, &error_path);
                 if (r < 0) {
                         *exit_status = EXIT_NAMESPACE;
-                        return log_unit_error_errno(unit, r, "Failed to set up mount namespacing: %m");
+                        return log_unit_error_errno(unit, r, "Failed to set up mount namespacing%s%s: %m",
+                                                    error_path ? ": " : "", strempty(error_path));
                 }
         }
 
