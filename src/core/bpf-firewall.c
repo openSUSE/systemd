@@ -782,3 +782,15 @@ int bpf_firewall_supported(void) {
                 return supported = BPF_FIREWALL_UNSUPPORTED;
         }
 }
+
+void emit_bpf_firewall_warning(Unit *u) {
+        static bool warned = false;
+
+        if (!warned) {
+                log_unit_warning(u, "unit configures an IP firewall, but %s.\n"
+                                    "(This warning is only shown for the first unit using IP firewalling.)",
+                                 getuid() != 0 ? "not running as root" :
+                                                 "the local system does not support BPF/cgroup firewalling");
+                warned = true;
+        }
+}
