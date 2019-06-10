@@ -1563,10 +1563,10 @@ int main(int argc, char* argv[]) {
                 goto finish;
         }
 
-        if (!path_is_safe(arg_mount_what)) {
-                log_error("Path contains unsafe components: %s", arg_mount_what);
-                r = -EINVAL;
-                goto finish;
+        if ((!arg_mount_type || !fstype_is_network(arg_mount_type))
+            && !path_is_safe(arg_mount_what)) {
+                log_error("Path contains non-normalized components: %s", arg_mount_what);
+                return -EINVAL;
         }
 
         if (arg_discover) {
