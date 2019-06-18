@@ -66,6 +66,8 @@
 #include "udev.h"
 #include "user-util.h"
 
+#define WORKER_NUM_MAX 2048U
+
 static bool arg_debug = false;
 static int arg_daemonize = false;
 static int arg_resolve_names = 1;
@@ -1695,16 +1697,18 @@ int main(int argc, char *argv[]) {
         }
 
         if (arg_children_max == 0) {
+                unsigned long cpu_limit, mem_limit;
+                unsigned long cpu_count = 1;
                 cpu_set_t cpu_set;
-                unsigned long mem_limit;
-
-                arg_children_max = 8;
 
                 if (sched_getaffinity(0, sizeof(cpu_set), &cpu_set) == 0)
-                        arg_children_max += CPU_COUNT(&cpu_set) * 64;
+                        cpu_count = CPU_COUNT(&cpu_set);
 
-                mem_limit = physical_memory() / (128LU*1024*1024);
-                arg_children_max = MAX(10U, MIN(arg_children_max, mem_limit));
+                cpu_limit = cpu_count * 2 + 16;
+                mem_limit = MAX(physical_memory() / (128UL*1024*1024), 10U);
+
+                arg_children_max = MIN(cpu_limit, mem_limit);
+                arg_children_max = MIN(WORKER_NUM_MAX, arg_children_max);
 
                 log_debug("set children_max to %u", arg_children_max);
         }
