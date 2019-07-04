@@ -127,6 +127,17 @@ static inline int negative_errno(void) {
         return -errno;
 }
 
+static inline int errno_or_else(int fallback) {
+        /* To be used when invoking library calls where errno handling is not defined clearly: we return
+         * errno if it is set, and the specified error otherwise. The idea is that the caller initializes
+         * errno to zero before doing an API call, and then uses this helper to retrieve a somewhat useful
+         * error code */
+        if (errno > 0)
+                return -errno;
+
+        return -abs(fallback);
+}
+
 static inline unsigned u64log2(uint64_t n) {
 #if __SIZEOF_LONG_LONG__ == 8
         return (n > 1) ? (unsigned) __builtin_clzll(n) ^ 63U : 0;
