@@ -352,15 +352,17 @@ int main(int argc, char *argv[]) {
 
         use_watchdog = !!getenv("WATCHDOG_USEC");
 
-        /* If the logging messages are going to KMSG, and if we are not running from a container,
-         * then try to update the sysctl kernel.printk current value in order to see "info" messages;
-         * This current log level is not updated if already big enough.
+        /* If the logging messages are going to KMSG, and if we are not running from a container, then try to
+         * update the sysctl kernel.printk current value in order to see "info" messages; This current log
+         * level is not updated if already big enough.
          */
-        if (!in_container && IN_SET(log_get_target(), LOG_TARGET_AUTO,
-                                                      LOG_TARGET_JOURNAL_OR_KMSG,
-                                                      LOG_TARGET_SYSLOG_OR_KMSG,
-                                                      LOG_TARGET_KMSG))
-                bump_sysctl_printk_log_level(LOG_INFO);
+        if (!in_container &&
+            IN_SET(log_get_target(),
+                   LOG_TARGET_AUTO,
+                   LOG_TARGET_JOURNAL_OR_KMSG,
+                   LOG_TARGET_SYSLOG_OR_KMSG,
+                   LOG_TARGET_KMSG))
+                bump_sysctl_printk_log_level(LOG_WARNING);
 
         /* Lock us into memory */
         mlockall(MCL_CURRENT|MCL_FUTURE);
