@@ -552,14 +552,16 @@ static int output_units_list(const UnitInfo *unit_infos, unsigned c) {
                         off = ansi_normal();
                 }
 
-                if (arg_all)
+                if (arg_all || strv_contains(arg_states, "inactive"))
                         printf("%s%u loaded units listed.%s\n"
                                "To show all installed unit files use 'systemctl list-unit-files'.\n",
                                on, n_shown, off);
-                else
+                else if (!arg_states)
                         printf("%s%u loaded units listed.%s Pass --all to see loaded but inactive units, too.\n"
                                "To show all installed unit files use 'systemctl list-unit-files'.\n",
                                on, n_shown, off);
+                else
+                        printf("%u loaded units listed.\n", n_shown);
         }
 
         return 0;
@@ -2498,13 +2500,14 @@ static int unit_find_paths(
         int r;
 
         /**
-         * Finds where the unit is defined on disk. Returns 0 if the unit is not found. Returns 1 if it is found, and
-         * sets:
+         * Finds where the unit is defined on disk. Returns 0 if the unit is not found. Returns 1 if it is
+         * found, and sets:
          * - the path to the unit in *ret_frament_path, if it exists on disk,
-         * - and a strv of existing drop-ins in *ret_dropin_paths, if the arg is not NULL and any dropins were found.
+         * - and a strv of existing drop-ins in *ret_dropin_paths, if the arg is not NULL and any dropins
+         *   were found.
          *
-         * Returns -ERFKILL if the unit is masked, and -EKEYREJECTED if the unit file could not be loaded for some
-         * reason (the latter only applies if we are going through the service manager)
+         * Returns -ERFKILL if the unit is masked, and -EKEYREJECTED if the unit file could not be loaded for
+         * some reason (the latter only applies if we are going through the service manager).
          */
 
         assert(unit_name);
@@ -2539,7 +2542,7 @@ static int unit_find_paths(
                         r = 0;
                         goto not_found;
                 }
-                if (!streq(load_state, "loaded"))
+                if (!STR_IN_SET(load_state, "loaded", "bad-setting"))
                         return -EKEYREJECTED;
 
                 r = sd_bus_get_property_string(
@@ -4565,7 +4568,8 @@ static void print_status_info(
 
                         show_cgroup_and_extra(SYSTEMD_CGROUP_CONTROLLER, i->control_group, prefix, c, extra, k, get_output_flags());
                 } else if (r < 0)
-                        log_warning_errno(r, "Failed to dump process list for '%s', ignoring: %s", i->id, bus_error_message(&error, r));
+                        log_warning_errno(r, "Failed to dump process list for '%s', ignoring: %s",
+                                          i->id, bus_error_message(&error, r));
         }
 
         if (i->id && arg_transport == BUS_TRANSPORT_LOCAL)
@@ -5039,11 +5043,13 @@ static int print_property(const char *name, const char *expected_value, sd_bus_m
                                 return bus_log_parse_error(r);
 
                         while ((r = sd_bus_message_read(m, "(stt)", &base, &v, &next_elapse)) > 0) {
-                                char timespan1[FORMAT_TIMESPAN_MAX], timespan2[FORMAT_TIMESPAN_MAX];
+                                char timespan1[FORMAT_TIMESPAN_MAX] = "n/a", timespan2[FORMAT_TIMESPAN_MAX] = "n/a";
 
-                                bus_print_property_valuef(name, expected_value, value, "{ %s=%s ; next_elapse=%s }", base,
-                                                          format_timespan(timespan1, sizeof(timespan1), v, 0),
-                                                          format_timespan(timespan2, sizeof(timespan2), next_elapse, 0));
+                                (void) format_timespan(timespan1, sizeof timespan1, v, 0);
+                                (void) format_timespan(timespan2, sizeof timespan2, next_elapse, 0);
+
+                                bus_print_property_valuef(name, expected_value, value,
+                                                          "{ %s=%s ; next_elapse=%s }", base, timespan1, timespan2);
                         }
                         if (r < 0)
                                 return bus_log_parse_error(r);
@@ -5063,10 +5069,11 @@ static int print_property(const char *name, const char *expected_value, sd_bus_m
                                 return bus_log_parse_error(r);
 
                         while ((r = sd_bus_message_read(m, "(sst)", &base, &spec, &next_elapse)) > 0) {
-                                char timestamp[FORMAT_TIMESTAMP_MAX];
+                                char timestamp[FORMAT_TIMESTAMP_MAX] = "n/a";
 
-                                bus_print_property_valuef(name, expected_value, value, "{ %s=%s ; next_elapse=%s }", base, spec,
-                                                          format_timestamp(timestamp, sizeof(timestamp), next_elapse));
+                                (void) format_timestamp(timestamp, sizeof(timestamp), next_elapse);
+                                bus_print_property_valuef(name, expected_value, value,
+                                                          "{ %s=%s ; next_elapse=%s }", base, spec, timestamp);
                         }
                         if (r < 0)
                                 return bus_log_parse_error(r);

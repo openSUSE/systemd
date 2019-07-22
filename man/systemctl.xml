@@ -801,8 +801,14 @@ Sun 2017-02-26 20:57:49 EST  2h 3min left  Sun 2017-02-26 11:56:36 EST  6h ago  
           <term><command>stop <replaceable>PATTERN</replaceable>…</command></term>
 
           <listitem>
-            <para>Stop (deactivate) one or more units specified on the
-            command line.</para>
+            <para>Stop (deactivate) one or more units specified on the command line.</para>
+
+            <para>This command will fail if the unit does exist or if stopping of the unit is prohibited (see
+            <varname>RefuseManualStop=</varname> in
+            <citerefentry><refentrytitle>systemd.unit</refentrytitle><manvolnum>5</manvolnum></citerefentry>).
+            It will <emphasis>not</emphasis> fail if any of the commands configured to stop the unit
+            (<varname>ExecStop=</varname>, etc.) fail, because the manager will still forcibly terminate the
+            unit.</para>
           </listitem>
         </varlistentry>
         <varlistentry>
@@ -1058,18 +1064,22 @@ Jan 12 10:46:45 example.com bluetoothd[8900]: gatt-time-server: Input/output err
             next reboot. The syntax of the property assignment follows
             closely the syntax of assignments in unit files.</para>
 
-            <para>Example: <command>systemctl set-property foobar.service CPUShares=777</command></para>
+            <para>Example: <command>systemctl set-property foobar.service CPUWeight=200</command></para>
 
             <para>If the specified unit appears to be inactive, the
             changes will be only stored on disk as described
             previously hence they will be effective when the unit will
             be started.</para>
 
-            <para>Note that this command allows changing multiple
-            properties at the same time, which is preferable over
-            setting them individually. Like with unit file configuration
-            settings, assigning an empty list will reset the property.
-            </para>
+            <para>Note that this command allows changing multiple properties at the same time, which is
+            preferable over setting them individually.</para>
+
+            <para>Example: <command>systemctl set-property foobar.service CPUWeight=200 MemoryMax=2G IPAccounting=yes</command></para>
+
+            <para>Like with unit file configuration settings, assigning an empty setting usually resets a
+            property to its defaults.</para>
+
+            <para>Example: <command>systemctl set-property avahi-daemon.service IPAddressDeny=</command></para>
           </listitem>
         </varlistentry>
 
