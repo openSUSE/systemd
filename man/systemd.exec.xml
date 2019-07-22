@@ -226,7 +226,12 @@
         specified user and group must have been created statically in the user database no later than the moment the
         service is started, for example using the
         <citerefentry><refentrytitle>sysusers.d</refentrytitle><manvolnum>5</manvolnum></citerefentry> facility, which
-        is applied at boot or package install time.</para></listitem>
+        is applied at boot or package install time.</para>
+
+        <para>If the <varname>User=</varname> setting is used the supplementary group list is initialized
+        from the specified user's default group list, as defined in the system's user and group
+        database. Additional groups may be configured through the <varname>SupplementaryGroups=</varname>
+        setting (see below).</para></listitem>
       </varlistentry>
 
       <varlistentry>
@@ -942,6 +947,15 @@ CapabilityBoundingSet=~CAP_B CAP_C</programlisting>
         directory is cleaned up automatically after use. For runtime directories that require more complex or different
         configuration or lifetime guarantees, please consider using
         <citerefentry><refentrytitle>tmpfiles.d</refentrytitle><manvolnum>5</manvolnum></citerefentry>.</para>
+
+        <para>The directories defined by these options are always created under the standard paths used by systemd
+        (<filename>/var</filename>, <filename>/run</filename>, <filename>/etc</filename>, …). If the service needs
+        directories in a different location, a different mechanism has to be used to create them.</para>
+
+        <para><citerefentry><refentrytitle>tmpfiles.d</refentrytitle><manvolnum>5</manvolnum></citerefentry> provides
+        functionality that overlaps with these options. Using these options is recommended, because the lifetime of
+        the directories is tied directly to the lifetime of the unit, and it is not necessary to ensure that the
+        <filename>tmpfiles.d</filename> configuration is executed before the unit is started.</para>
 
         <para>Example: if a system service unit has the following,
         <programlisting>RuntimeDirectory=foo/bar baz</programlisting>
