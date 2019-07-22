@@ -157,7 +157,7 @@ struct Manager {
         char **environment;
 
         usec_t runtime_watchdog;
-        usec_t shutdown_watchdog;
+        usec_t reboot_watchdog;
 
         dual_timestamp firmware_timestamp;
         dual_timestamp loader_timestamp;

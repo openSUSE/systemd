@@ -99,6 +99,7 @@ static enum {
         ACTION_TEST,
         ACTION_DUMP_CONFIGURATION_ITEMS
 } arg_action = ACTION_RUN;
+
 static char *arg_default_unit = NULL;
 static bool arg_system = false;
 static bool arg_dump_core = true;
@@ -118,7 +119,7 @@ static usec_t arg_default_timeout_stop_usec = DEFAULT_TIMEOUT_USEC;
 static usec_t arg_default_start_limit_interval = DEFAULT_START_LIMIT_INTERVAL;
 static unsigned arg_default_start_limit_burst = DEFAULT_START_LIMIT_BURST;
 static usec_t arg_runtime_watchdog = 0;
-static usec_t arg_shutdown_watchdog = 10 * USEC_PER_MINUTE;
+static usec_t arg_reboot_watchdog = 10 * USEC_PER_MINUTE;
 static char *arg_early_core_pattern = NULL;
 static char **arg_default_environment = NULL;
 static struct rlimit *arg_default_rlimit[_RLIMIT_MAX] = {};
@@ -726,7 +727,8 @@ static int parse_config_file(void) {
                 { "Manager", "CPUAffinity",               config_parse_cpu_affinity2,    0, NULL                                   },
                 { "Manager", "JoinControllers",           config_parse_join_controllers, 0, &arg_join_controllers                  },
                 { "Manager", "RuntimeWatchdogSec",        config_parse_sec,              0, &arg_runtime_watchdog                  },
-                { "Manager", "ShutdownWatchdogSec",       config_parse_sec,              0, &arg_shutdown_watchdog                 },
+                { "Manager", "RebootWatchdogSec",         config_parse_sec,              0, &arg_reboot_watchdog                   },
+                { "Manager", "ShutdownWatchdogSec",       config_parse_sec,              0, &arg_reboot_watchdog                   }, /* obsolete alias */
                 { "Manager", "CapabilityBoundingSet",     config_parse_capability_set,   0, &arg_capability_bounding_set           },
 #ifdef HAVE_SECCOMP
                 { "Manager", "SystemCallArchitectures",   config_parse_syscall_archs,    0, &arg_syscall_archs                     },
@@ -1895,7 +1897,7 @@ int main(int argc, char *argv[]) {
 
         m->confirm_spawn = arg_confirm_spawn;
         m->runtime_watchdog = arg_runtime_watchdog;
-        m->shutdown_watchdog = arg_shutdown_watchdog;
+        m->reboot_watchdog = arg_reboot_watchdog;
         m->userspace_timestamp = userspace_timestamp;
         m->kernel_timestamp = kernel_timestamp;
         m->initrd_timestamp = initrd_timestamp;
@@ -2086,7 +2088,7 @@ finish:
         pager_close();
 
         if (m)
-                arg_shutdown_watchdog = m->shutdown_watchdog;
+                arg_reboot_watchdog = m->reboot_watchdog;
 
         m = manager_free(m);
 
@@ -2272,17 +2274,17 @@ finish:
 
                 assert(pos < ELEMENTSOF(command_line));
 
-                if (arm_reboot_watchdog && arg_shutdown_watchdog > 0 && arg_shutdown_watchdog != USEC_INFINITY) {
+                if (arm_reboot_watchdog && arg_reboot_watchdog > 0 && arg_reboot_watchdog != USEC_INFINITY) {
                         char *e;
 
                         /* If we reboot let's set the shutdown
                          * watchdog and tell the shutdown binary to
                          * repeatedly ping it */
-                        r = watchdog_set_timeout(&arg_shutdown_watchdog);
+                        r = watchdog_set_timeout(&arg_reboot_watchdog);
                         watchdog_close(r < 0);
 
                         /* Tell the binary how often to ping, ignore failure */
-                        if (asprintf(&e, "WATCHDOG_USEC="USEC_FMT, arg_shutdown_watchdog) > 0)
+                        if (asprintf(&e, "WATCHDOG_USEC="USEC_FMT, arg_reboot_watchdog) > 0)
                                 (void) strv_push(&env_block, e);
                 } else
                         watchdog_close(true);
