@@ -29,7 +29,9 @@
 #include "alloc-util.h"
 #include "conf-files.h"
 #include "conf-parser.h"
+#include "def.h"
 #include "fd-util.h"
+#include "fileio.h"
 #include "fs-util.h"
 #include "log.h"
 #include "macro.h"
@@ -294,7 +296,7 @@ int config_parse(const char *unit,
         _cleanup_free_ char *section = NULL, *continuation = NULL;
         _cleanup_fclose_ FILE *ours = NULL;
         unsigned line = 0, section_line = 0;
-        bool section_ignored = false;
+        bool section_ignored = false, allow_bom = true;
         int r;
 
         assert(filename);
@@ -314,20 +316,45 @@ int config_parse(const char *unit,
 
         fd_warn_permissions(filename, fileno(f));
 
-        while (!feof(f)) {
-                char l[LINE_MAX], *p, *c = NULL, *e;
+        for (;;) {
+                _cleanup_free_ char *buf = NULL;
+                char *l, *p, *c = NULL, *e;
                 bool escaped = false;
 
-                if (!fgets(l, sizeof(l), f)) {
-                        if (feof(f))
-                                break;
+                r = read_line(f, LONG_LINE_MAX, &buf);
+                if (r == 0)
+                        break;
+                if (r == -ENOBUFS) {
+                        if (warn)
+                                log_error_errno(r, "%s:%u: Line too long", filename, line);
 
-                        return log_error_errno(errno, "Failed to read configuration file '%s': %m", filename);
+                        return r;
+                }
+                if (r < 0) {
+                        if (warn)
+                                log_error_errno(r, "%s:%u: Error while reading configuration file: %m", filename, line);
+
+                        return r;
                 }
 
-                truncate_nl(l);
+                l = buf;
+                if (allow_bom) {
+                        char *q;
+
+                        q = startswith(buf, UTF8_BYTE_ORDER_MARK);
+                        if (q) {
+                                l = q;
+                                allow_bom = false;
+                        }
+                }
 
                 if (continuation) {
+                        if (strlen(continuation) + strlen(l) > LONG_LINE_MAX) {
+                                if (warn)
+                                        log_error("%s:%u: Continuation line too long", filename, line);
+                                return -ENOBUFS;
+                        }
+
                         c = strappend(continuation, l);
                         if (!c) {
                                 if (warn)
@@ -381,8 +408,7 @@ int config_parse(const char *unit,
 
                 if (r < 0) {
                         if (warn)
-                                log_warning_errno(r, "Failed to parse file '%s': %m",
-                                                  filename);
+                                log_warning_errno(r, "%s:%u: Failed to parse file: %m", filename, line);
                         return r;
                 }
         }

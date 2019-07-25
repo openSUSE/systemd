@@ -26,6 +26,7 @@
 #include "macro.h"
 
 #define UTF8_REPLACEMENT_CHARACTER "\xef\xbf\xbd"
+#define UTF8_BYTE_ORDER_MARK "\xef\xbb\xbf"
 
 bool unichar_is_valid(uint32_t c);
 
