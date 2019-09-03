@@ -207,3 +207,5 @@ fuzzers += [
          [threads,
           libacl]]
         ]
+
+subdir('compat')
