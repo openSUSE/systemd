@@ -49,6 +49,10 @@ static int run(int argc, char *argv[]) {
         /* Drop privileges, but only if we have been started as root. If we are not running as root we assume most
          * privileges are already dropped. */
         if (getuid() == 0) {
+                r = symlink("../run/systemd/resolve/resolv.conf", "/etc/resolv.conf");
+                if (r < 0 && errno != EEXIST)
+                        log_warning_errno(errno,
+                                          "Could not create /etc/resolv.conf symlink: %m");
 
                 /* Drop privileges, but keep three caps. Note that we drop those too, later on (see below) */
                 r = drop_privileges(uid, gid,
