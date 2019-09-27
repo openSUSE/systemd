@@ -46,6 +46,7 @@ units = [
         ['proc-sys-fs-binfmt_misc.mount',       'ENABLE_BINFMT'],
         ['reboot.target',                       '',
          'runlevel6.target ctrl-alt-del.target'],
+        ['remote-cryptsetup.target',            'HAVE_LIBCRYPTSETUP'],
         ['remote-fs-pre.target',                ''],
         ['remote-fs.target',                    ''],
         ['rescue.target',                       '',
