@@ -117,6 +117,7 @@ static int compare_pstore_entries(const void *_a, const void *_b) {
 
 static int move_file(PStoreEntry *pe, const char *subdir) {
         _cleanup_free_ char *ifd_path = NULL, *ofd_path = NULL;
+        _cleanup_free_ void *field = NULL;
         const char *suffix, *message;
         struct iovec iovec[2];
         int n_iovec = 0, r;
@@ -138,7 +139,6 @@ static int move_file(PStoreEntry *pe, const char *subdir) {
         iovec[n_iovec++] = IOVEC_MAKE_STRING(message);
 
         if (pe->content_size > 0) {
-                _cleanup_free_ void *field = NULL;
                 size_t field_size;
 
                 field_size = strlen("FILE=") + pe->content_size;
@@ -157,7 +157,7 @@ static int move_file(PStoreEntry *pe, const char *subdir) {
                 /* Move file from pstore to external storage */
                 r = mkdir_parents(ofd_path, 0755);
                 if (r < 0)
-                        return log_error_errno(r, "Failed to create directoy %s: %m", ofd_path);
+                        return log_error_errno(r, "Failed to create directory %s: %m", ofd_path);
                 r = copy_file_atomic(ifd_path, ofd_path, 0600, 0, 0, COPY_REPLACE);
                 if (r < 0)
                         return log_error_errno(r, "Failed to copy_file_atomic: %s to %s", ifd_path, ofd_path);
