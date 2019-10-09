@@ -80,17 +80,17 @@ ENV{COMPAT_SYMLINK_GENERATION}!="1", GOTO="generation_2"
 # symlink is created.
 
 KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_EUI_COMPAT}!="?*", ATTRS{eui}=="?*", ATTRS{eui}!="0000000000000000", \
-  PROGRAM=="/bin/sh -c 'eui=\"%s{eui}\"; echo ${eui// /}", ENV{ID_NVME_EUI_COMPAT}="2%c"
+  PROGRAM=="/bin/sh -c 'eui=\"%s{eui}\"; echo $${eui// /}", ENV{ID_NVME_EUI_COMPAT}="2%c"
 
 KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_NGUID_COMPAT}!="?*", ATTRS{nguid}=="?*", \
-  PROGRAM=="/bin/sh -c 'nguid=\"%s{nguid}\"; echo ${nguid//-/}", ENV{ID_NVME_NGUID_COMPAT}="%c"
+  PROGRAM=="/bin/sh -c 'nguid=\"%s{nguid}\"; echo $${nguid//-/}", ENV{ID_NVME_NGUID_COMPAT}="%c"
 
 KERNEL=="nvme*", ENV{DEVTYPE}=="disk", ENV{ID_NVME_SERIAL_COMPAT}!="?*", ATTRS{model}=="?*", ATTRS{serial}=="?*", \
   PROGRAM=="/bin/sh -c ' \
     cd /sys/%p; \
     while ! [ -f model ]; do \
       cd ..; \
-      [ $(pwd) = %S ] && exit 1; \
+      [ $$(pwd) = %S ] && exit 1; \
    done; \
    cut -c 1-16 model'", ENV{ID_NVME_SERIAL_COMPAT}="SNVMe_%c%s{serial}"
 
