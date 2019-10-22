@@ -1758,7 +1758,7 @@ _public_ int sd_device_get_sysattr_value(sd_device *device, const char *sysattr,
                 size_t size;
 
                 /* read attribute value */
-                r = read_full_file(path, &value, &size);
+                r = read_full_virtual_file(path, &value, &size);
                 if (r < 0)
                         return r;
 
