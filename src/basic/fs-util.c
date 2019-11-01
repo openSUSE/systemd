@@ -535,15 +535,12 @@ int get_files_in_directory(const char *path, char ***list) {
 }
 
 int inotify_add_watch_and_warn(int fd, const char *pathname, uint32_t mask) {
+
         if (inotify_add_watch(fd, pathname, mask) < 0) {
-                const char *reason;
-
                 if (errno == ENOSPC)
-                        reason = "inotify watch limit reached";
-                else
-                        reason = strerror(errno);
+                        return log_error_errno(errno, "Failed to add a watch for %s: inotify watch limit reached", pathname);
 
-                return log_error_errno(errno, "Failed to add a watch for %s: %s", pathname, reason);
+                return log_error_errno(errno, "Failed to add a watch for %s: %m", pathname);
         }
 
         return 0;
