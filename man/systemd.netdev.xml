@@ -507,13 +507,19 @@
       <varlistentry>
         <term><varname>Remote=</varname></term>
         <listitem>
-          <para>Configures destination multicast group IP address.</para>
+          <para>Configures destination IP address.</para>
         </listitem>
       </varlistentry>
       <varlistentry>
         <term><varname>Local=</varname></term>
         <listitem>
           <para>Configures local IP address.</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><varname>Group=</varname></term>
+        <listitem>
+          <para>Configures VXLAN multicast group IP address. All members of a VXLAN must use the same multicast group address.</para>
         </listitem>
       </varlistentry>
         <varlistentry>

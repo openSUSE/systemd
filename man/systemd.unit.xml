@@ -167,13 +167,12 @@
     [Install] section; those aliases are only effective when the unit is enabled. When the unit is
     enabled, symlinks will be created for those names, and removed when the unit is disabled. For
     example, <filename>reboot.target</filename> specifies
-    <varname>Alias=ctrl-alt-del.target</varname>, so when enabled it will be invoked whenever
-    CTRL+ALT+DEL is pressed. Alias names may be used in commands like <command>enable</command>,
-    <command>disable</command>, <command>start</command>, <command>stop</command>,
-    <command>status</command>, …, and in unit dependency directives <varname>Wants=</varname>,
-    <varname>Requires=</varname>, <varname>Before=</varname>, <varname>After=</varname>, …, with the
-    limitation that aliases specified through <varname>Alias=</varname> are only effective when the
-    unit is enabled. Aliases cannot be used with the <command>preset</command> command.</para>
+    <varname>Alias=ctrl-alt-del.target</varname>, so when enabled it will be invoked whenever CTRL+ALT+DEL is
+    pressed. Alias names may be used in commands like <command>disable</command>, <command>start</command>,
+    <command>stop</command>, <command>status</command>, …, and in unit dependency directives <varname>Wants=</varname>,
+    <varname>Requires=</varname>, <varname>Before=</varname>, <varname>After=</varname>, …, with the limitation that
+    aliases specified through <varname>Alias=</varname> are only effective when the unit is enabled. Aliases cannot be
+    used with the <command>preset</command> command.</para>
 
     <para>Along with a unit file <filename>foo.service</filename>, the directory
     <filename>foo.service.wants/</filename> may exist. All unit files symlinked from such a

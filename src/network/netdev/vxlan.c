@@ -197,20 +197,23 @@ int config_parse_vxlan_address(const char *unit,
 
         r = in_addr_is_multicast(f, &buffer);
 
-        if (STR_IN_SET(lvalue, "Group", "Remote")) {
+        if (streq(lvalue, "Group")) {
                 if (r <= 0) {
                         log_syntax(unit, LOG_ERR, filename, line, 0, "vxlan invalid multicast '%s' address, ignoring assignment: %s", lvalue, rvalue);
                         return 0;
                 }
 
-                v->remote_family = f;
+                v->group_family = f;
         } else {
                 if (r > 0) {
                         log_syntax(unit, LOG_ERR, filename, line, 0, "vxlan %s can not be multicast address, ignoring assignment: %s", lvalue, rvalue);
                         return 0;
                 }
 
-                v->local_family = f;
+                if (streq(lvalue, "Remote"))
+                        v->remote_family = f;
+                else
+                        v->local_family = f;
         }
 
         *addr = buffer;
