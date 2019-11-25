@@ -410,7 +410,7 @@ static int remove_marked_symlinks_fd(
                         if (!p)
                                 return -ENOMEM;
 
-                        q = readlink_malloc(p, &dest);
+                        q = chase_symlinks(p, NULL, CHASE_NONEXISTENT, &dest);
                         if (q < 0) {
                                 if (q == -ENOENT)
                                         continue;
