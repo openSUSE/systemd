@@ -300,7 +300,6 @@ static void manager_free(Manager *manager) {
         if (!manager)
                 return;
 
-        manager->monitor = udev_monitor_unref(manager->monitor);
         udev_builtin_exit(manager->udev);
 
         sd_event_source_unref(manager->ctrl_event);
@@ -747,6 +746,7 @@ static void manager_exit(Manager *manager) {
         manager->fd_inotify = safe_close(manager->fd_inotify);
 
         manager->uevent_event = sd_event_source_unref(manager->uevent_event);
+        manager->monitor = udev_monitor_unref(manager->monitor);
 
         /* discard queued events and kill workers */
         event_queue_cleanup(manager, EVENT_QUEUED);
