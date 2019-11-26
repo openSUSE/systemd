@@ -1217,10 +1217,12 @@ static int on_sigchld(sd_event_source *s, const struct signalfd_siginfo *si, voi
                         udev_device_delete_db(worker->event->dev);
                         udev_device_tag_index(worker->event->dev, NULL, false);
 
-                        /* forward kernel event without amending it */
-                        r = udev_monitor_send_device(manager->monitor, NULL, worker->event->dev_kernel);
-                        if (r < 0)
-                                log_error_errno(r, "Worker ["PID_FMT"] failed to send back device to kernel: %m", pid);
+                        if (manager->monitor) {
+                                /* forward kernel event without amending it */
+                                r = udev_monitor_send_device(manager->monitor, NULL, worker->event->dev_kernel);
+                                if (r < 0)
+                                        log_error_errno(r, "Worker ["PID_FMT"] failed to send back device to kernel: %m", pid);
+                        }
                 }
 
                 worker_free(worker);
