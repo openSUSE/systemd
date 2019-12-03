@@ -23,14 +23,15 @@ BuildPackages=
         cryptsetup
         curl
         dbus
+        diffutils
         docbook-xsl
         elfutils
         gcc
-        gettext
         git
         gnu-efi-libs
         gnutls
         gperf
+        inetutils
         iptables
         kmod
         libcap
