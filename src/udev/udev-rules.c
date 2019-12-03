@@ -742,10 +742,7 @@ static int parse_token(UdevRules *rules, const char *key, char *attr, UdevRuleOp
                 if (op == OP_REMOVE)
                         return log_token_invalid_op(rules, key);
                 if (!is_match) {
-                        if (op == OP_ASSIGN)
-                                log_token_debug(rules, "Operator '=' is specified to %s key, assuming '=='.", key);
-                        else
-                                log_token_warning(rules, "%s key takes '==' or '!=' operator, assuming '==', but please fix it.", key);
+                        log_token_debug(rules, "%s key takes '==' or '!=' operator, assuming '=='.", key);
                         op = OP_MATCH;
                 }
 
@@ -757,10 +754,7 @@ static int parse_token(UdevRules *rules, const char *key, char *attr, UdevRuleOp
                 if (op == OP_REMOVE)
                         return log_token_invalid_op(rules, key);
                 if (!is_match) {
-                        if (op == OP_ASSIGN)
-                                log_token_debug(rules, "Operator '=' is specified to %s key, assuming '=='.", key);
-                        else
-                                log_token_warning(rules, "%s key takes '==' or '!=' operator, assuming '==', but please fix it.", key);
+                        log_token_debug(rules, "%s key takes '==' or '!=' operator, assuming '=='.", key);
                         op = OP_MATCH;
                 }
 
@@ -2082,7 +2076,7 @@ static int udev_rule_apply_token_to_event(
                 (void) udev_event_apply_format(event, token->value, value, sizeof(value), false);
 
                 log_rule_debug(dev, rules, "ATTR '%s' writing '%s'", buf, value);
-                r = write_string_file(buf, value, WRITE_STRING_FILE_VERIFY_ON_FAILURE | WRITE_STRING_FILE_DISABLE_BUFFER);
+                r = write_string_file(buf, value, WRITE_STRING_FILE_VERIFY_ON_FAILURE | WRITE_STRING_FILE_DISABLE_BUFFER | WRITE_STRING_FILE_AVOID_NEWLINE);
                 if (r < 0)
                         log_rule_error_errno(dev, rules, r, "Failed to write ATTR{%s}, ignoring: %m", buf);
                 break;
@@ -2313,9 +2307,10 @@ static int apply_static_dev_perms(const char *devnode, uid_t uid, gid_t gid, mod
                 gid = 0;
 
         r = chmod_and_chown(device_node, mode, uid, gid);
+        if (r == -ENOENT)
+                return 0;
         if (r < 0)
-                return log_error_errno(errno, "Failed to chown '%s' %u %u: %m",
-                                               device_node, uid, gid);
+                return log_error_errno(r, "Failed to chown '%s' %u %u: %m", device_node, uid, gid);
         else
                 log_debug("chown '%s' %u:%u with mode %#o", device_node, uid, gid, mode);
 
@@ -2325,7 +2320,7 @@ static int apply_static_dev_perms(const char *devnode, uid_t uid, gid_t gid, mod
 
 static int udev_rule_line_apply_static_dev_perms(UdevRuleLine *rule_line) {
         UdevRuleToken *token;
-        _cleanup_free_ char **tags = NULL;
+        _cleanup_strv_free_ char **tags = NULL;
         uid_t uid = UID_INVALID;
         gid_t gid = GID_INVALID;
         mode_t mode = MODE_INVALID;
