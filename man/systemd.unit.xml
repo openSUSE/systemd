@@ -1063,7 +1063,9 @@
         option may be specified more than once, in which case all
         listed names are used. At installation time,
         <command>systemctl enable</command> will create symlinks from
-        these names to the unit filename.</para></listitem>
+        these names to the unit filename. Therefore aliases specified
+        through <varname>Alias=</varname> are only effective when the
+        unit is enabled.</para></listitem>
       </varlistentry>
 
       <varlistentry>

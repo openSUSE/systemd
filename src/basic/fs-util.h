@@ -76,6 +76,8 @@ union inotify_event_buffer {
         uint8_t raw[INOTIFY_EVENT_MAX];
 };
 
+int inotify_add_watch_and_warn(int fd, const char *pathname, uint32_t mask);
+
 enum {
         CHASE_PREFIX_ROOT = 1U << 0,   /* If set, the specified path will be prefixed by the specified root before beginning the iteration */
         CHASE_NONEXISTENT = 1U << 1,   /* If set, it's OK if the path doesn't actually exist. */
