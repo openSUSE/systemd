@@ -27,8 +27,13 @@ int hostname_setup(void) {
                         log_warning_errno(r, "Failed to read configured hostname: %m");
 
                 hn = NULL;
-        } else
+        } else {
+                char *domain = strchr(b, '.');
+                /* SUSE: strip the domain name */
+                if (domain)
+                        *domain = '\0';
                 hn = b;
+        }
 
         if (isempty(hn)) {
                 /* Don't override the hostname if it is already set
