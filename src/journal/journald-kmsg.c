@@ -98,15 +98,17 @@ void server_forward_kmsg(
         free(ident_buf);
 }
 
-static bool is_us(const char *pid) {
-        pid_t t;
+static bool is_us(const char *identifier, const char *pid) {
+        pid_t pid_num;
 
-        assert(pid);
-
-        if (parse_pid(pid, &t) < 0)
+        if (!identifier || !pid)
                 return false;
 
-        return t == getpid();
+        if (parse_pid(pid, &pid_num) < 0)
+                return false;
+
+        return pid_num == getpid() &&
+               streq(identifier, program_invocation_short_name);
 }
 
 static void dev_kmsg_record(Server *s, const char *p, size_t l) {
@@ -291,7 +293,7 @@ static void dev_kmsg_record(Server *s, const char *p, size_t l) {
 
                 /* Avoid any messages we generated ourselves via
                  * log_info() and friends. */
-                if (pid && is_us(pid))
+                if (is_us(identifier, pid))
                         goto finish;
 
                 if (identifier) {

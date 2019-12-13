@@ -728,22 +728,7 @@ static bool is_devpath_busy(Manager *manager, struct event *event) {
         return false;
 }
 
-static int on_exit_timeout(sd_event_source *s, uint64_t usec, void *userdata) {
-        Manager *manager = userdata;
-
-        assert(manager);
-
-        log_error_errno(ETIMEDOUT, "giving up waiting for workers to finish");
-
-        sd_event_exit(manager->event, -ETIMEDOUT);
-
-        return 1;
-}
-
 static void manager_exit(Manager *manager) {
-        uint64_t usec;
-        int r;
-
         assert(manager);
 
         manager->exit = true;
@@ -765,13 +750,6 @@ static void manager_exit(Manager *manager) {
         /* discard queued events and kill workers */
         event_queue_cleanup(manager, EVENT_QUEUED);
         manager_kill_workers(manager);
-
-        assert_se(sd_event_now(manager->event, CLOCK_MONOTONIC, &usec) >= 0);
-
-        r = sd_event_add_time(manager->event, NULL, CLOCK_MONOTONIC,
-                              usec + 30 * USEC_PER_SEC, USEC_PER_SEC, on_exit_timeout, manager);
-        if (r < 0)
-                return;
 }
 
 /* reload requested, HUP signal received, rules changed, builtin changed */
@@ -1197,6 +1175,7 @@ static int on_sighup(sd_event_source *s, const struct signalfd_siginfo *si, void
 
 static int on_sigchld(sd_event_source *s, const struct signalfd_siginfo *si, void *userdata) {
         Manager *manager = userdata;
+        int r;
 
         assert(manager);
 
@@ -1211,34 +1190,38 @@ static int on_sigchld(sd_event_source *s, const struct signalfd_siginfo *si, voi
 
                 worker = hashmap_get(manager->workers, PID_TO_PTR(pid));
                 if (!worker) {
-                        log_warning("worker ["PID_FMT"] is unknown, ignoring", pid);
+                        log_warning("Worker ["PID_FMT"] is unknown, ignoring", pid);
                         continue;
                 }
 
                 if (WIFEXITED(status)) {
                         if (WEXITSTATUS(status) == 0)
-                                log_debug("worker ["PID_FMT"] exited", pid);
+                                log_debug("Worker ["PID_FMT"] exited", pid);
                         else
-                                log_warning("worker ["PID_FMT"] exited with return code %i", pid, WEXITSTATUS(status));
+                                log_warning("Worker ["PID_FMT"] exited with return code %i", pid, WEXITSTATUS(status));
                 } else if (WIFSIGNALED(status)) {
-                        log_warning("worker ["PID_FMT"] terminated by signal %i (%s)", pid, WTERMSIG(status), signal_to_string(WTERMSIG(status)));
+                        log_warning("Worker ["PID_FMT"] terminated by signal %i (%s)", pid, WTERMSIG(status), signal_to_string(WTERMSIG(status)));
                 } else if (WIFSTOPPED(status)) {
-                        log_info("worker ["PID_FMT"] stopped", pid);
+                        log_info("Worker ["PID_FMT"] stopped", pid);
                         continue;
                 } else if (WIFCONTINUED(status)) {
-                        log_info("worker ["PID_FMT"] continued", pid);
+                        log_info("Worker ["PID_FMT"] continued", pid);
                         continue;
                 } else
-                        log_warning("worker ["PID_FMT"] exit with status 0x%04x", pid, status);
+                        log_warning("Worker ["PID_FMT"] exit with status 0x%04x", pid, status);
 
-                if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-                        if (worker->event) {
-                                log_error("worker ["PID_FMT"] failed while handling '%s'", pid, worker->event->devpath);
-                                /* delete state from disk */
-                                udev_device_delete_db(worker->event->dev);
-                                udev_device_tag_index(worker->event->dev, NULL, false);
+                if ((!WIFEXITED(status) || WEXITSTATUS(status) != 0) && worker->event) {
+                        log_error("Worker ["PID_FMT"] failed while handling '%s'", pid, worker->event->devpath);
+
+                        /* delete state from disk */
+                        udev_device_delete_db(worker->event->dev);
+                        udev_device_tag_index(worker->event->dev, NULL, false);
+
+                        if (manager->monitor) {
                                 /* forward kernel event without amending it */
-                                udev_monitor_send_device(manager->monitor, NULL, worker->event->dev_kernel);
+                                r = udev_monitor_send_device(manager->monitor, NULL, worker->event->dev_kernel);
+                                if (r < 0)
+                                        log_error_errno(r, "Worker ["PID_FMT"] failed to send back device to kernel: %m", pid);
                         }
                 }
 
