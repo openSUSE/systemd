@@ -560,13 +560,14 @@ static int swap_points_list_off(MountPoint **head, bool *changed) {
 
         LIST_FOREACH_SAFE(mount_point, m, n, *head) {
                 log_info("Deactivating swap %s.", m->path);
-                if (swapoff(m->path) == 0) {
-                        *changed = true;
-                        mount_point_free(head, m);
-                } else {
+                if (swapoff(m->path) < 0) {
                         log_warning_errno(errno, "Could not deactivate swap %s: %m", m->path);
                         n_failed++;
+                        continue;
                 }
+
+                *changed = true;
+                mount_point_free(head, m);
         }
 
         return n_failed;
@@ -596,15 +597,15 @@ static int loopback_points_list_detach(MountPoint **head, bool *changed) {
 
                 log_info("Detaching loopback %s.", m->path);
                 r = delete_loopback(m->path);
-                if (r >= 0) {
-                        if (r > 0)
-                                *changed = true;
-
-                        mount_point_free(head, m);
-                } else {
-                        log_warning_errno(errno, "Could not detach loopback %s: %m", m->path);
+                if (r < 0) {
+                        log_warning_errno(r, "Could not detach loopback %s: %m", m->path);
                         n_failed++;
+                        continue;
                 }
+                if (r > 0)
+                        *changed = true;
+
+                mount_point_free(head, m);
         }
 
         return n_failed;
@@ -629,23 +630,24 @@ static int dm_points_list_detach(MountPoint **head, bool *changed) {
                         continue;
                 }
 
-                log_info("Detaching DM %u:%u.", major(m->devnum), minor(m->devnum));
+                log_info("Detaching DM %s (%u:%u).", m->path, major(m->devnum), minor(m->devnum));
                 r = delete_dm(m->devnum);
-                if (r >= 0) {
-                        *changed = true;
-                        mount_point_free(head, m);
-                } else {
-                        log_warning_errno(errno, "Could not detach DM %s: %m", m->path);
+                if (r < 0) {
+                        log_warning_errno(r, "Could not detach DM %s: %m", m->path);
                         n_failed++;
+                        continue;
                 }
+
+                *changed = true;
+                mount_point_free(head, m);
         }
 
         return n_failed;
 }
 
 static int umount_all_once(bool *changed) {
-        int r;
         LIST_HEAD(MountPoint, mp_list_head);
+        int r;
 
         assert(changed);
 
