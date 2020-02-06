@@ -5,6 +5,7 @@
 #include "alloc-util.h"
 #include "bus-common-errors.h"
 #include "bus-label.h"
+#include "bus-polkit.h"
 #include "bus-util.h"
 #include "fd-util.h"
 #include "logind-brightness.h"
@@ -249,7 +250,11 @@ static int method_set_idle_hint(sd_bus_message *message, void *userdata, sd_bus_
         if (uid != 0 && uid != s->user->uid)
                 return sd_bus_error_setf(error, SD_BUS_ERROR_ACCESS_DENIED, "Only owner of session may set idle hint");
 
-        session_set_idle_hint(s, b);
+        r = session_set_idle_hint(s, b);
+        if (r == -ENOTTY)
+                return sd_bus_error_setf(error, SD_BUS_ERROR_NOT_SUPPORTED, "Idle hint control is not supported on non-graphical sessions.");
+        if (r < 0)
+                return r;
 
         return sd_bus_reply_method_return(message, NULL);
 }
