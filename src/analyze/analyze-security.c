@@ -306,7 +306,7 @@ static int assess_root_directory(
         assert(ret_description);
 
         *ret_badness =
-                empty_or_root(info->root_directory) ||
+                empty_or_root(info->root_directory) &&
                 empty_or_root(info->root_image);
         *ret_description = NULL;
 
@@ -746,7 +746,7 @@ static const struct security_assessor security_assessor_table[] = {
         {
                 .id = "ProtectControlGroups=",
                 .description_good = "Service cannot modify the control group file system",
-                .description_bad = "Service may modify to the control group file system",
+                .description_bad = "Service may modify the control group file system",
                 .url = "https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=",
                 .weight = 1000,
                 .range = 1,

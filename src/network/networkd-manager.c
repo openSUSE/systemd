@@ -11,6 +11,7 @@
 #include "sd-netlink.h"
 
 #include "alloc-util.h"
+#include "bus-polkit.h"
 #include "bus-util.h"
 #include "conf-parser.h"
 #include "def.h"
@@ -682,8 +683,8 @@ int manager_rtnl_process_neighbor(sd_netlink *rtnl, sd_netlink_message *message,
                                        strnull(addr_str), strnull(lladdr_str));
                         (void) neighbor_free(neighbor);
                 } else
-                        log_link_info(link, "Kernel removed a neighbor we don't remember: %s->%s, ignoring.",
-                                      strnull(addr_str), strnull(lladdr_str));
+                        log_link_debug(link, "Kernel removed a neighbor we don't remember: %s->%s, ignoring.",
+                                       strnull(addr_str), strnull(lladdr_str));
 
                 break;
 
@@ -839,9 +840,9 @@ int manager_rtnl_process_address(sd_netlink *rtnl, sd_netlink_message *message, 
                                        valid_str ? "for " : "forever", strempty(valid_str));
                         (void) address_drop(address);
                 } else
-                        log_link_info(link, "Kernel removed an address we don't remember: %s/%u (valid %s%s), ignoring.",
-                                      strnull(buf), prefixlen,
-                                      valid_str ? "for " : "forever", strempty(valid_str));
+                        log_link_debug(link, "Kernel removed an address we don't remember: %s/%u (valid %s%s), ignoring.",
+                                       strnull(buf), prefixlen,
+                                       valid_str ? "for " : "forever", strempty(valid_str));
 
                 break;
 
