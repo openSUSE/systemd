@@ -28,6 +28,7 @@
 #include "cgroup-util.h"
 #include "fdset.h"
 #include "hashmap.h"
+#include "ip-address-access.h"
 #include "list.h"
 #include "ratelimit.h"
 
@@ -110,7 +111,7 @@ struct Manager {
         LIST_HEAD(Job, gc_job_queue);
 
         /* Units that should be realized */
-        LIST_HEAD(Unit, cgroup_queue);
+        LIST_HEAD(Unit, cgroup_realize_queue);
 
         sd_event *event;
 
@@ -263,6 +264,7 @@ struct Manager {
         bool default_io_accounting;
         bool default_blockio_accounting;
         bool default_tasks_accounting;
+        bool default_ip_accounting;
 
         uint64_t default_tasks_max;
         usec_t default_timer_accuracy_usec;

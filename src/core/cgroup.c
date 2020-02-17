@@ -21,6 +21,7 @@
 #include <fnmatch.h>
 
 #include "alloc-util.h"
+#include "bpf-firewall.h"
 #include "cgroup-util.h"
 #include "cgroup.h"
 #include "fd-util.h"
@@ -30,9 +31,9 @@
 #include "path-util.h"
 #include "process-util.h"
 #include "special.h"
+#include "stdio-util.h"
 #include "string-table.h"
 #include "string-util.h"
-#include "stdio-util.h"
 
 #define CGROUP_CPU_QUOTA_PERIOD_USEC ((usec_t) 100 * USEC_PER_MSEC)
 
@@ -141,6 +142,9 @@ void cgroup_context_done(CGroupContext *c) {
 
         while (c->device_allow)
                 cgroup_context_free_device_allow(c, c->device_allow);
+
+        c->ip_address_allow = ip_address_access_free_all(c->ip_address_allow);
+        c->ip_address_deny = ip_address_access_free_all(c->ip_address_deny);
 }
 
 void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
@@ -149,6 +153,7 @@ void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
         CGroupBlockIODeviceBandwidth *b;
         CGroupBlockIODeviceWeight *w;
         CGroupDeviceAllow *a;
+        IPAddressAccessItem *iaai;
         char u[FORMAT_TIMESPAN_MAX];
 
         assert(c);
@@ -162,6 +167,7 @@ void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
                 "%sBlockIOAccounting=%s\n"
                 "%sMemoryAccounting=%s\n"
                 "%sTasksAccounting=%s\n"
+                "%sIPAccounting=%s\n"
                 "%sCPUWeight=%" PRIu64 "\n"
                 "%sStartupCPUWeight=%" PRIu64 "\n"
                 "%sCPUShares=%" PRIu64 "\n"
@@ -184,6 +190,7 @@ void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
                 prefix, yes_no(c->blockio_accounting),
                 prefix, yes_no(c->memory_accounting),
                 prefix, yes_no(c->tasks_accounting),
+                prefix, yes_no(c->ip_accounting),
                 prefix, c->cpu_weight,
                 prefix, c->startup_cpu_weight,
                 prefix, c->cpu_shares,
@@ -253,17 +260,29 @@ void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
                                 b->path,
                                 format_bytes(buf, sizeof(buf), b->wbps));
         }
+
+        LIST_FOREACH(items, iaai, c->ip_address_allow) {
+                _cleanup_free_ char *k = NULL;
+
+                (void) in_addr_to_string(iaai->family, &iaai->address, &k);
+                fprintf(f, "%sIPAddressAllow=%s/%u\n", prefix, strnull(k), iaai->prefixlen);
+        }
+
+        LIST_FOREACH(items, iaai, c->ip_address_deny) {
+                _cleanup_free_ char *k = NULL;
+
+                (void) in_addr_to_string(iaai->family, &iaai->address, &k);
+                fprintf(f, "%sIPAddressDeny=%s/%u\n", prefix, strnull(k), iaai->prefixlen);
+        }
 }
 
 static int lookup_block_device(const char *p, dev_t *dev) {
         struct stat st;
-        int r;
 
         assert(p);
         assert(dev);
 
-        r = stat(p, &st);
-        if (r < 0)
+        if (stat(p, &st) < 0)
                 return log_warning_errno(errno, "Couldn't stat device %s: %m", p);
 
         if (S_ISBLK(st.st_mode))
@@ -645,7 +664,22 @@ static void cgroup_apply_unified_memory_limit(Unit *u, const char *file, uint64_
                               "Failed to set %s: %m", file);
 }
 
-static void cgroup_context_apply(Unit *u, CGroupMask mask, ManagerState state) {
+static void cgroup_apply_firewall(Unit *u) {
+        assert(u);
+
+        /* Best-effort: let's apply IP firewalling and/or accounting if that's enabled */
+
+        if (bpf_firewall_compile(u) < 0)
+                return;
+
+        (void) bpf_firewall_install(u);
+}
+
+static void cgroup_context_apply(
+                Unit *u,
+                CGroupMask apply_mask,
+                ManagerState state) {
+
         const char *path;
         CGroupContext *c;
         bool is_root;
@@ -659,7 +693,8 @@ static void cgroup_context_apply(Unit *u, CGroupMask mask, ManagerState state) {
         assert(c);
         assert(path);
 
-        if (mask == 0)
+        /* Nothing to do? Exit early! */
+        if (apply_mask == 0)
                 return;
 
         /* Some cgroup attributes are not supported on the root cgroup,
@@ -673,9 +708,11 @@ static void cgroup_context_apply(Unit *u, CGroupMask mask, ManagerState state) {
          * cgroup trees (assuming we are running in a container then),
          * and missing cgroups, i.e. EROFS and ENOENT. */
 
-        if ((mask & CGROUP_MASK_CPU) && !is_root) {
-                bool has_weight = cgroup_context_has_cpu_weight(c);
-                bool has_shares = cgroup_context_has_cpu_shares(c);
+        if ((apply_mask & CGROUP_MASK_CPU) && !is_root) {
+                bool has_weight, has_shares;
+
+                has_weight = cgroup_context_has_cpu_weight(c);
+                has_shares = cgroup_context_has_cpu_shares(c);
 
                 if (cg_all_unified() > 0) {
                         uint64_t weight;
@@ -712,7 +749,7 @@ static void cgroup_context_apply(Unit *u, CGroupMask mask, ManagerState state) {
                 }
         }
 
-        if (mask & CGROUP_MASK_IO) {
+        if (apply_mask & CGROUP_MASK_IO) {
                 bool has_io = cgroup_context_has_io_config(c);
                 bool has_blockio = cgroup_context_has_blockio_config(c);
 
@@ -789,7 +826,7 @@ static void cgroup_context_apply(Unit *u, CGroupMask mask, ManagerState state) {
                 }
         }
 
-        if (mask & CGROUP_MASK_BLKIO) {
+        if (apply_mask & CGROUP_MASK_BLKIO) {
                 bool has_io = cgroup_context_has_io_config(c);
                 bool has_blockio = cgroup_context_has_blockio_config(c);
 
@@ -856,7 +893,7 @@ static void cgroup_context_apply(Unit *u, CGroupMask mask, ManagerState state) {
                 }
         }
 
-        if ((mask & CGROUP_MASK_MEMORY) && !is_root) {
+        if ((apply_mask & CGROUP_MASK_MEMORY) && !is_root) {
                 if (cg_all_unified() > 0) {
                         uint64_t max, swap_max = CGROUP_LIMIT_MAX;
 
@@ -896,7 +933,7 @@ static void cgroup_context_apply(Unit *u, CGroupMask mask, ManagerState state) {
                 }
         }
 
-        if ((mask & CGROUP_MASK_DEVICES) && !is_root) {
+        if ((apply_mask & CGROUP_MASK_DEVICES) && !is_root) {
                 CGroupDeviceAllow *a;
 
                 /* Changing the devices list of a populated cgroup
@@ -962,7 +999,7 @@ static void cgroup_context_apply(Unit *u, CGroupMask mask, ManagerState state) {
                 }
         }
 
-        if ((mask & CGROUP_MASK_PIDS) && !is_root) {
+        if ((apply_mask & CGROUP_MASK_PIDS) && !is_root) {
 
                 if (c->tasks_max != CGROUP_LIMIT_MAX) {
                         char buf[DECIMAL_STR_MAX(uint64_t) + 2];
@@ -976,6 +1013,9 @@ static void cgroup_context_apply(Unit *u, CGroupMask mask, ManagerState state) {
                         log_unit_full(u, IN_SET(r, -ENOENT, -EROFS, -EACCES) ? LOG_DEBUG : LOG_WARNING, r,
                                       "Failed to set pids.max: %m");
         }
+
+        if (apply_mask & CGROUP_MASK_BPF_FIREWALL)
+                cgroup_apply_firewall(u);
 }
 
 CGroupMask cgroup_context_get_mask(CGroupContext *c) {
@@ -1008,6 +1048,15 @@ CGroupMask cgroup_context_get_mask(CGroupContext *c) {
         return mask;
 }
 
+CGroupMask unit_get_bpf_mask(Unit *u) {
+        CGroupMask mask = 0;
+
+        if (unit_get_needs_bpf_firewall(u))
+                mask |= CGROUP_MASK_BPF_FIREWALL;
+
+        return mask;
+}
+
 CGroupMask unit_get_own_mask(Unit *u) {
         CGroupContext *c;
 
@@ -1035,7 +1084,7 @@ CGroupMask unit_get_own_mask(Unit *u) {
                         return _CGROUP_MASK_ALL;
         }
 
-        return cgroup_context_get_mask(c);
+        return cgroup_context_get_mask(c) | unit_get_bpf_mask(u);
 }
 
 CGroupMask unit_get_members_mask(Unit *u) {
@@ -1103,6 +1152,10 @@ CGroupMask unit_get_target_mask(Unit *u) {
          * hierarchy that shall be enabled for it. */
 
         mask = unit_get_own_mask(u) | unit_get_members_mask(u) | unit_get_siblings_mask(u);
+
+        if (mask & CGROUP_MASK_BPF_FIREWALL & ~u->manager->cgroup_supported)
+                emit_bpf_firewall_warning(u);
+
         mask &= u->manager->cgroup_supported;
 
         return mask;
@@ -1120,6 +1173,34 @@ CGroupMask unit_get_enable_mask(Unit *u) {
         mask &= u->manager->cgroup_supported;
 
         return mask;
+}
+
+bool unit_get_needs_bpf_firewall(Unit *u) {
+        CGroupContext *c;
+        Unit *p;
+        assert(u);
+
+        c = unit_get_cgroup_context(u);
+        if (!c)
+                return false;
+
+        if (c->ip_accounting ||
+            c->ip_address_allow ||
+            c->ip_address_deny)
+                return true;
+
+        /* If any parent slice has an IP access list defined, it applies too */
+        for (p = UNIT_DEREF(u->slice); p; p = UNIT_DEREF(p->slice)) {
+                c = unit_get_cgroup_context(p);
+                if (!c)
+                        return false;
+
+                if (c->ip_address_allow ||
+                    c->ip_address_deny)
+                        return true;
+        }
+
+        return false;
 }
 
 /* Recurse from a unit up through its containing slices, propagating
@@ -1388,10 +1469,17 @@ static void cgroup_xattr_apply(Unit *u) {
                 log_unit_warning_errno(u, r, "Failed to set invocation ID on control group %s, ignoring: %m", u->cgroup_path);
 }
 
-static bool unit_has_mask_realized(Unit *u, CGroupMask target_mask, CGroupMask enable_mask) {
+static bool unit_has_mask_realized(
+                Unit *u,
+                CGroupMask target_mask,
+                CGroupMask enable_mask) {
+
         assert(u);
 
-        return u->cgroup_realized && u->cgroup_realized_mask == target_mask && u->cgroup_enabled_mask == enable_mask;
+        return u->cgroup_realized &&
+                u->cgroup_realized_mask == target_mask &&
+                u->cgroup_enabled_mask == enable_mask &&
+                u->cgroup_invalidated_mask == 0;
 }
 
 /* Check if necessary controllers and attributes for a unit are in place.
@@ -1406,9 +1494,9 @@ static int unit_realize_cgroup_now(Unit *u, ManagerState state) {
 
         assert(u);
 
-        if (u->in_cgroup_queue) {
-                LIST_REMOVE(cgroup_queue, u->manager->cgroup_queue, u);
-                u->in_cgroup_queue = false;
+        if (u->in_cgroup_realize_queue) {
+                LIST_REMOVE(cgroup_realize_queue, u->manager->cgroup_realize_queue, u);
+                u->in_cgroup_realize_queue = false;
         }
 
         target_mask = unit_get_target_mask(u);
@@ -1436,25 +1524,28 @@ static int unit_realize_cgroup_now(Unit *u, ManagerState state) {
         return 0;
 }
 
-static void unit_add_to_cgroup_queue(Unit *u) {
+static void unit_add_to_cgroup_realize_queue(Unit *u) {
+        assert(u);
 
-        if (u->in_cgroup_queue)
+        if (u->in_cgroup_realize_queue)
                 return;
 
-        LIST_PREPEND(cgroup_queue, u->manager->cgroup_queue, u);
-        u->in_cgroup_queue = true;
+        LIST_PREPEND(cgroup_realize_queue, u->manager->cgroup_realize_queue, u);
+        u->in_cgroup_realize_queue = true;
 }
 
-unsigned manager_dispatch_cgroup_queue(Manager *m) {
+unsigned manager_dispatch_cgroup_realize_queue(Manager *m) {
         ManagerState state;
         unsigned n = 0;
         Unit *i;
         int r;
 
+        assert(m);
+
         state = manager_state(m);
 
-        while ((i = m->cgroup_queue)) {
-                assert(i->in_cgroup_queue);
+        while ((i = m->cgroup_realize_queue)) {
+                assert(i->in_cgroup_realize_queue);
 
                 r = unit_realize_cgroup_now(i, state);
                 if (r < 0)
@@ -1466,7 +1557,7 @@ unsigned manager_dispatch_cgroup_queue(Manager *m) {
         return n;
 }
 
-static void unit_queue_siblings(Unit *u) {
+static void unit_add_siblings_to_cgroup_realize_queue(Unit *u) {
         Unit *slice;
 
         /* This adds the siblings of the specified unit and the
@@ -1494,10 +1585,12 @@ static void unit_queue_siblings(Unit *u) {
                         /* If the unit doesn't need any new controllers
                          * and has current ones realized, it doesn't need
                          * any changes. */
-                        if (unit_has_mask_realized(m, unit_get_target_mask(m), unit_get_enable_mask(m)))
+                        if (unit_has_mask_realized(m,
+                                                   unit_get_target_mask(m),
+                                                   unit_get_enable_mask(m)))
                                 continue;
 
-                        unit_add_to_cgroup_queue(m);
+                        unit_add_to_cgroup_realize_queue(m);
                 }
 
                 u = slice;
@@ -1522,7 +1615,7 @@ int unit_realize_cgroup(Unit *u) {
          * iteration. */
 
         /* Add all sibling slices to the cgroup queue. */
-        unit_queue_siblings(u);
+        unit_add_siblings_to_cgroup_realize_queue(u);
 
         /* And realize this one now (and apply the values) */
         return unit_realize_cgroup_now(u, manager_state(u->manager));
@@ -1756,10 +1849,24 @@ static int on_cgroup_inotify_event(sd_event_source *s, int fd, uint32_t revents,
         }
 }
 
+static int cg_bpf_mask_supported(CGroupMask *ret) {
+        CGroupMask mask = 0;
+        int r;
+
+        /* BPF-based firewall */
+        r = bpf_firewall_supported();
+        if (r > 0)
+                mask |= CGROUP_MASK_BPF_FIREWALL;
+
+        *ret = mask;
+        return 0;
+}
+
 int manager_setup_cgroup(Manager *m) {
         _cleanup_free_ char *path = NULL;
         CGroupController c;
         int r, all_unified;
+        CGroupMask mask;
         char *e;
 
         assert(m);
@@ -1883,11 +1990,18 @@ int manager_setup_cgroup(Manager *m) {
                         (void) cg_set_attribute("memory", "/", "memory.use_hierarchy", "1");
         }
 
-        /* 7. Figure out which controllers are supported */
+        /* 8. Figure out which controllers are supported */
         r = cg_mask_supported(&m->cgroup_supported);
         if (r < 0)
                 return log_error_errno(r, "Failed to determine supported controllers: %m");
 
+        /* 9. Figure out which bpf-based pseudo-controllers are supported */
+        r = cg_bpf_mask_supported(&mask);
+        if (r < 0)
+                return log_error_errno(r, "Failed to determine supported bpf-based pseudo-controllers: %m");
+        m->cgroup_supported |= mask;
+
+        /* 10. Log which controllers are supported */
         for (c = 0; c < _CGROUP_CONTROLLER_MAX; c++)
                 log_debug("Controller '%s' supported: %s", cgroup_controller_to_string(c), yes_no(m->cgroup_supported & CGROUP_CONTROLLER_TO_MASK(c)));
 
@@ -1994,10 +2108,17 @@ int manager_notify_cgroup_empty(Manager *m, const char *cgroup) {
 
 int unit_get_memory_current(Unit *u, uint64_t *ret) {
         _cleanup_free_ char *v = NULL;
+        CGroupContext *cc;
         int r;
 
         assert(u);
         assert(ret);
+
+        cc = unit_get_cgroup_context(u);
+        if (!cc)
+                return -ENODATA;
+        if (!cc->memory_accounting)
+                return -ENODATA;
 
         if (!u->cgroup_path)
                 return -ENODATA;
@@ -2022,10 +2143,17 @@ int unit_get_memory_current(Unit *u, uint64_t *ret) {
 
 int unit_get_tasks_current(Unit *u, uint64_t *ret) {
         _cleanup_free_ char *v = NULL;
+        CGroupContext *cc;
         int r;
 
         assert(u);
         assert(ret);
+
+        cc = unit_get_cgroup_context(u);
+        if (!cc)
+                return -ENODATA;
+        if (!cc->tasks_accounting)
+                return -ENODATA;
 
         if (!u->cgroup_path)
                 return -ENODATA;
@@ -2093,6 +2221,7 @@ static int unit_get_cpu_usage_raw(Unit *u, nsec_t *ret) {
 }
 
 int unit_get_cpu_usage(Unit *u, nsec_t *ret) {
+        CGroupContext *cc;
         nsec_t ns;
         int r;
 
@@ -2101,6 +2230,12 @@ int unit_get_cpu_usage(Unit *u, nsec_t *ret) {
         /* Retrieve the current CPU usage counter. This will subtract the CPU counter taken when the unit was
          * started. If the cgroup has been removed already, returns the last cached value. To cache the value, simply
          * call this function with a NULL return value. */
+
+        cc = unit_get_cgroup_context(u);
+        if (!cc)
+                return -ENODATA;
+        if (!cc->cpu_accounting)
+                return -ENODATA;
 
         r = unit_get_cpu_usage_raw(u, &ns);
         if (r == -ENODATA && u->cpu_usage_last != NSEC_INFINITY) {
@@ -2126,7 +2261,50 @@ int unit_get_cpu_usage(Unit *u, nsec_t *ret) {
         return 0;
 }
 
-int unit_reset_cpu_usage(Unit *u) {
+int unit_get_ip_accounting(
+                Unit *u,
+                CGroupIPAccountingMetric metric,
+                uint64_t *ret) {
+
+        CGroupContext *cc;
+        uint64_t value;
+        int fd, r;
+
+        assert(u);
+        assert(metric >= 0);
+        assert(metric < _CGROUP_IP_ACCOUNTING_METRIC_MAX);
+        assert(ret);
+
+        cc = unit_get_cgroup_context(u);
+        if (!cc)
+                return -ENODATA;
+        if (!cc->ip_accounting)
+                return -ENODATA;
+
+        fd = IN_SET(metric, CGROUP_IP_INGRESS_BYTES, CGROUP_IP_INGRESS_PACKETS) ?
+                u->ip_accounting_ingress_map_fd :
+                u->ip_accounting_egress_map_fd;
+
+        if (fd < 0)
+                return -ENODATA;
+
+        if (IN_SET(metric, CGROUP_IP_INGRESS_BYTES, CGROUP_IP_EGRESS_BYTES))
+                r = bpf_firewall_read_accounting(fd, &value, NULL);
+        else
+                r = bpf_firewall_read_accounting(fd, NULL, &value);
+        if (r < 0)
+                return r;
+
+        /* Add in additional metrics from a previous runtime. Note that when reexecing/reloading the daemon we compile
+         * all BPF programs and maps anew, but serialize the old counters. When deserializing we store them in the
+         * ip_accounting_extra[] field, and add them in here transparently. */
+
+        *ret = value + u->ip_accounting_extra[metric];
+
+        return r;
+}
+
+int unit_reset_cpu_accounting(Unit *u) {
         nsec_t ns;
         int r;
 
@@ -2142,6 +2320,22 @@ int unit_reset_cpu_usage(Unit *u) {
 
         u->cpu_usage_base = ns;
         return 0;
+}
+
+int unit_reset_ip_accounting(Unit *u) {
+        int r = 0, q = 0;
+
+        assert(u);
+
+        if (u->ip_accounting_ingress_map_fd >= 0)
+                r = bpf_firewall_reset_accounting(u->ip_accounting_ingress_map_fd);
+
+        if (u->ip_accounting_egress_map_fd >= 0)
+                q = bpf_firewall_reset_accounting(u->ip_accounting_egress_map_fd);
+
+        zero(u->ip_accounting_extra);
+
+        return r < 0 ? r : q;
 }
 
 bool unit_cgroup_delegate(Unit *u) {
@@ -2169,11 +2363,44 @@ void unit_invalidate_cgroup(Unit *u, CGroupMask m) {
         if (m & (CGROUP_MASK_IO | CGROUP_MASK_BLKIO))
                 m |= CGROUP_MASK_IO | CGROUP_MASK_BLKIO;
 
-        if ((u->cgroup_realized_mask & m) == 0)
+        if (m & (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT))
+                m |= CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT;
+
+        if ((u->cgroup_realized_mask & m) == 0) /* NOP? */
                 return;
 
         u->cgroup_realized_mask &= ~m;
-        unit_add_to_cgroup_queue(u);
+        unit_add_to_cgroup_realize_queue(u);
+}
+
+void unit_invalidate_cgroup_bpf(Unit *u) {
+        assert(u);
+
+        if (!UNIT_HAS_CGROUP_CONTEXT(u))
+                return;
+
+        if (u->cgroup_invalidated_mask & CGROUP_MASK_BPF_FIREWALL) /* NOP? */
+                return;
+
+        u->cgroup_invalidated_mask |= CGROUP_MASK_BPF_FIREWALL;
+        unit_add_to_cgroup_realize_queue(u);
+
+        /* If we are a slice unit, we also need to put compile a new BPF program for all our children, as the IP access
+         * list of our children includes our own. */
+        if (u->type == UNIT_SLICE) {
+                Unit *member;
+                Iterator i;
+
+                SET_FOREACH(member, u->dependencies[UNIT_BEFORE], i) {
+                        if (member == u)
+                                continue;
+
+                        if (UNIT_DEREF(member->slice) != u)
+                                continue;
+
+                        unit_invalidate_cgroup_bpf(member);
+                }
+        }
 }
 
 void manager_invalidate_startup_units(Manager *m) {

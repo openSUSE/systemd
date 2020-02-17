@@ -35,6 +35,7 @@
 #include "dropin.h"
 #include "escape.h"
 #include "execute.h"
+#include "fd-util.h"
 #include "fileio-label.h"
 #include "format-util.h"
 #include "id128-util.h"
@@ -102,6 +103,14 @@ Unit *unit_new(Manager *m, size_t size) {
         u->ref_uid = UID_INVALID;
         u->ref_gid = GID_INVALID;
         u->cpu_usage_last = NSEC_INFINITY;
+        u->cgroup_invalidated_mask |= CGROUP_MASK_BPF_FIREWALL;
+
+        u->ip_accounting_ingress_map_fd = -1;
+        u->ip_accounting_egress_map_fd = -1;
+        u->ipv4_allow_map_fd = -1;
+        u->ipv6_allow_map_fd = -1;
+        u->ipv4_deny_map_fd = -1;
+        u->ipv6_deny_map_fd = -1;
 
         RATELIMIT_INIT(u->start_limit, m->default_start_limit_interval, m->default_start_limit_burst);
         RATELIMIT_INIT(u->auto_stop_ratelimit, 10 * USEC_PER_SEC, 16);
@@ -153,9 +162,11 @@ static void unit_init(Unit *u) {
 
                 cc->cpu_accounting = u->manager->default_cpu_accounting;
                 cc->io_accounting = u->manager->default_io_accounting;
+                cc->ip_accounting = u->manager->default_ip_accounting;
                 cc->blockio_accounting = u->manager->default_blockio_accounting;
                 cc->memory_accounting = u->manager->default_memory_accounting;
                 cc->tasks_accounting = u->manager->default_tasks_accounting;
+                cc->ip_accounting = u->manager->default_ip_accounting;
 
                 if (u->type != UNIT_SLICE)
                         cc->tasks_max = u->manager->default_tasks_max;
@@ -573,8 +584,8 @@ void unit_free(Unit *u) {
         if (u->in_gc_queue)
                 LIST_REMOVE(gc_queue, u->manager->gc_unit_queue, u);
 
-        if (u->in_cgroup_queue)
-                LIST_REMOVE(cgroup_queue, u->manager->cgroup_queue, u);
+        if (u->in_cgroup_realize_queue)
+                LIST_REMOVE(cgroup_realize_queue, u->manager->cgroup_realize_queue, u);
 
         unit_release_cgroup(u);
 
@@ -605,6 +616,19 @@ void unit_free(Unit *u) {
 
         while (u->refs)
                 unit_ref_unset(u->refs);
+
+        safe_close(u->ip_accounting_ingress_map_fd);
+        safe_close(u->ip_accounting_egress_map_fd);
+
+        safe_close(u->ipv4_allow_map_fd);
+        safe_close(u->ipv6_allow_map_fd);
+        safe_close(u->ipv4_deny_map_fd);
+        safe_close(u->ipv6_deny_map_fd);
+
+        bpf_program_unref(u->ip_bpf_ingress);
+        bpf_program_unref(u->ip_bpf_ingress_installed);
+        bpf_program_unref(u->ip_bpf_egress);
+        bpf_program_unref(u->ip_bpf_egress_installed);
 
         free(u);
 }
@@ -2720,7 +2744,15 @@ static int unit_serialize_cgroup_mask(FILE *f, const char *key, CGroupMask mask)
         return r;
 }
 
+static const char *ip_accounting_metric_field[_CGROUP_IP_ACCOUNTING_METRIC_MAX] = {
+        [CGROUP_IP_INGRESS_BYTES] = "ip-accounting-ingress-bytes",
+        [CGROUP_IP_INGRESS_PACKETS] = "ip-accounting-ingress-packets",
+        [CGROUP_IP_EGRESS_BYTES] = "ip-accounting-egress-bytes",
+        [CGROUP_IP_EGRESS_PACKETS] = "ip-accounting-egress-packets",
+};
+
 int unit_serialize(Unit *u, FILE *f, FDSet *fds, bool serialize_jobs) {
+        CGroupIPAccountingMetric m;
         int r;
 
         assert(u);
@@ -2769,6 +2801,7 @@ int unit_serialize(Unit *u, FILE *f, FDSet *fds, bool serialize_jobs) {
         unit_serialize_item(u, f, "cgroup-realized", yes_no(u->cgroup_realized));
         (void) unit_serialize_cgroup_mask(f, "cgroup-realized-mask", u->cgroup_realized_mask);
         (void) unit_serialize_cgroup_mask(f, "cgroup-enabled-mask", u->cgroup_enabled_mask);
+        (void) unit_serialize_cgroup_mask(f, "cgroup-invalidated-mask", u->cgroup_invalidated_mask);
 
         if (uid_is_valid(u->ref_uid))
                 unit_serialize_item_format(u, f, "ref-uid", UID_FMT, u->ref_uid);
@@ -2779,6 +2812,14 @@ int unit_serialize(Unit *u, FILE *f, FDSet *fds, bool serialize_jobs) {
                 unit_serialize_item_format(u, f, "invocation-id", SD_ID128_FORMAT_STR, SD_ID128_FORMAT_VAL(u->invocation_id));
 
         bus_track_serialize(u->bus_track, f, "ref");
+
+        for (m = 0; m < _CGROUP_IP_ACCOUNTING_METRIC_MAX; m++) {
+                uint64_t v;
+
+                r = unit_get_ip_accounting(u, m, &v);
+                if (r >= 0)
+                        unit_serialize_item_format(u, f, ip_accounting_metric_field[m], "%" PRIu64, v);
+        }
 
         if (serialize_jobs) {
                 if (u->job) {
@@ -2886,6 +2927,7 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
 
         for (;;) {
                 _cleanup_free_ char *line = NULL;
+                CGroupIPAccountingMetric m;
                 char *l, *v;
                 size_t k;
 
@@ -3038,6 +3080,13 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
                                 log_unit_debug(u, "Failed to parse cgroup-enabled-mask %s, ignoring.", v);
                         continue;
 
+                } else if (streq(l, "cgroup-invalidated-mask")) {
+
+                        r = cg_mask_from_string(v, &u->cgroup_invalidated_mask);
+                        if (r < 0)
+                                log_unit_debug(u, "Failed to parse cgroup-invalidated-mask %s, ignoring.", v);
+                        continue;
+
                 } else if (streq(l, "ref-uid")) {
                         uid_t uid;
 
@@ -3082,6 +3131,21 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
                         continue;
                 }
 
+                /* Check if this is an IP accounting metric serialization field */
+                for (m = 0; m < _CGROUP_IP_ACCOUNTING_METRIC_MAX; m++)
+                        if (streq(l, ip_accounting_metric_field[m]))
+                                break;
+                if (m < _CGROUP_IP_ACCOUNTING_METRIC_MAX) {
+                        uint64_t c;
+
+                        r = safe_atou64(v, &c);
+                        if (r < 0)
+                                log_unit_debug(u, "Failed to parse IP accounting value %s, ignoring.", v);
+                        else
+                                u->ip_accounting_extra[m] = c;
+                        continue;
+                }
+
                 if (unit_can_serialize(u)) {
                         if (rt) {
                                 r = exec_runtime_deserialize_item(u, rt, l, v, fds);
@@ -3107,6 +3171,11 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
 
         if (!dual_timestamp_is_set(&u->state_change_timestamp))
                 dual_timestamp_get(&u->state_change_timestamp);
+
+        /* Let's make sure that everything that is deserialized also gets any potential new cgroup settings applied
+         * after we are done. For that we invalidate anything already realized, so that we can realize it again. */
+        unit_invalidate_cgroup(u, _CGROUP_MASK_ALL);
+        unit_invalidate_cgroup_bpf(u);
 
         return 0;
 }
@@ -4406,4 +4475,44 @@ int unit_acquire_invocation_id(Unit *u) {
                 return log_unit_error_errno(u, r, "Failed to set invocation ID for unit: %m");
 
         return 0;
+}
+
+int unit_fork_helper_process(Unit *u, pid_t *ret) {
+        pid_t pid;
+        int r;
+
+        assert(u);
+        assert(ret);
+
+        /* Forks off a helper process and makes sure it is a member of the unit's cgroup. Returns == 0 in the child,
+         * and > 0 in the parent. The pid parameter is always filled in with the child's PID. */
+
+        (void) unit_realize_cgroup(u);
+
+        pid = fork();
+        if (pid < 0)
+                return -errno;
+
+        if (pid == 0) {
+
+                (void) default_signals(SIGNALS_CRASH_HANDLER, SIGNALS_IGNORE, -1);
+                (void) ignore_signals(SIGPIPE, -1);
+
+                log_close();
+                log_open();
+
+                if (u->cgroup_path) {
+                        r = cg_attach_everywhere(u->manager->cgroup_supported, u->cgroup_path, 0, NULL, NULL);
+                        if (r < 0) {
+                                log_unit_error_errno(u, r, "Failed to join unit cgroup %s: %m", u->cgroup_path);
+                                _exit(EXIT_CGROUP);
+                        }
+                }
+
+                *ret = getpid();
+                return 0;
+        }
+
+        *ret = pid;
+        return 1;
 }

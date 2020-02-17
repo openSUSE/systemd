@@ -983,7 +983,9 @@ libbasic_la_SOURCES = \
 	src/basic/khash.h \
 	src/basic/khash.c \
 	src/basic/journal-importer.h \
-	src/basic/journal-importer.c
+	src/basic/journal-importer.c \
+	src/basic/bpf-program.h \
+	src/basic/bpf-program.c
 
 nodist_libbasic_la_SOURCES = \
 	src/basic/errno-from-name.h \
@@ -1333,7 +1335,11 @@ libcore_la_SOURCES = \
 	src/core/show-status.c \
 	src/core/show-status.h \
 	src/core/emergency-action.c \
-	src/core/emergency-action.h
+	src/core/emergency-action.h \
+	src/core/ip-address-access.c \
+	src/core/ip-address-access.h \
+	src/core/bpf-firewall.c \
+	src/core/bpf-firewall.h
 
 nodist_libcore_la_SOURCES = \
 	src/core/load-fragment-gperf.c \
@@ -1595,6 +1601,7 @@ tests += \
 	test-time \
 	test-clock \
 	test-hashmap \
+	test-bpf \
 	test-set \
 	test-bitmap \
 	test-list \
@@ -1787,7 +1794,8 @@ test_device_nodes_LDADD = \
 	libsystemd-shared.la
 
 test_engine_SOURCES = \
-	src/test/test-engine.c
+	src/test/test-engine.c \
+	src/test/test-helper.c
 
 test_engine_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -1850,7 +1858,8 @@ test_boot_timestamps_LDADD = \
 endif
 
 test_unit_name_SOURCES = \
-	src/test/test-unit-name.c
+	src/test/test-unit-name.c \
+	src/test/test-helper.c
 
 test_unit_name_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -1861,7 +1870,8 @@ test_unit_name_LDADD = \
 	libcore.la
 
 test_unit_file_SOURCES = \
-	src/test/test-unit-file.c
+	src/test/test-unit-file.c \
+	src/test/test-helper.c
 
 test_unit_file_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -2208,6 +2218,14 @@ test_hashmap_SOURCES = \
 	src/test/test-hashmap.c \
 	src/test/test-hashmap-plain.c
 
+test_bpf_SOURCES = \
+	src/test/test-bpf.c \
+	src/test/test-helper.c
+
+test_bpf_LDADD = \
+	libcore.la \
+	libsystemd-shared.la
+
 test_hashmap_LDADD = \
 	libsystemd-shared.la
 
@@ -2382,7 +2400,8 @@ test_cgroup_LDADD = \
 	libsystemd-shared.la
 
 test_cgroup_mask_SOURCES = \
-	src/test/test-cgroup-mask.c
+	src/test/test-cgroup-mask.c \
+	src/test/test-helper.c
 
 test_cgroup_mask_CPPFLAGS = \
 	$(AM_CPPFLAGS) \
@@ -2426,7 +2445,8 @@ test_path_util_LDADD = \
 	libsystemd-shared.la
 
 test_path_SOURCES = \
-	src/test/test-path.c
+	src/test/test-path.c \
+	src/test/test-helper.c
 
 test_path_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -2436,7 +2456,8 @@ test_path_LDADD = \
 	libcore.la
 
 test_execute_SOURCES = \
-	src/test/test-execute.c
+	src/test/test-execute.c \
+	src/test/test-helper.c
 
 test_execute_CFLAGS = \
 	$(AM_CFLAGS) \
@@ -2471,7 +2492,8 @@ test_watchdog_LDADD = \
 	libsystemd-shared.la
 
 test_sched_prio_SOURCES = \
-	src/test/test-sched-prio.c
+	src/test/test-sched-prio.c \
+	src/test/test-helper.c
 
 test_sched_prio_CPPFLAGS = \
 	$(AM_CPPFLAGS) \

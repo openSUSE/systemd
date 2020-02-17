@@ -28,11 +28,13 @@ typedef struct UnitVTable UnitVTable;
 typedef struct UnitRef UnitRef;
 typedef struct UnitStatusMessageFormats UnitStatusMessageFormats;
 
+#include "bpf-program.h"
 #include "condition.h"
 #include "emergency-action.h"
 #include "install.h"
 #include "list.h"
 #include "unit-name.h"
+#include "cgroup.h"
 
 typedef enum KillOperation {
         KILL_TERMINATE,
@@ -159,7 +161,7 @@ struct Unit {
         LIST_FIELDS(Unit, gc_queue);
 
         /* CGroup realize members queue */
-        LIST_FIELDS(Unit, cgroup_queue);
+        LIST_FIELDS(Unit, cgroup_realize_queue);
 
         /* Units with the same CGroup netclass */
         LIST_FIELDS(Unit, cgroup_netclass);
@@ -202,9 +204,24 @@ struct Unit {
         char *cgroup_path;
         CGroupMask cgroup_realized_mask;
         CGroupMask cgroup_enabled_mask;
+        CGroupMask cgroup_invalidated_mask;
         CGroupMask cgroup_subtree_mask;
         CGroupMask cgroup_members_mask;
         int cgroup_inotify_wd;
+
+        /* IP BPF Firewalling/accounting */
+        int ip_accounting_ingress_map_fd;
+        int ip_accounting_egress_map_fd;
+
+        int ipv4_allow_map_fd;
+        int ipv6_allow_map_fd;
+        int ipv4_deny_map_fd;
+        int ipv6_deny_map_fd;
+
+        BPFProgram *ip_bpf_ingress, *ip_bpf_ingress_installed;
+        BPFProgram *ip_bpf_egress, *ip_bpf_egress_installed;
+
+        uint64_t ip_accounting_extra[_CGROUP_IP_ACCOUNTING_METRIC_MAX];
 
         /* How to start OnFailure units */
         JobMode on_failure_job_mode;
@@ -245,7 +262,7 @@ struct Unit {
         bool in_dbus_queue:1;
         bool in_cleanup_queue:1;
         bool in_gc_queue:1;
-        bool in_cgroup_queue:1;
+        bool in_cgroup_realize_queue:1;
 
         bool sent_dbus_new_signal:1;
 
@@ -663,6 +680,8 @@ int unit_set_invocation_id(Unit *u, sd_id128_t id);
 int unit_acquire_invocation_id(Unit *u);
 
 bool unit_shall_confirm_spawn(Unit *u);
+
+int unit_fork_helper_process(Unit *u, pid_t *ret);
 
 /* Macros which append UNIT= or USER_UNIT= to the message */
 
