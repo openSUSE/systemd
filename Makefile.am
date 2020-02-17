@@ -617,6 +617,9 @@ nodist_userunit_DATA = \
 dist_systempreset_DATA = \
 	system-preset/90-systemd.preset
 
+userslicedropindir=$(systemunitdir)/user-.slice.d
+dist_userslicedropin_DATA=units/user-.slice.d/10-defaults.conf
+
 EXTRA_DIST += \
 	units/getty@.service.m4 \
 	units/serial-getty@.service.m4 \
@@ -6069,14 +6072,12 @@ systemd_logind_SOURCES = \
 	src/login/logind.c \
 	src/login/logind.h
 
-nodist_systemd_logind_SOURCES = \
-	src/login/logind-gperf.c
-
 systemd_logind_LDADD = \
 	liblogind-core.la
 
 liblogind_core_la_SOURCES = \
 	src/login/logind-core.c \
+	src/login/logind-gperf.c \
 	src/login/logind-device.c \
 	src/login/logind-device.h \
 	src/login/logind-button.c \
@@ -6254,6 +6255,15 @@ EXTRA_DIST += \
 	src/login/73-seat-late.rules.in \
 	units/systemd-logind.service.in \
 	src/login/logind.conf.in
+
+systemgenerator_PROGRAMS += \
+	logind-compat-tasks-max-generator
+
+logind_compat_tasks_max_generator_SOURCES = \
+	src/login/compat-tasks-max-generator.c
+
+logind_compat_tasks_max_generator_LDADD = \
+	liblogind-core.la
 
 # ------------------------------------------------------------------------------
 if HAVE_PAM

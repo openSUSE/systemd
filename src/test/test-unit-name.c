@@ -462,10 +462,34 @@ static void test_unit_name_path_unescape(void) {
         test_unit_name_path_unescape_one("", NULL, -EINVAL);
 }
 
-int main(int argc, char* argv[]) {
-        int rc = 0;
+static void test_unit_name_to_prefix_one(const char *input, int ret, const char *output) {
+        _cleanup_free_ char *k = NULL;
 
-        enter_cgroup_subroot();
+        assert_se(unit_name_to_prefix(input, &k) == ret);
+        assert_se(streq_ptr(k, output));
+}
+
+static void test_unit_name_to_prefix(void) {
+        test_unit_name_to_prefix_one("foobar.service", 0, "foobar");
+        test_unit_name_to_prefix_one("", -EINVAL, NULL);
+        test_unit_name_to_prefix_one("foobar", -EINVAL, NULL);
+        test_unit_name_to_prefix_one(".service", -EINVAL, NULL);
+        test_unit_name_to_prefix_one("quux.quux", -EINVAL, NULL);
+        test_unit_name_to_prefix_one("quux.mount", 0, "quux");
+        test_unit_name_to_prefix_one("quux-quux.mount", 0, "quux-quux");
+        test_unit_name_to_prefix_one("quux@bar.mount", 0, "quux");
+        test_unit_name_to_prefix_one("quux-@.mount", 0, "quux-");
+        test_unit_name_to_prefix_one("@.mount", -EINVAL, NULL);
+}
+
+int main(int argc, char* argv[]) {
+        int r, rc = 0;
+
+        r = enter_cgroup_subroot();
+        if (r == -ENOMEDIUM) {
+                log_notice_errno(r, "Skipping test: cgroupfs not available");
+                return EXIT_TEST_SKIP;
+        }
 
         test_unit_name_is_valid();
         test_unit_name_replace_instance();
@@ -485,6 +509,7 @@ int main(int argc, char* argv[]) {
         test_unit_name_escape();
         test_unit_name_template();
         test_unit_name_path_unescape();
+        test_unit_name_to_prefix();
 
         return rc;
 }

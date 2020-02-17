@@ -132,10 +132,13 @@ struct Manager {
         sd_event_source *lid_switch_ignore_event_source;
 
         size_t runtime_dir_size;
-        uint64_t user_tasks_max;
+        char *user_tasks_max;
         uint64_t sessions_max;
         uint64_t inhibitors_max;
 };
+
+void manager_reset_config(Manager *m);
+int manager_parse_config_file(Manager *m);
 
 int manager_add_device(Manager *m, const char *sysfs, bool master, Device **_device);
 int manager_add_button(Manager *m, const char *name, Button **_button);
@@ -187,7 +190,6 @@ const struct ConfigPerfItem* logind_gperf_lookup(const char *key, GPERF_LEN_TYPE
 int manager_set_lid_switch_ignore(Manager *m, usec_t until);
 
 int config_parse_tmpfs_size(const char *unit, const char *filename, unsigned line, const char *section, unsigned section_line, const char *lvalue, int ltype, const char *rvalue, void *data, void *userdata);
-int config_parse_user_tasks_max(const char *unit, const char *filename, unsigned line, const char *section, unsigned section_line, const char *lvalue, int ltype, const char *rvalue, void *data, void *userdata);
 
 int manager_get_session_from_creds(Manager *m, sd_bus_message *message, const char *name, sd_bus_error *error, Session **ret);
 int manager_get_user_from_creds(Manager *m, sd_bus_message *message, uid_t uid, sd_bus_error *error, User **ret);
