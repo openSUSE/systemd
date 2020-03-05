@@ -3907,7 +3907,6 @@ dist_udevrules_DATA += \
 	rules/60-persistent-storage.rules \
 	rules/60-sensor.rules \
 	rules/60-serial.rules \
-	rules/60-ssd-scheduler.rules \
 	rules/70-joystick.rules \
 	rules/70-mouse.rules \
 	rules/70-touchpad.rules \
