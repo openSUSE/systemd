@@ -3915,3 +3915,26 @@ _public_ int sd_bus_get_exit_on_disconnect(sd_bus *bus) {
 
         return bus->exit_on_disconnect;
 }
+
+int sd_bus_enqueue_for_read(sd_bus *bus, sd_bus_message *m) {
+        int r;
+
+        assert_return(bus, -EINVAL);
+        assert_return(m, -EINVAL);
+        assert_return(m->sealed, -EINVAL);
+        assert_return(!bus_pid_changed(bus), -ECHILD);
+
+        if (!BUS_IS_OPEN(bus->state))
+                return -ENOTCONN;
+
+        /* Re-enqueue a message for reading. This is primarily useful for PolicyKit-style authentication,
+         * where we accept a message, then determine we need to interactively authenticate the user, and then
+         * we want to process the message again. */
+
+        r = bus_rqueue_make_room(bus);
+        if (r < 0)
+                return r;
+
+        bus->rqueue[bus->rqueue_size++] = sd_bus_message_ref(m);
+        return 0;
+}
