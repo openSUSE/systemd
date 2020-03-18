@@ -67,6 +67,37 @@ static int specifier_instance_unescaped(char specifier, void *data, void *userda
         return unit_name_unescape(strempty(u->instance), ret);
 }
 
+static int specifier_last_component(char specifier, void *data, void *userdata, char **ret) {
+        Unit *u = userdata;
+        _cleanup_free_ char *prefix = NULL;
+        char *dash;
+        int r;
+
+        assert(u);
+
+        r = unit_name_to_prefix(u->id, &prefix);
+        if (r < 0)
+                return r;
+
+        dash = strrchr(prefix, '-');
+        if (dash)
+                return specifier_string(specifier, dash + 1, userdata, ret);
+
+        *ret = TAKE_PTR(prefix);
+        return 0;
+}
+
+static int specifier_last_component_unescaped(char specifier, void *data, void *userdata, char **ret) {
+        _cleanup_free_ char *p = NULL;
+        int r;
+
+        r = specifier_last_component(specifier, data, userdata, &p);
+        if (r < 0)
+                return r;
+
+        return unit_name_unescape(p, ret);
+}
+
 static int specifier_filename(char specifier, void *data, void *userdata, char **ret) {
         Unit *u = userdata;
 
@@ -270,6 +301,8 @@ int unit_full_printf(Unit *u, const char *format, char **ret) {
                 { 'P', specifier_prefix_unescaped,    NULL },
                 { 'i', specifier_string,              u->instance },
                 { 'I', specifier_instance_unescaped,  NULL },
+                { 'j', specifier_last_component,           NULL },
+                { 'J', specifier_last_component_unescaped, NULL },
 
                 { 'f', specifier_filename,            NULL },
                 { 'c', specifier_cgroup,              NULL },
