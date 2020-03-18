@@ -45,6 +45,12 @@ static int run(int argc, char *argv[]) {
                 if (r < 0)
                         return log_error_errno(r, "Cannot resolve user name %s: %m", user);
 
+                /* As we're root, we can create /etc/resolv.conf symlink if it doesn't exist already */
+                r = symlink("../run/systemd/resolve/resolv.conf", "/etc/resolv.conf");
+                if (r < 0 && errno != EEXIST)
+                        log_warning_errno(errno,
+                                          "Could not create /etc/resolv.conf symlink: %m");
+
                 /* As we're root, we can create the directory where resolv.conf will live */
                 r = mkdir_safe_label("/run/systemd/resolve", 0755, uid, gid, MKDIR_WARN_MODE);
                 if (r < 0)
