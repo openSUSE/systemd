@@ -220,3 +220,5 @@ tests += [
          [],
          []],
         ]
+
+subdir('compat')
