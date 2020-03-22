@@ -1608,6 +1608,9 @@ static int list_unit_files(int argc, char *argv[], void *userdata) {
                 for (unit = units; unit < units + c; unit++)
                         free(unit->path);
 
+        if (c == 0)
+                return -ENOENT;
+
         return 0;
 }
 
