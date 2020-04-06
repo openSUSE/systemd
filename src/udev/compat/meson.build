@@ -4,7 +4,6 @@ foreach prog : ['path_id_compat.c']
                    prog,
                    include_directories : includes,
                    c_args : ['-DLOG_REALM=LOG_REALM_UDEV'],
-                   link_with : [libudev_internal],
                    link_with : [libudev_static],
                    install_rpath : udev_rpath,
                    install : true,
