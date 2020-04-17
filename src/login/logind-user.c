@@ -395,12 +395,11 @@ static int user_start_service(User *u) {
                         u->service,
                         &error,
                         &job);
-        if (r < 0) {
+        if (r < 0)
                 /* we don't fail due to this, let's try to continue */
                 log_error_errno(r, "Failed to start user service, ignoring: %s", bus_error_message(&error, r));
-        } else {
+        else
                 u->service_job = job;
-        }
 
         return 0;
 }
@@ -469,15 +468,10 @@ static int user_stop_slice(User *u) {
         assert(u);
 
         r = manager_stop_unit(u->manager, u->slice, &error, &job);
-        if (r < 0) {
-                log_error("Failed to stop user slice: %s", bus_error_message(&error, r));
-                return r;
-        }
+        if (r < 0)
+                return log_error_errno(r, "Failed to stop user slice: %s", bus_error_message(&error, r));
 
-        free(u->slice_job);
-        u->slice_job = job;
-
-        return r;
+        return free_and_replace(u->slice_job, job);
 }
 
 static int user_stop_service(User *u) {
@@ -488,15 +482,10 @@ static int user_stop_service(User *u) {
         assert(u);
 
         r = manager_stop_unit(u->manager, u->service, &error, &job);
-        if (r < 0) {
-                log_error("Failed to stop user service: %s", bus_error_message(&error, r));
-                return r;
-        }
+        if (r < 0)
+                return log_error_errno(r, "Failed to stop user service: %s", bus_error_message(&error, r));
 
-        free(u->service_job);
-        u->service_job = job;
-
-        return r;
+        return free_and_replace(u->service_job, job);
 }
 
 static int user_remove_runtime_path(User *u) {
