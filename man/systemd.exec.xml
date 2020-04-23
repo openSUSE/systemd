@@ -217,12 +217,15 @@
         is set, the default group of the user is used. This setting does not affect commands whose command line is
         prefixed with <literal>+</literal>.</para>
 
-        <para>Note that restrictions on the user/group name syntax are enforced: the specified name must consist only
-        of the characters a-z, A-Z, 0-9, <literal>_</literal> and <literal>-</literal>, except for the first character
-        which must be one of a-z, A-Z or <literal>_</literal> (i.e. numbers and <literal>-</literal> are not permitted
-        as first character). The user/group name must have at least one character, and at most 31. These restrictions
-        are enforced in order to avoid ambiguities and to ensure user/group names and unit files remain portable among
-        Linux systems.</para>
+        <para>Note that this enforces only weak restrictions on the user/group name syntax, but will generate
+        warnings in many cases where user/group names do not adhere to the following rules: the specified
+        name should consist only of the characters a-z, A-Z, 0-9, <literal>_</literal> and
+        <literal>-</literal>, except for the first character which must be one of a-z, A-Z and
+        <literal>_</literal> (i.e. digits and <literal>-</literal> are not permitted as first character). The
+        user/group name must have at least one character, and at most 31. These restrictions are made in
+        order to avoid ambiguities and to ensure user/group names and unit files remain portable among Linux
+        systems. For further details on the names accepted and the names warned about see <ulink
+        url="https://systemd.io/USER_NAMES">User/Group Name Syntax</ulink>.</para>
 
         <para>When used in conjunction with <varname>DynamicUser=</varname> the user/group name specified is
         dynamically allocated at the time the service is started, and released at the time the service is
@@ -652,8 +655,13 @@ CapabilityBoundingSet=~CAP_B CAP_C</programlisting>
         <term><varname>UMask=</varname></term>
 
         <listitem><para>Controls the file mode creation mask. Takes an access mode in octal notation. See
-        <citerefentry><refentrytitle>umask</refentrytitle><manvolnum>2</manvolnum></citerefentry> for details. Defaults
-        to 0022.</para></listitem>
+        <citerefentry><refentrytitle>umask</refentrytitle><manvolnum>2</manvolnum></citerefentry> for
+        details. Defaults to 0022 for system units. For units of the user service manager the default value
+        is inherited from the user instance (whose default is inherited from the system service manager, and
+        thus also is 0022). Hence changing the default value of a user instance, either via
+        <varname>UMask=</varname> or via a PAM module, will affect the user instance itself and all user
+        units started by the user instance unless a user unit has specified its own
+        <varname>UMask=</varname>.</para></listitem>
       </varlistentry>
 
       <varlistentry>
