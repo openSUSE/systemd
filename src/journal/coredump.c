@@ -298,7 +298,8 @@ static int save_external_coredump(
                 const char *info[_INFO_LEN],
                 uid_t uid,
                 char **ret_filename,
-                int *ret_fd,
+                int *ret_node_fd,
+                int *ret_data_fd,
                 uint64_t *ret_size) {
 
         _cleanup_free_ char *fn = NULL, *tmp = NULL;
@@ -309,7 +310,8 @@ static int save_external_coredump(
 
         assert(info);
         assert(ret_filename);
-        assert(ret_fd);
+        assert(ret_node_fd);
+        assert(ret_data_fd);
         assert(ret_size);
 
         r = safe_atou64(info[INFO_RLIMIT], &rlimit);
@@ -400,11 +402,12 @@ static int save_external_coredump(
                 unlink_noerrno(tmp);
 
                 *ret_filename = fn_compressed;     /* compressed */
-                *ret_fd = fd;                      /* uncompressed */
+                *ret_node_fd = fd_compressed;      /* compressed */
+                *ret_data_fd = fd;                 /* uncompressed */
                 *ret_size = (uint64_t) st.st_size; /* uncompressed */
 
                 fn_compressed = NULL;
-                fd = -1;
+                fd = fd_compressed = -1;
 
                 return 0;
 
@@ -414,12 +417,14 @@ static int save_external_coredump(
 
 uncompressed:
 #endif
+
         r = fix_permissions(fd, tmp, fn, info, uid);
         if (r < 0)
                 goto fail;
 
         *ret_filename = fn;
-        *ret_fd = fd;
+        *ret_data_fd = fd;
+        *ret_node_fd = -1;
         *ret_size = (uint64_t) st.st_size;
 
         fn = NULL;
@@ -568,7 +573,7 @@ int main(int argc, char* argv[]) {
         _cleanup_free_ char *exe = NULL, *comm = NULL, *filename = NULL;
         const char *info[_INFO_LEN];
 
-        _cleanup_close_ int coredump_fd = -1;
+        _cleanup_close_ int coredump_fd = -1, coredump_node_fd = -1;
 
         struct iovec iovec[26];
         uint64_t coredump_size;
@@ -648,7 +653,7 @@ int main(int argc, char* argv[]) {
                         if (arg_storage != COREDUMP_STORAGE_NONE)
                                 arg_storage = COREDUMP_STORAGE_EXTERNAL;
 
-                        r = save_external_coredump(info, uid, &filename, &coredump_fd, &coredump_size);
+                        r = save_external_coredump(info, uid, &filename, &coredump_node_fd, &coredump_fd, &coredump_size);
                         if (r < 0)
                                 goto finish;
 
@@ -810,7 +815,7 @@ int main(int argc, char* argv[]) {
         coredump_vacuum(-1, arg_keep_free, arg_max_use);
 
         /* Always stream the coredump to disk, if that's possible */
-        r = save_external_coredump(info, uid, &filename, &coredump_fd, &coredump_size);
+        r = save_external_coredump(info, uid, &filename, &coredump_node_fd, &coredump_fd, &coredump_size);
         if (r < 0)
                 /* skip whole core dumping part */
                 goto log;
@@ -830,7 +835,7 @@ int main(int argc, char* argv[]) {
         }
 
         /* Vacuum again, but exclude the coredump we just created */
-        coredump_vacuum(coredump_fd, arg_keep_free, arg_max_use);
+        coredump_vacuum(coredump_node_fd >= 0 ? coredump_node_fd : coredump_fd, arg_keep_free, arg_max_use);
 
         /* Now, let's drop privileges to become the user who owns the
          * segfaulted process and allocate the coredump memory under

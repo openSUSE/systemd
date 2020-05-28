@@ -139,8 +139,16 @@ static void unit_init(Unit *u) {
         }
 
         ec = unit_get_exec_context(u);
-        if (ec)
+        if (ec) {
                 exec_context_init(ec);
+
+                if (u->manager->running_as == MANAGER_USER) {
+                        /* User manager might have its umask redefined by PAM or UMask=. In this
+                         * case let the units it manages inherit this value by default. They can
+                         * still tune this value through their own unit file */
+                        (void) get_process_umask(getpid(), &ec->umask);
+                }
+        }
 
         kc = unit_get_kill_context(u);
         if (kc)
