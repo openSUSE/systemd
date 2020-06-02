@@ -439,8 +439,9 @@ static bool mount_is_extrinsic(Mount *m) {
 }
 
 static int mount_add_default_dependencies(Mount *m) {
+        const char *after, *before;
         MountParameters *p;
-        const char *after;
+        bool nofail;
         int r;
 
         assert(m);
@@ -457,6 +458,8 @@ static int mount_add_default_dependencies(Mount *m) {
         p = get_mount_parameters(m);
         if (!p)
                 return 0;
+
+        nofail = m->from_fragment ? fstab_test_yes_no_option(m->parameters_fragment.options, "nofail\0" "fail\0") : false;
 
         if (mount_is_network(p)) {
                 /* We order ourselves after network.target. This is
@@ -481,8 +484,17 @@ static int mount_add_default_dependencies(Mount *m) {
                         return r;
 
                 after = SPECIAL_REMOTE_FS_PRE_TARGET;
-        } else
+                before = SPECIAL_REMOTE_FS_TARGET;
+        } else {
                 after = SPECIAL_LOCAL_FS_PRE_TARGET;
+                before = SPECIAL_LOCAL_FS_TARGET;
+        }
+
+        if (!nofail) {
+                r = unit_add_dependency_by_name(UNIT(m), UNIT_BEFORE, before, NULL, true);
+                if (r < 0)
+                        return r;
+        }
 
         r = unit_add_dependency_by_name(UNIT(m), UNIT_AFTER, after, NULL, true);
         if (r < 0)
@@ -1431,21 +1443,8 @@ static int mount_setup_new_unit(
         if (!p->what || !p->options || !p->fstype)
                 return -ENOMEM;
 
-        if (!mount_is_extrinsic(MOUNT(u))) {
-                const char *target;
-                int r;
-
-                target = mount_is_network(p) ? SPECIAL_REMOTE_FS_TARGET : SPECIAL_LOCAL_FS_TARGET;
-                r = unit_add_dependency_by_name(u, UNIT_BEFORE, target, NULL, true);
-                if (r < 0)
-                        return r;
-
-                r = unit_add_dependency_by_name(u, UNIT_CONFLICTS, SPECIAL_UMOUNT_TARGET, NULL, true);
-                if (r < 0)
-                        return r;
-        }
-
         unit_add_to_load_queue(u);
+
         flags->is_mounted = true;
         flags->just_mounted = true;
         flags->just_changed = true;

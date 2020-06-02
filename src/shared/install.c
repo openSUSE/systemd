@@ -613,7 +613,7 @@ static int remove_marked_symlinks_fd(
                                 return -ENOMEM;
                         path_kill_slashes(p);
 
-                        q = readlink_malloc(p, &dest);
+                        q = chase_symlinks(p, NULL, CHASE_NONEXISTENT, &dest);
                         if (q == -ENOENT)
                                 continue;
                         if (q < 0) {
