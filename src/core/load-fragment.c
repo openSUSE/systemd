@@ -2850,7 +2850,7 @@ int config_parse_syscall_filter(
                 void *userdata) {
 
         ExecContext *c = data;
-        const Unit *u = userdata;
+        _unused_ const Unit *u = userdata;
         bool invert = false;
         const char *p;
         int r;
@@ -4729,7 +4729,7 @@ int unit_load_fragment(Unit *u) {
                                      &u->manager->unit_name_map,
                                      &u->manager->unit_path_cache);
         if (r < 0)
-                log_error_errno(r, "Failed to rebuild name map: %m");
+                return log_error_errno(r, "Failed to rebuild name map: %m");
 
         r = unit_file_find_fragment(u->manager->unit_id_map,
                                     u->manager->unit_name_map,
@@ -5090,7 +5090,7 @@ int config_parse_swap_priority(
 
         r = safe_atoi(rvalue, &priority);
         if (r < 0) {
-                log_syntax(unit, LOG_ERR, filename, line, r, "Invalid swap pririty '%s', ignoring.", rvalue);
+                log_syntax(unit, LOG_ERR, filename, line, r, "Invalid swap priority '%s', ignoring.", rvalue);
                 return 0;
         }
 

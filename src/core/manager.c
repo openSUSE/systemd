@@ -312,9 +312,9 @@ static int manager_check_ask_password(Manager *m) {
                                     m->ask_password_inotify_fd, EPOLLIN,
                                     manager_dispatch_ask_password_fd, m);
                 if (r < 0) {
-                        log_error_errno(errno, "Failed to add event source for /run/systemd/ask-password: %m");
+                        log_error_errno(r, "Failed to add event source for /run/systemd/ask-password: %m");
                         manager_close_ask_password(m);
-                        return -errno;
+                        return r;
                 }
 
                 (void) sd_event_source_set_description(m->ask_password_event_source, "manager-ask-password");
@@ -1971,7 +1971,6 @@ int manager_load_unit_prepare(
         int r;
 
         assert(m);
-        assert(name || path);
         assert(_ret);
 
         /* This will prepare the unit for loading, but not actually
@@ -1980,8 +1979,13 @@ int manager_load_unit_prepare(
         if (path && !is_path(path))
                 return sd_bus_error_setf(e, SD_BUS_ERROR_INVALID_ARGS, "Path %s is not absolute.", path);
 
-        if (!name)
+        if (!name) {
+                /* 'name' and 'path' must not both be null. Check here 'path' using assert_se() to
+                 * workaround a bug in gcc that generates a -Wnonnull warning when calling basename(),
+                 * but this cannot be possible in any code path (See #6119). */
+                assert_se(path);
                 name = basename(path);
+        }
 
         t = unit_name_to_type(name);
 
@@ -2363,20 +2367,20 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t 
                 return 0;
         }
 
-        n = recvmsg(m->notify_fd, &msghdr, MSG_DONTWAIT|MSG_CMSG_CLOEXEC|MSG_TRUNC);
-        if (n < 0) {
-                if (IN_SET(errno, EAGAIN, EINTR))
-                        return 0; /* Spurious wakeup, try again */
-
-                /* If this is any other, real error, then let's stop processing this socket. This of course means we
-                 * won't take notification messages anymore, but that's still better than busy looping around this:
-                 * being woken up over and over again but being unable to actually read the message off the socket. */
-                return log_error_errno(errno, "Failed to receive notification message: %m");
-        }
+        n = recvmsg_safe(m->notify_fd, &msghdr, MSG_DONTWAIT|MSG_CMSG_CLOEXEC|MSG_TRUNC);
+        if (IN_SET(n, -EAGAIN, -EINTR))
+                return 0; /* Spurious wakeup, try again */
+        if (n < 0)
+                /* If this is any other, real error, then let's stop processing this socket. This of course
+                 * means we won't take notification messages anymore, but that's still better than busy
+                 * looping around this: being woken up over and over again but being unable to actually read
+                 * the message off the socket. */
+                return log_error_errno(n, "Failed to receive notification message: %m");
 
         CMSG_FOREACH(cmsg, &msghdr) {
                 if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
 
+                        assert(!fd_array);
                         fd_array = (int*) CMSG_DATA(cmsg);
                         n_fds = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
 
@@ -2384,6 +2388,7 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t 
                            cmsg->cmsg_type == SCM_CREDENTIALS &&
                            cmsg->cmsg_len == CMSG_LEN(sizeof(struct ucred))) {
 
+                        assert(!ucred);
                         ucred = (struct ucred*) CMSG_DATA(cmsg);
                 }
         }
