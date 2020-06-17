@@ -232,7 +232,7 @@ static int path_is_runtime(const LookupPaths *p, const char *path, bool check_pa
                path_equal_ptr(path, p->runtime_control);
 }
 
-static int path_is_vendor(const LookupPaths *p, const char *path) {
+static int path_is_vendor_or_generator(const LookupPaths *p, const char *path) {
         const char *rpath;
 
         assert(p);
@@ -249,6 +249,9 @@ static int path_is_vendor(const LookupPaths *p, const char *path) {
         if (path_startswith(rpath, "/lib"))
                 return true;
 #endif
+
+        if (path_is_generator(p, rpath))
+                return true;
 
         return path_equal(rpath, SYSTEM_DATA_UNIT_PATH);
 }
@@ -1018,10 +1021,14 @@ static int install_info_add(
         int r;
 
         assert(c);
-        assert(name || path);
 
-        if (!name)
+        if (!name) {
+                /* 'name' and 'path' must not both be null. Check here 'path' using assert_se() to
+                 * workaround a bug in gcc that generates a -Wnonnull warning when calling basename(),
+                 * but this cannot be possible in any code path (See #6119). */
+                assert_se(path);
                 name = basename(path);
+        }
 
         if (!unit_name_is_valid(name, UNIT_NAME_ANY))
                 return -EINVAL;
@@ -1231,7 +1238,7 @@ static int unit_file_load(
                         return -EINVAL;
                 if (unit_name_is_valid(info->name, UNIT_NAME_TEMPLATE|UNIT_NAME_INSTANCE) && !unit_type_may_template(type))
                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                               "Unit type %s cannot be templated.", unit_type_to_string(type));
+                                               "%s: unit type %s cannot be templated, ignoring.", path, unit_type_to_string(type));
 
                 if (!(flags & SEARCH_LOAD)) {
                         r = lstat(path, &st);
@@ -2376,7 +2383,7 @@ int unit_file_revert(
                                         return -errno;
                         } else if (S_ISREG(st.st_mode)) {
                                 /* Check if there's a vendor version */
-                                r = path_is_vendor(&paths, path);
+                                r = path_is_vendor_or_generator(&paths, path);
                                 if (r < 0)
                                         return r;
                                 if (r > 0)

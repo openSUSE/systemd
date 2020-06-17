@@ -16,6 +16,7 @@
 
 #include "alloc-util.h"
 #include "async.h"
+#include "binfmt-util.h"
 #include "cgroup-setup.h"
 #include "cgroup-util.h"
 #include "def.h"
@@ -373,6 +374,7 @@ int main(int argc, char *argv[]) {
                 sync_with_progress();
 
         disable_coredumps();
+        disable_binfmt();
 
         log_info("Sending SIGTERM to remaining processes...");
         broadcast_signal(SIGTERM, true, true, arg_timeout);
@@ -510,7 +512,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (need_umount || need_swapoff || need_loop_detach || need_dm_detach)
-                log_error("Failed to finalize %s%s%s%s ignoring",
+                log_error("Failed to finalize%s%s%s%s ignoring.",
                           need_umount ? " file systems," : "",
                           need_swapoff ? " swap devices," : "",
                           need_loop_detach ? " loop devices," : "",

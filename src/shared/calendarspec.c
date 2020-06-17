@@ -87,6 +87,16 @@ static void normalize_chain(CalendarComponent **c) {
                 if (i->stop > i->start && i->repeat > 0)
                         i->stop -= (i->stop - i->start) % i->repeat;
 
+                /* If a repeat value is specified, but it cannot even be triggered once, let's suppress
+                 * it.
+                 *
+                 * Similar, if the stop value is the same as the start value, then let's just make this a
+                 * non-repeating chain element */
+                if ((i->stop > i->start && i->repeat > 0 && i->start + i->repeat > i->stop) ||
+                    i->start == i->stop) {
+                        i->repeat = 0;
+                        i->stop = -1;
+                }
         }
 
         if (n <= 1)
@@ -365,13 +375,12 @@ int calendar_spec_to_string(const CalendarSpec *c, char **p) {
         }
 
         r = fflush_and_check(f);
+        fclose(f);
+
         if (r < 0) {
                 free(buf);
-                fclose(f);
                 return r;
         }
-
-        fclose(f);
 
         *p = buf;
         return 0;
@@ -642,6 +651,16 @@ static int prepend_component(const char **p, bool usec, unsigned nesting, Calend
 
                 if (repeat == 0)
                         return -ERANGE;
+        } else {
+                /* If no repeat value is specified for the µs component, then let's explicitly refuse ranges
+                 * below 1s because our default repeat granularity is beyond that. */
+
+                /* Overflow check */
+                if (start > INT_MAX - repeat)
+                        return -ERANGE;
+
+                if (usec && stop >= 0 && start + repeat > stop)
+                        return -EINVAL;
         }
 
         if (!IN_SET(*e, 0, ' ', ',', '-', '~', ':'))

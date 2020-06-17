@@ -209,7 +209,7 @@ int ethtool_get_link_info(int *ethtool_fd, const char *ifname,
 
                 speed = ethtool_cmd_speed(&ecmd);
                 *ret_speed = speed == (uint32_t) SPEED_UNKNOWN ?
-                        SIZE_MAX : (size_t) speed * 1000 * 1000;
+                        UINT64_MAX : (uint64_t) speed * 1000 * 1000;
         }
 
         if (ret_duplex)
@@ -256,8 +256,13 @@ int ethtool_get_permanent_macaddr(int *ethtool_fd, const char *ifname, struct et
         if (epaddr.addr.size != 6)
                 return -EOPNOTSUPP;
 
+#pragma GCC diagnostic push
+#if HAVE_ZERO_LENGTH_BOUNDS
+#  pragma GCC diagnostic ignored "-Wzero-length-bounds"
+#endif
         for (size_t i = 0; i < epaddr.addr.size; i++)
                 ret->ether_addr_octet[i] = epaddr.addr.data[i];
+#pragma GCC diagnostic pop
 
         return 0;
 }
@@ -431,18 +436,14 @@ int ethtool_set_nic_buffer_size(int *ethtool_fd, const char *ifname, netdev_ring
         if (r < 0)
                 return -errno;
 
-        if (ring->rx_pending_set) {
-                if (ecmd.rx_pending != ring->rx_pending) {
-                        ecmd.rx_pending = ring->rx_pending;
-                        need_update = true;
-                }
+        if (ring->rx_pending_set && ecmd.rx_pending != ring->rx_pending) {
+                ecmd.rx_pending = ring->rx_pending;
+                need_update = true;
         }
 
-        if (ring->tx_pending_set) {
-                   if (ecmd.tx_pending != ring->tx_pending) {
-                           ecmd.tx_pending = ring->tx_pending;
-                           need_update = true;
-                }
+        if (ring->tx_pending_set && ecmd.tx_pending != ring->tx_pending) {
+                ecmd.tx_pending = ring->tx_pending;
+                need_update = true;
         }
 
         if (need_update) {
@@ -479,7 +480,12 @@ static int get_stringset(int ethtool_fd, struct ifreq *ifr, int stringset_id, st
         if (!buffer.info.sset_mask)
                 return -EINVAL;
 
+#pragma GCC diagnostic push
+#if HAVE_ZERO_LENGTH_BOUNDS
+#  pragma GCC diagnostic ignored "-Wzero-length-bounds"
+#endif
         len = buffer.info.data[0];
+#pragma GCC diagnostic pop
 
         strings = malloc0(sizeof(struct ethtool_gstrings) + len * ETH_GSTRING_LEN);
         if (!strings)

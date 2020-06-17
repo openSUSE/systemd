@@ -3484,6 +3484,16 @@ static int outer_child(
         if (r < 0)
                 return r;
 
+        r = mount_custom(
+                        directory,
+                        arg_custom_mounts,
+                        arg_n_custom_mounts,
+                        arg_uid_shift,
+                        arg_selinux_apifs_context,
+                        MOUNT_NON_ROOT_ONLY);
+        if (r < 0)
+                return r;
+
         r = setup_timezone(directory);
         if (r < 0)
                 return r;
@@ -3497,16 +3507,6 @@ static int outer_child(
                 return r;
 
         r = setup_journal(directory);
-        if (r < 0)
-                return r;
-
-        r = mount_custom(
-                        directory,
-                        arg_custom_mounts,
-                        arg_n_custom_mounts,
-                        arg_uid_shift,
-                        arg_selinux_apifs_context,
-                        MOUNT_NON_ROOT_ONLY);
         if (r < 0)
                 return r;
 
@@ -3711,13 +3711,12 @@ static int nspawn_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t r
                 return 0;
         }
 
-        n = recvmsg(fd, &msghdr, MSG_DONTWAIT|MSG_CMSG_CLOEXEC);
-        if (n < 0) {
-                if (IN_SET(errno, EAGAIN, EINTR))
-                        return 0;
+        n = recvmsg_safe(fd, &msghdr, MSG_DONTWAIT|MSG_CMSG_CLOEXEC);
+        if (IN_SET(n, -EAGAIN, -EINTR))
+                return 0;
+        if (n < 0)
+                return log_warning_errno(n, "Couldn't read notification socket: %m");
 
-                return log_warning_errno(errno, "Couldn't read notification socket: %m");
-        }
         cmsg_close_all(&msghdr);
 
         CMSG_FOREACH(cmsg, &msghdr) {

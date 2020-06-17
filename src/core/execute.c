@@ -1647,8 +1647,6 @@ static int apply_lock_personality(const Unit* u, const ExecContext *c) {
 #endif
 
 static int apply_protect_hostname(const Unit *u, const ExecContext *c, int *ret_exit_status) {
-        int r;
-
         assert(u);
         assert(c);
 
@@ -1668,6 +1666,8 @@ static int apply_protect_hostname(const Unit *u, const ExecContext *c, int *ret_
                 log_unit_warning(u, "ProtectHostname=yes is configured, but the kernel does not support UTS namespaces, ignoring namespace setup.");
 
 #if HAVE_SECCOMP
+        int r;
+
         if (skip_seccomp_unavailable(u, "ProtectHostname="))
                 return 0;
 
@@ -1820,12 +1820,13 @@ static int build_environment(
 
                 tty_path = exec_context_tty_path(c);
 
-                /* If we are forked off PID 1 and we are supposed to operate on /dev/console, then let's try to inherit
-                 * the $TERM set for PID 1. This is useful for containers so that the $TERM the container manager
-                 * passes to PID 1 ends up all the way in the console login shown. */
+                /* If we are forked off PID 1 and we are supposed to operate on /dev/console, then let's try
+                 * to inherit the $TERM set for PID 1. This is useful for containers so that the $TERM the
+                 * container manager passes to PID 1 ends up all the way in the console login shown. */
 
-                if (path_equal(tty_path, "/dev/console") && getppid() == 1)
+                if (path_equal_ptr(tty_path, "/dev/console") && getppid() == 1)
                         term = getenv("TERM");
+
                 if (!term)
                         term = default_term_for_tty(tty_path);
 

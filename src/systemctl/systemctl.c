@@ -410,7 +410,7 @@ static int output_units_list(const UnitInfo *unit_infos, unsigned c) {
         if (arg_full)
                 table_set_width(table, 0);
 
-        for (u = unit_infos; u < unit_infos + c; u++) {
+        for (u = unit_infos; unit_infos && u < unit_infos + c; u++) {
                 _cleanup_free_ char *j = NULL;
                 const char *on_underline = "", *on_loaded = "", *on_active = "";
                 const char *on_circle = "", *id;
@@ -1478,7 +1478,7 @@ static int output_unit_file_list(const UnitFileList *units, unsigned c) {
 
                 id = basename(u->path);
 
-                r = unit_file_query_preset(arg_scope, NULL, id);
+                r = unit_file_query_preset(arg_scope, arg_root, id);
                 if (r < 0) {
                         unit_preset_str = "n/a";
                         on_preset_color = underline ? on_underline : ansi_normal();
@@ -5799,7 +5799,8 @@ static int show(int argc, char *argv[], void *userdata) {
 
         if (show_mode == SYSTEMCTL_SHOW_HELP && argc <= 1)
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                       "This command expects one or more unit names. Did you mean --help?");
+                                       "'help' command expects one or more unit names.\n"
+                                       "(Alternatively, help for systemctl itself may be shown with --help)");
 
         r = acquire_bus(BUS_MANAGER, &bus);
         if (r < 0)

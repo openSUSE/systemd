@@ -529,7 +529,7 @@ static int write_temporary_shadow(const char *shadow_path, FILE **tmpfile, char 
         ORDERED_HASHMAP_FOREACH(i, todo_uids, iterator) {
                 struct spwd n = {
                         .sp_namp = i->name,
-                        .sp_pwdp = (char*) "!!", /* lock this password, and make it invalid */
+                        .sp_pwdp = (char*) "!*", /* lock this password, and make it invalid */
                         .sp_lstchg = lstchg,
                         .sp_min = -1,
                         .sp_max = -1,
@@ -1443,7 +1443,7 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
         if (name) {
                 r = specifier_printf(name, specifier_table, NULL, &resolved_name);
                 if (r < 0)
-                        log_error_errno(r, "[%s:%u] Failed to replace specifiers: %s", fname, line, name);
+                        return log_error_errno(r, "[%s:%u] Failed to replace specifiers in '%s': %m", fname, line, name);
 
                 if (!valid_user_group_name(resolved_name, 0))
                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
@@ -1458,7 +1458,7 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
         if (id) {
                 r = specifier_printf(id, specifier_table, NULL, &resolved_id);
                 if (r < 0)
-                        return log_error_errno(r, "[%s:%u] Failed to replace specifiers: %s",
+                        return log_error_errno(r, "[%s:%u] Failed to replace specifiers in '%s': %m",
                                                fname, line, name);
         }
 
@@ -1469,7 +1469,7 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
         if (description) {
                 r = specifier_printf(description, specifier_table, NULL, &resolved_description);
                 if (r < 0)
-                        return log_error_errno(r, "[%s:%u] Failed to replace specifiers: %s",
+                        return log_error_errno(r, "[%s:%u] Failed to replace specifiers in '%s': %m",
                                                fname, line, description);
 
                 if (!valid_gecos(resolved_description))
@@ -1485,7 +1485,7 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
         if (home) {
                 r = specifier_printf(home, specifier_table, NULL, &resolved_home);
                 if (r < 0)
-                        return log_error_errno(r, "[%s:%u] Failed to replace specifiers: %s",
+                        return log_error_errno(r, "[%s:%u] Failed to replace specifiers in '%s': %m",
                                                fname, line, home);
 
                 if (!valid_home(resolved_home))
@@ -1501,7 +1501,7 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
         if (shell) {
                 r = specifier_printf(shell, specifier_table, NULL, &resolved_shell);
                 if (r < 0)
-                        return log_error_errno(r, "[%s:%u] Failed to replace specifiers: %s",
+                        return log_error_errno(r, "[%s:%u] Failed to replace specifiers in '%s': %m",
                                                fname, line, shell);
 
                 if (!valid_shell(resolved_shell))

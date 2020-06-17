@@ -714,7 +714,7 @@ static int context_grow_partitions_on_free_area(Context *context, FreeArea *a) {
                         assert(p->new_size != UINT64_MAX);
                         m = p->new_size + span;
 
-                        xsz = partition_max_size(a->after);
+                        xsz = partition_max_size(p);
                         if (xsz != UINT64_MAX && m > xsz)
                                 m = xsz;
 
@@ -1722,7 +1722,7 @@ static int context_dump_partition_bar(Context *context, const char *node) {
         bool z = false;
         size_t c, j = 0;
 
-        assert((c = columns()) >= 2);
+        assert_se((c = columns()) >= 2);
         c -= 2; /* We do not use the leftmost and rightmost character cell */
 
         bar = new0(Partition*, c);
@@ -2210,7 +2210,6 @@ static int context_acquire_partition_uuids_and_labels(Context *context) {
 
         LIST_FOREACH(partitions, p, context->partitions) {
                 assert(sd_id128_is_null(p->new_uuid));
-                assert(!p->new_label);
 
                 /* Never touch foreign partitions */
                 if (PARTITION_IS_FOREIGN(p)) {
@@ -2232,6 +2231,9 @@ static int context_acquire_partition_uuids_and_labels(Context *context) {
                         if (r < 0)
                                 return r;
                 }
+
+                if (p->new_label) /* Explicitly set by user? */
+                        continue;
 
                 if (!isempty(p->current_label)) {
                         p->new_label = strdup(p->current_label); /* never change initialized labels */
@@ -2256,7 +2258,7 @@ static int device_kernel_partitions_supported(int fd) {
         if (fstat(fd, &st) < 0)
                 return log_error_errno(fd, "Failed to fstat() image file: %m");
         if (!S_ISBLK(st.st_mode))
-                return false;
+                return -ENOTBLK; /* we do not log in this one special case about errors */
 
         if (ioctl(fd, LOOP_GET_STATUS64, &info) < 0) {
 
@@ -2461,9 +2463,11 @@ static int context_write_partition_table(
                 return log_error_errno(r, "Failed to write partition table: %m");
 
         capable = device_kernel_partitions_supported(fdisk_get_devfd(context->fdisk_context));
-        if (capable < 0)
+        if (capable == -ENOTBLK)
+                log_debug("Not telling kernel to reread partition table, since we are not operating on a block device.");
+        else if (capable < 0)
                 return capable;
-        if (capable > 0) {
+        else if (capable > 0) {
                 log_info("Telling kernel to reread partition table.");
 
                 if (from_scratch)
@@ -2946,8 +2950,10 @@ static int run(int argc, char *argv[]) {
         if (r < 0)
                 return r;
 
-        if (context->n_partitions <= 0 && arg_empty != EMPTY_FORCE)
+        if (context->n_partitions <= 0 && arg_empty != EMPTY_FORCE) {
+                log_info("Didn't find any partition definition files, nothing to do.");
                 return 0;
+        }
 
         r = find_root(&node);
         if (r < 0)
