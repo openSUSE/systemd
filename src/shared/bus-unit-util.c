@@ -154,8 +154,10 @@ int bus_append_unit_property_assignment(sd_bus_message *m, const char *assignmen
         } else if (STR_IN_SET(field, "MemoryLow", "MemoryHigh", "MemoryMax", "MemorySwapMax", "MemoryLimit")) {
                 uint64_t bytes;
 
-                if (isempty(eq) || streq(eq, "infinity"))
+                if (streq(eq, "infinity"))
                         bytes = CGROUP_LIMIT_MAX;
+                else if (isempty(eq))
+                        bytes = streq(field, "MemoryLow") ? CGROUP_LIMIT_MIN : CGROUP_LIMIT_MAX;
                 else {
                         r = parse_percent(eq);
                         if (r >= 0) {
