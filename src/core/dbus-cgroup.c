@@ -939,7 +939,7 @@ int bus_cgroup_set_property(
                 r = sd_bus_message_read(message, "t", &v);
                 if (r < 0)
                         return r;
-                if (v <= 0 && !streq(name, "MemorySwapMax"))
+                if (v <= 0 && !STR_IN_SET(name, "MemoryLow", "MemorySwapMax"))
                         return sd_bus_error_set_errnof(error, EINVAL, "%s= is too small", name);
 
                 if (mode != UNIT_CHECK) {
@@ -971,7 +971,7 @@ int bus_cgroup_set_property(
                         return r;
 
                 v = physical_memory_scale(raw, UINT32_MAX);
-                if ((v <= 0 && !streq(name, "MemorySwapMaxScale")) || v == UINT64_MAX)
+                if ((v <= 0 && !STR_IN_SET(name, "MemoryLowScale", "MemorySwapMaxScale")) || v == UINT64_MAX)
                         return sd_bus_error_set_errnof(error, EINVAL, "%s= is out of range", name);
 
                 if (mode != UNIT_CHECK) {
