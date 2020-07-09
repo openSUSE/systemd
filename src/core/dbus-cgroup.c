@@ -962,7 +962,7 @@ int bus_cgroup_set_property(
 
                 return 1;
 
-        } else if (STR_IN_SET(name, "MemoryLowScale", "MemoryHighScale", "MemoryMaxScale")) {
+        } else if (STR_IN_SET(name, "MemoryLowScale", "MemoryHighScale", "MemoryMaxScale", "MemorySwapMaxScale")) {
                 uint32_t raw;
                 uint64_t v;
 
@@ -985,7 +985,9 @@ int bus_cgroup_set_property(
                                 c->memory_low = v;
                         else if (streq(name, "MemoryHigh"))
                                 c->memory_high = v;
-                        else
+                        else if (streq(name, "MemorySwapMax"))
+                                c->memory_swap_max = v;
+                        else /* MemoryMax */
                                 c->memory_max = v;
 
                         unit_invalidate_cgroup(u, CGROUP_MASK_MEMORY);
@@ -1008,7 +1010,7 @@ int bus_cgroup_set_property(
                         c->memory_limit = limit;
                         unit_invalidate_cgroup(u, CGROUP_MASK_MEMORY);
 
-                        if (limit == (uint64_t) -1)
+                        if (limit == CGROUP_LIMIT_MAX)
                                 unit_write_drop_in_private(u, mode, name, "MemoryLimit=infinity");
                         else
                                 unit_write_drop_in_private_format(u, mode, name, "MemoryLimit=%" PRIu64, limit);
