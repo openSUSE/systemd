@@ -895,7 +895,8 @@ int setup_namespace(
                 ProtectHome protect_home,
                 ProtectSystem protect_system,
                 unsigned long mount_flags,
-                DissectImageFlags dissect_image_flags) {
+                DissectImageFlags dissect_image_flags,
+                char **error_path) {
 
         _cleanup_(loop_device_unrefp) LoopDevice *loop_device = NULL;
         _cleanup_(decrypted_image_unrefp) DecryptedImage *decrypted_image = NULL;
@@ -1115,15 +1116,20 @@ int setup_namespace(
                  * For example, this is the case with the option: 'InaccessiblePaths=/proc' */
                 proc_self_mountinfo = fopen("/proc/self/mountinfo", "re");
                 if (!proc_self_mountinfo) {
-                        r = -errno;
+                        r = log_debug_errno(errno, "Failed to open /proc/self/mountinfo: %m");
+                        if (error_path)
+                                *error_path = strdup("/proc/self/mountinfo");
                         goto finish;
                 }
 
                 /* First round, add in all special mounts we need */
                 for (m = mounts; m < mounts + n_mounts; ++m) {
                         r = apply_mount(root, m, tmp_dir, var_tmp_dir);
-                        if (r < 0)
+                        if (r < 0) {
+                                if (error_path && mount_entry_path(m))
+                                        *error_path = strdup(mount_entry_path(m));
                                 goto finish;
+                        }
                 }
 
                 /* Create a blacklist we can pass to bind_mount_recursive() */
@@ -1135,8 +1141,11 @@ int setup_namespace(
                 /* Second round, flip the ro bits if necessary. */
                 for (m = mounts; m < mounts + n_mounts; ++m) {
                         r = make_read_only(m, blacklist, proc_self_mountinfo);
-                        if (r < 0)
+                        if (r < 0) {
+                                if (error_path && mount_entry_path(m))
+                                        *error_path = strdup(mount_entry_path(m));
                                 goto finish;
+                        }
                 }
         }
 

@@ -577,7 +577,7 @@ static int setup_output(
         case EXEC_OUTPUT_JOURNAL_AND_CONSOLE:
                 r = connect_logger_as(unit, context, o, ident, fileno, uid, gid);
                 if (r < 0) {
-                        log_unit_error_errno(unit, r, "Failed to connect %s to the journal socket, ignoring: %m", fileno == STDOUT_FILENO ? "stdout" : "stderr");
+                        log_unit_warning_errno(unit, r, "Failed to connect %s to the journal socket, ignoring: %m", fileno == STDOUT_FILENO ? "stdout" : "stderr");
                         r = open_null_as(O_WRONLY, fileno);
                 } else {
                         struct stat st;
@@ -1308,9 +1308,7 @@ static bool skip_seccomp_unavailable(const Unit* u, const char* msg) {
         if (is_seccomp_available())
                 return false;
 
-        log_open();
         log_unit_debug(u, "SECCOMP features not detected in the kernel, skipping %s", msg);
-        log_close();
         return true;
 }
 
@@ -1963,7 +1961,8 @@ static int apply_mount_namespace(
                 ExecCommand *command,
                 const ExecContext *context,
                 const ExecParameters *params,
-                ExecRuntime *runtime) {
+                ExecRuntime *runtime,
+                char **error_path) {
 
         _cleanup_strv_free_ char **rw = NULL;
         char *tmp = NULL, *var = NULL;
@@ -2027,15 +2026,14 @@ static int apply_mount_namespace(
                             apply_restrictions ? context->protect_home : PROTECT_HOME_NO,
                             apply_restrictions ? context->protect_system : PROTECT_SYSTEM_NO,
                             context->mount_flags,
-                            DISSECT_IMAGE_DISCARD_ON_LOOP);
+                            DISSECT_IMAGE_DISCARD_ON_LOOP,
+                            error_path);
 
         /* If we couldn't set up the namespace this is probably due to a
          * missing capability. In this case, silently proceeed. */
         if (IN_SET(r, -EPERM, -EACCES)) {
-                log_open();
                 log_unit_debug_errno(u, r, "Failed to set up namespace, assuming containerized execution, ignoring: %m");
-                log_close();
-                r = 0;
+                return 0;
         }
 
         return r;
@@ -2105,13 +2103,13 @@ static int setup_keyring(Unit *u, const ExecParameters *p, uid_t uid, gid_t gid)
         keyring = keyctl(KEYCTL_JOIN_SESSION_KEYRING, 0, 0, 0, 0);
         if (keyring == -1) {
                 if (errno == ENOSYS)
-                        log_debug_errno(errno, "Kernel keyring not supported, ignoring.");
+                        log_unit_debug_errno(u, errno, "Kernel keyring not supported, ignoring.");
                 else if (IN_SET(errno, EACCES, EPERM))
-                        log_debug_errno(errno, "Kernel keyring access prohibited, ignoring.");
+                        log_unit_debug_errno(u, errno, "Kernel keyring access prohibited, ignoring.");
                 else if (errno == EDQUOT)
-                        log_debug_errno(errno, "Out of kernel keyrings to allocate, ignoring.");
+                        log_unit_debug_errno(u, errno, "Out of kernel keyrings to allocate, ignoring.");
                 else
-                        return log_error_errno(errno, "Setting up kernel keyring failed: %m");
+                        return log_unit_error_errno(u, errno, "Setting up kernel keyring failed: %m");
 
                 return 0;
         }
@@ -2122,19 +2120,19 @@ static int setup_keyring(Unit *u, const ExecParameters *p, uid_t uid, gid_t gid)
 
                 key = add_key("user", "invocation_id", &u->invocation_id, sizeof(u->invocation_id), KEY_SPEC_SESSION_KEYRING);
                 if (key == -1)
-                        log_debug_errno(errno, "Failed to add invocation ID to keyring, ignoring: %m");
+                        log_unit_debug_errno(u, errno, "Failed to add invocation ID to keyring, ignoring: %m");
                 else {
                         if (keyctl(KEYCTL_SETPERM, key,
                                    KEY_POS_VIEW|KEY_POS_READ|KEY_POS_SEARCH|
                                    KEY_USR_VIEW|KEY_USR_READ|KEY_USR_SEARCH, 0, 0) < 0)
-                                return log_error_errno(errno, "Failed to restrict invocation ID permission: %m");
+                                return log_unit_error_errno(u, errno, "Failed to restrict invocation ID permission: %m");
                 }
         }
 
         /* And now, make the keyring owned by the service's user */
         if (uid_is_valid(uid) || gid_is_valid(gid))
                 if (keyctl(KEYCTL_CHOWN, keyring, uid, gid, 0) < 0)
-                        return log_error_errno(errno, "Failed to change ownership of session keyring: %m");
+                        return log_unit_error_errno(u, errno, "Failed to change ownership of session keyring: %m");
 
         return 0;
 }
@@ -2267,8 +2265,7 @@ static int exec_child(
                 unsigned n_socket_fds,
                 char **files_env,
                 int user_lookup_fd,
-                int *exit_status,
-                char **error_message) {
+                int *exit_status) {
 
         _cleanup_strv_free_ char **our_env = NULL, **pass_env = NULL, **accum_env = NULL, **final_argv = NULL;
         _cleanup_free_ char *mac_selinux_context_net = NULL, *home_buffer = NULL;
@@ -2288,9 +2285,6 @@ static int exec_child(
         assert(context);
         assert(params);
         assert(exit_status);
-        assert(error_message);
-        /* We don't always set error_message, hence it must be initialized */
-        assert(*error_message == NULL);
 
         rename_process_from_path(command->path);
 
@@ -2308,32 +2302,34 @@ static int exec_child(
         r = reset_signal_mask();
         if (r < 0) {
                 *exit_status = EXIT_SIGNAL_MASK;
-                *error_message = strdup("Failed to reset signal mask");
-                /* If strdup fails, here and below, we will just print the generic error message. */
-                return r;
+                return log_unit_error_errno(unit, r, "Failed to set process signal mask: %m");
         }
 
         if (params->idle_pipe)
                 do_idle_pipe_dance(params->idle_pipe);
 
-        /* Close sockets very early to make sure we don't
-         * block init reexecution because it cannot bind its
-         * sockets */
+        /* Close fds we don't need very early to make sure we don't block init reexecution because it cannot bind its
+         * sockets. Among the fds we close are the logging fds, and we want to keep them closed, so that we don't have
+         * any fds open we don't really want open during the transition. In order to make logging work, we switch the
+         * log subsystem into open_when_needed mode, so that it reopens the logs on every single log call. */
 
         log_forget_fds();
+        log_set_open_when_needed(true);
+
+        /* In case anything used libc syslog(), close this here, too */
+        closelog();
 
         n_fds = n_storage_fds + n_socket_fds;
         r = close_remaining_fds(params, runtime, dcreds, user_lookup_fd, socket_fd, fds, n_fds);
         if (r < 0) {
                 *exit_status = EXIT_FDS;
-                *error_message = strdup("Failed to close remaining fds");
-                return r;
+                return log_unit_error_errno(unit, r, "Failed to close unwanted file descriptors: %m");
         }
 
         if (!context->same_pgrp)
                 if (setsid() < 0) {
                         *exit_status = EXIT_SETSID;
-                        return -errno;
+                        return log_unit_error_errno(unit, errno, "Failed to create new process session: %m");
                 }
 
         exec_context_tty_reset(context, params);
@@ -2344,8 +2340,8 @@ static int exec_child(
 
                 cmdline = exec_command_line(argv);
                 if (!cmdline) {
-                        *exit_status = EXIT_CONFIRM;
-                        return -ENOMEM;
+                        *exit_status = EXIT_MEMORY;
+                        return log_oom();
                 }
 
                 r = ask_for_confirmation(vc, unit, cmdline);
@@ -2355,7 +2351,7 @@ static int exec_child(
                                 return 0;
                         }
                         *exit_status = EXIT_CONFIRM;
-                        *error_message = strdup("Execution cancelled");
+                        log_unit_error(unit, "Execution cancelled by the user");
                         return -ECANCELED;
                 }
         }
@@ -2365,27 +2361,24 @@ static int exec_child(
                 /* Make sure we bypass our own NSS module for any NSS checks */
                 if (putenv((char*) "SYSTEMD_NSS_DYNAMIC_BYPASS=1") != 0) {
                         *exit_status = EXIT_USER;
-                        *error_message = strdup("Failed to update environment");
-                        return -errno;
+                        return log_unit_error_errno(unit, errno, "Failed to update environment: %m");
                 }
 
                 r = dynamic_creds_realize(dcreds, &uid, &gid);
                 if (r < 0) {
                         *exit_status = EXIT_USER;
-                        *error_message = strdup("Failed to update dynamic user credentials");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to update dynamic user credentials: %m");
                 }
 
                 if (!uid_is_valid(uid)) {
                         *exit_status = EXIT_USER;
-                        (void) asprintf(error_message, "UID validation failed for \""UID_FMT"\"", uid);
-                        /* If asprintf fails, here and below, we will just print the generic error message. */
+                        log_unit_error(unit, "UID validation failed for \""UID_FMT"\"", uid);
                         return -ESRCH;
                 }
 
                 if (!gid_is_valid(gid)) {
                         *exit_status = EXIT_USER;
-                        (void) asprintf(error_message, "GID validation failed for \""GID_FMT"\"", gid);
+                        log_unit_error(unit, "GID validation failed for \""GID_FMT"\"", gid);
                         return -ESRCH;
                 }
 
@@ -2396,15 +2389,13 @@ static int exec_child(
                 r = get_fixed_user(context, &username, &uid, &gid, &home, &shell);
                 if (r < 0) {
                         *exit_status = EXIT_USER;
-                        *error_message = strdup("Failed to determine user credentials");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to determine user credentials: %m");
                 }
 
                 r = get_fixed_group(context, &groupname, &gid);
                 if (r < 0) {
                         *exit_status = EXIT_GROUP;
-                        *error_message = strdup("Failed to determine group credentials");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to determine group credentials: %m");
                 }
         }
 
@@ -2413,15 +2404,13 @@ static int exec_child(
                                      &supplementary_gids, &ngids);
         if (r < 0) {
                 *exit_status = EXIT_GROUP;
-                *error_message = strdup("Failed to determine supplementary groups");
-                return r;
+                return log_unit_error_errno(unit, r, "Failed to determine supplementary groups: %m");
         }
 
         r = send_user_lookup(unit, user_lookup_fd, uid, gid);
         if (r < 0) {
                 *exit_status = EXIT_USER;
-                *error_message = strdup("Failed to send user credentials to PID1");
-                return r;
+                return log_unit_error_errno(unit, r, "Failed to send user credentials to PID1: %m");
         }
 
         user_lookup_fd = safe_close(user_lookup_fd);
@@ -2429,8 +2418,7 @@ static int exec_child(
         r = acquire_home(context, uid, &home, &home_buffer);
         if (r < 0) {
                 *exit_status = EXIT_CHDIR;
-                *error_message = strdup("Failed to determine $HOME for user");
-                return r;
+                return log_unit_error_errno(unit, r, "Failed to determine $HOME for user: %m");
         }
 
         /* If a socket is connected to STDIN/STDOUT/STDERR, we
@@ -2441,30 +2429,26 @@ static int exec_child(
         r = setup_input(context, params, socket_fd, named_iofds);
         if (r < 0) {
                 *exit_status = EXIT_STDIN;
-                *error_message = strdup("Failed to set up stdin");
-                return r;
+                return log_unit_error_errno(unit, r, "Failed to set up standard input: %m");
         }
 
         r = setup_output(unit, context, params, STDOUT_FILENO, socket_fd, named_iofds, basename(command->path), uid, gid, &journal_stream_dev, &journal_stream_ino);
         if (r < 0) {
                 *exit_status = EXIT_STDOUT;
-                *error_message = strdup("Failed to set up stdout");
-                return r;
+                return log_unit_error_errno(unit, r, "Failed to set up standard output: %m");
         }
 
         r = setup_output(unit, context, params, STDERR_FILENO, socket_fd, named_iofds, basename(command->path), uid, gid, &journal_stream_dev, &journal_stream_ino);
         if (r < 0) {
                 *exit_status = EXIT_STDERR;
-                *error_message = strdup("Failed to set up stderr");
-                return r;
+                return log_unit_error_errno(unit, r, "Failed to set up standard error output: %m");
         }
 
         if (params->cgroup_path) {
                 r = cg_attach_everywhere(params->cgroup_supported, params->cgroup_path, 0, NULL, NULL);
                 if (r < 0) {
                         *exit_status = EXIT_CGROUP;
-                        (void) asprintf(error_message, "Failed to attach to cgroup %s", params->cgroup_path);
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to attach to cgroup %s: %m", params->cgroup_path);
                 }
         }
 
@@ -2478,21 +2462,18 @@ static int exec_child(
 
                 sprintf(t, "%i", context->oom_score_adjust);
                 r = write_string_file("/proc/self/oom_score_adj", t, 0);
-                if (r == -EPERM || r == -EACCES) {
-                        log_open();
+                if (IN_SET(r, -EPERM, -EACCES))
                         log_unit_debug_errno(unit, r, "Failed to adjust OOM setting, assuming containerized execution, ignoring: %m");
-                        log_close();
-                } else if (r < 0) {
+                else if (r < 0) {
                         *exit_status = EXIT_OOM_ADJUST;
-                        *error_message = strdup("Failed to write /proc/self/oom_score_adj");
-                        return -errno;
+                        return log_unit_error_errno(unit, r, "Failed to adjust OOM setting: %m");
                 }
         }
 
         if (context->nice_set)
                 if (setpriority(PRIO_PROCESS, 0, context->nice) < 0) {
                         *exit_status = EXIT_NICE;
-                        return -errno;
+                        return log_unit_error_errno(unit, errno, "Failed to set up process scheduling priority (nice level): %m");
                 }
 
         if (context->cpu_sched_set) {
@@ -2507,32 +2488,32 @@ static int exec_child(
                                        &param);
                 if (r < 0) {
                         *exit_status = EXIT_SETSCHEDULER;
-                        return -errno;
+                        return log_unit_error_errno(unit, errno, "Failed to set up CPU scheduling: %m");
                 }
         }
 
         if (context->cpuset)
                 if (sched_setaffinity(0, CPU_ALLOC_SIZE(context->cpuset_ncpus), context->cpuset) < 0) {
                         *exit_status = EXIT_CPUAFFINITY;
-                        return -errno;
+                        return log_unit_error_errno(unit, errno, "Failed to set up CPU affinity: %m");
                 }
 
         if (context->ioprio_set)
                 if (ioprio_set(IOPRIO_WHO_PROCESS, 0, context->ioprio) < 0) {
                         *exit_status = EXIT_IOPRIO;
-                        return -errno;
+                        return log_unit_error_errno(unit, errno, "Failed to set up IO scheduling priority: %m");
                 }
 
         if (context->timer_slack_nsec != NSEC_INFINITY)
                 if (prctl(PR_SET_TIMERSLACK, context->timer_slack_nsec) < 0) {
                         *exit_status = EXIT_TIMERSLACK;
-                        return -errno;
+                        return log_unit_error_errno(unit, errno, "Failed to set up timer slack: %m");
                 }
 
         if (context->personality != PERSONALITY_INVALID)
                 if (personality(context->personality) < 0) {
                         *exit_status = EXIT_PERSONALITY;
-                        return -errno;
+                        return log_unit_error_errno(unit, r, "Failed to set up execution domain (personality): %m");
                 }
 
         if (context->utmp_id)
@@ -2547,7 +2528,7 @@ static int exec_child(
                 r = chown_terminal(STDIN_FILENO, uid);
                 if (r < 0) {
                         *exit_status = EXIT_STDIN;
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to change ownership of terminal: %m");
                 }
         }
 
@@ -2558,14 +2539,13 @@ static int exec_child(
                 r = cg_set_task_access(SYSTEMD_CGROUP_CONTROLLER, params->cgroup_path, 0644, uid, gid);
                 if (r < 0) {
                         *exit_status = EXIT_CGROUP;
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to adjust control group access: %m");
                 }
-
 
                 r = cg_set_group_access(SYSTEMD_CGROUP_CONTROLLER, params->cgroup_path, 0755, uid, gid);
                 if (r < 0) {
                         *exit_status = EXIT_CGROUP;
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to adjust control group access: %m");
                 }
         }
 
@@ -2573,7 +2553,7 @@ static int exec_child(
                 r = setup_runtime_directory(context, params, uid, gid);
                 if (r < 0) {
                         *exit_status = EXIT_RUNTIME_DIRECTORY;
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to set up special execution directory: %m");
                 }
         }
 
@@ -2590,13 +2570,13 @@ static int exec_child(
                         &our_env);
         if (r < 0) {
                 *exit_status = EXIT_MEMORY;
-                return r;
+                return log_oom();
         }
 
         r = build_pass_environment(context, &pass_env);
         if (r < 0) {
                 *exit_status = EXIT_MEMORY;
-                return r;
+                return log_oom();
         }
 
         accum_env = strv_env_merge(5,
@@ -2608,7 +2588,7 @@ static int exec_child(
                                    NULL);
         if (!accum_env) {
                 *exit_status = EXIT_MEMORY;
-                return -ENOMEM;
+                return log_oom();
         }
         accum_env = strv_env_clean(accum_env);
 
@@ -2617,7 +2597,7 @@ static int exec_child(
         r = setup_keyring(unit, params, uid, gid);
         if (r < 0) {
                 *exit_status = EXIT_KEYRING;
-                return r;
+                return log_unit_error_errno(unit, r, "Failed to set up kernel keyring: %m");
         }
 
         if ((params->flags & EXEC_APPLY_PERMISSIONS) && !command->privileged) {
@@ -2625,7 +2605,7 @@ static int exec_child(
                         r = setup_pam(context->pam_name, username, uid, gid, context->tty_path, &accum_env, fds, n_fds);
                         if (r < 0) {
                                 *exit_status = EXIT_PAM;
-                                return r;
+                                return log_unit_error_errno(unit, r, "Failed to set up PAM session: %m");
                         }
                 }
         }
@@ -2634,30 +2614,33 @@ static int exec_child(
                 r = setup_netns(runtime->netns_storage_socket);
                 if (r < 0) {
                         *exit_status = EXIT_NETWORK;
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to set up network namespacing: %m");
                 }
         }
 
         needs_mount_namespace = exec_needs_mount_namespace(context, params, runtime);
         if (needs_mount_namespace) {
-                r = apply_mount_namespace(unit, command, context, params, runtime);
+                _cleanup_free_ char *error_path = NULL;
+
+                r = apply_mount_namespace(unit, command, context, params, runtime, &error_path);
                 if (r < 0) {
                         *exit_status = EXIT_NAMESPACE;
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to set up mount namespacing%s%s: %m",
+                                                    error_path ? ": " : "", strempty(error_path));
                 }
         }
 
         /* Apply just after mount namespace setup */
         r = apply_working_directory(context, params, home, needs_mount_namespace, exit_status);
         if (r < 0)
-                return r;
+                return log_unit_error_errno(unit, r, "Changing to the requested working directory failed: %m");
 
         /* Drop groups as early as possbile */
         if ((params->flags & EXEC_APPLY_PERMISSIONS) && !command->privileged) {
                 r = enforce_groups(context, gid, supplementary_gids, ngids);
                 if (r < 0) {
                         *exit_status = EXIT_GROUP;
-                        return r;
+                        return log_unit_error_errno(unit, r, "Changing group credentials failed: %m");
                 }
         }
 
@@ -2671,7 +2654,7 @@ static int exec_child(
                 r = mac_selinux_get_child_mls_label(socket_fd, command->path, context->selinux_context, &mac_selinux_context_net);
                 if (r < 0) {
                         *exit_status = EXIT_SELINUX_CONTEXT;
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to determine SELinux context: %m");
                 }
         }
 #endif
@@ -2680,8 +2663,7 @@ static int exec_child(
                 r = setup_private_users(uid, gid);
                 if (r < 0) {
                         *exit_status = EXIT_USER;
-                        return r;
-                }
+                        return log_unit_error_errno(unit, r, "Failed to set up user namespacing: %m");                  }
         }
 
         /* We repeat the fd closing here, to make sure that
@@ -2697,7 +2679,7 @@ static int exec_child(
                 r = flags_fds(fds, n_storage_fds, n_socket_fds, context->non_blocking);
         if (r < 0) {
                 *exit_status = EXIT_FDS;
-                return r;
+                return log_unit_error_errno(unit, r, "Failed to adjust passed file descriptors: %m");
         }
 
         if ((params->flags & EXEC_APPLY_PERMISSIONS) && !command->privileged) {
@@ -2712,7 +2694,7 @@ static int exec_child(
                         r = setrlimit_closest(i, context->rlimit[i]);
                         if (r < 0) {
                                 *exit_status = EXIT_LIMITS;
-                                return r;
+                                return log_unit_error_errno(unit, r, "Failed to adjust resource limit %s: %m", rlimit_to_string(i));
                         }
                 }
 
@@ -2720,7 +2702,7 @@ static int exec_child(
                 if (context->restrict_realtime && !context->rlimit[RLIMIT_RTPRIO]) {
                         if (setrlimit(RLIMIT_RTPRIO, &RLIMIT_MAKE_CONST(0)) < 0) {
                                 *exit_status = EXIT_LIMITS;
-                                return -errno;
+                                return log_unit_error_errno(unit, errno, "Failed to adjust RLIMIT_RTPRIO resource limit: %m");
                         }
                 }
 
@@ -2728,8 +2710,7 @@ static int exec_child(
                         r = capability_bounding_set_drop(context->capability_bounding_set, false);
                         if (r < 0) {
                                 *exit_status = EXIT_CAPABILITIES;
-                                *error_message = strdup("Failed to drop capabilities");
-                                return r;
+                                return log_unit_error_errno(unit, r, "Failed to drop capabilities: %m");
                         }
                 }
 
@@ -2739,8 +2720,7 @@ static int exec_child(
                         r = capability_ambient_set_apply(context->capability_ambient_set, true);
                         if (r < 0) {
                                 *exit_status = EXIT_CAPABILITIES;
-                                *error_message = strdup("Failed to apply ambient capabilities (before UID change)");
-                                return r;
+                                return log_unit_error_errno(unit, r, "Failed to apply ambient capabilities (before UID change): %m");
                         }
                 }
 
@@ -2748,8 +2728,7 @@ static int exec_child(
                         r = enforce_user(context, uid);
                         if (r < 0) {
                                 *exit_status = EXIT_USER;
-                                (void) asprintf(error_message, "Failed to change UID to "UID_FMT, uid);
-                                return r;
+                                return log_unit_error_errno(unit, r, "Failed to change UID to " UID_FMT ": %m", uid);
                         }
                         if (context->capability_ambient_set != 0) {
 
@@ -2757,8 +2736,7 @@ static int exec_child(
                                 r = capability_ambient_set_apply(context->capability_ambient_set, false);
                                 if (r < 0) {
                                         *exit_status = EXIT_CAPABILITIES;
-                                        *error_message = strdup("Failed to apply ambient capabilities (after UID change)");
-                                        return r;
+                                        return log_unit_error_errno(unit, r, "Failed to apply ambient capabilities (after UID change): %m");
                                 }
 
                                 /* If we were asked to change user and ambient capabilities
@@ -2785,8 +2763,7 @@ static int exec_child(
                                 r = setexeccon(exec_context);
                                 if (r < 0) {
                                         *exit_status = EXIT_SELINUX_CONTEXT;
-                                        (void) asprintf(error_message, "Failed to set SELinux context to %s", exec_context);
-                                        return r;
+                                        return log_unit_error_errno(unit, r, "Failed to change SELinux context to %s: %m", exec_context);
                                 }
                         }
                 }
@@ -2795,19 +2772,14 @@ static int exec_child(
                 r = setup_smack(context, command);
                 if (r < 0) {
                         *exit_status = EXIT_SMACK_PROCESS_LABEL;
-                        *error_message = strdup("Failed to set SMACK process label");
-                        return r;
-                }
+                        return log_unit_error_errno(unit, r, "Failed to set SMACK process label: %m");                  }
 
 #ifdef HAVE_APPARMOR
                 if (context->apparmor_profile && mac_apparmor_use()) {
                         r = aa_change_onexec(context->apparmor_profile);
                         if (r < 0 && !context->apparmor_profile_ignore) {
                                 *exit_status = EXIT_APPARMOR_PROFILE;
-                                (void) asprintf(error_message,
-                                                "Failed to prepare AppArmor profile change to %s",
-                                                context->apparmor_profile);
-                                return -errno;
+                                return log_unit_error_errno(unit, errno, "Failed to prepare AppArmor profile change to %s: %m", context->apparmor_profile);
                         }
                 }
 #endif
@@ -2819,37 +2791,32 @@ static int exec_child(
                 if (prctl(PR_GET_SECUREBITS) != secure_bits)
                         if (prctl(PR_SET_SECUREBITS, secure_bits) < 0) {
                                 *exit_status = EXIT_SECUREBITS;
-                                *error_message = strdup("Failed to set secure bits");
-                                return -errno;
+                                return log_unit_error_errno(unit, errno, "Failed to set process secure bits: %m");
                         }
 
                 if (context_has_no_new_privileges(context))
                         if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) < 0) {
                                 *exit_status = EXIT_NO_NEW_PRIVILEGES;
-                                *error_message = strdup("Failed to disable new privileges");
-                                return -errno;
+                                return log_unit_error_errno(unit, errno, "Failed to disable new privileges: %m");
                         }
 
 #ifdef HAVE_SECCOMP
                 r = apply_address_families(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_ADDRESS_FAMILIES;
-                        *error_message = strdup("Failed to restrict address families");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to restrict address families: %m");
                 }
 
                 r = apply_memory_deny_write_execute(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_SECCOMP;
-                        *error_message = strdup("Failed to disable writing to executable memory");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to disable writing to executable memory: %m");
                 }
 
                 r = apply_restrict_realtime(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_SECCOMP;
-                        *error_message = strdup("Failed to apply realtime restrictions");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to apply realtime restrictions: %m");
                 }
 
                 r = apply_restrict_suid_sgid(unit, context);
@@ -2861,36 +2828,31 @@ static int exec_child(
                 r = apply_restrict_namespaces(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_SECCOMP;
-                        *error_message = strdup("Failed to apply namespace restrictions");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to apply namespace restrictions: %m");
                 }
 
                 r = apply_protect_sysctl(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_SECCOMP;
-                        *error_message = strdup("Failed to apply sysctl restrictions");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to apply sysctl restrictions: %m");
                 }
 
                 r = apply_protect_kernel_modules(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_SECCOMP;
-                        *error_message = strdup("Failed to apply module loading restrictions");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to apply module loading restrictions: %m");
                 }
 
                 r = apply_private_devices(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_SECCOMP;
-                        *error_message = strdup("Failed to set up private devices");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to set up private devices: %m");
                 }
 
                 r = apply_syscall_archs(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_SECCOMP;
-                        *error_message = strdup("Failed to apply syscall architecture restrictions");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to apply syscall architecture restrictions: %m");
                 }
 
                 /* This really should remain the last step before the execve(), to make sure our own code is unaffected
@@ -2898,8 +2860,7 @@ static int exec_child(
                 r = apply_syscall_filter(unit, context);
                 if (r < 0) {
                         *exit_status = EXIT_SECCOMP;
-                        *error_message = strdup("Failed to apply syscall filters");
-                        return r;
+                        return log_unit_error_errno(unit, r, "Failed to apply system call filters: %m");
                 }
 #endif
         }
@@ -2907,8 +2868,7 @@ static int exec_child(
         final_argv = replace_env_argv(argv, accum_env);
         if (!final_argv) {
                 *exit_status = EXIT_MEMORY;
-                *error_message = strdup("Failed to prepare process arguments");
-                return -ENOMEM;
+                return log_oom();
         }
 
         if (_unlikely_(log_get_max_level() >= LOG_DEBUG)) {
@@ -2916,19 +2876,31 @@ static int exec_child(
 
                 line = exec_command_line(final_argv);
                 if (line) {
-                        log_open();
                         log_struct(LOG_DEBUG,
                                    "EXECUTABLE=%s", command->path,
                                    LOG_UNIT_MESSAGE(unit, "Executing: %s", line),
                                    LOG_UNIT_ID(unit),
                                    NULL);
-                        log_close();
                 }
         }
 
         execve(command->path, final_argv, accum_env);
+
+        if (errno == ENOENT && command->ignore) {
+
+                log_struct_errno(LOG_INFO, errno,
+                                 "MESSAGE_ID=" SD_MESSAGE_SPAWN_FAILED_STR,
+                                 LOG_UNIT_ID(unit),
+                                 LOG_UNIT_MESSAGE(unit, "Executable %s missing, skipping: %m",
+                                                  command->path),
+                                 "EXECUTABLE=%s", command->path,
+                                 NULL);
+
+                return 0;
+        }
+
         *exit_status = EXIT_EXEC;
-        return -errno;
+        return log_unit_error_errno(unit, errno, "Failed to execute command: %m");
 }
 
 int exec_spawn(Unit *unit,
@@ -2995,13 +2967,13 @@ int exec_spawn(Unit *unit,
                    "EXECUTABLE=%s", command->path,
                    LOG_UNIT_ID(unit),
                    NULL);
+
         pid = fork();
         if (pid < 0)
                 return log_unit_error_errno(unit, errno, "Failed to fork: %m");
 
         if (pid == 0) {
-                int exit_status;
-                _cleanup_free_ char *error_message = NULL;
+                int exit_status = EXIT_SUCCESS;
 
                 r = exec_child(unit,
                                command,
@@ -3017,35 +2989,17 @@ int exec_spawn(Unit *unit,
                                n_socket_fds,
                                files_env,
                                unit->manager->user_lookup_fds[1],
-                               &exit_status,
-                               &error_message);
+                               &exit_status);
+
                 if (r < 0) {
-                        log_open();
-                        if (error_message)
-                                log_struct_errno(LOG_ERR, r,
-                                                 "MESSAGE_ID=" SD_MESSAGE_SPAWN_FAILED_STR,
-                                                 LOG_UNIT_ID(unit),
-                                                 LOG_UNIT_MESSAGE(unit, "%s: %m",
-                                                                  error_message),
-                                                 "EXECUTABLE=%s", command->path,
-                                                 NULL);
-                        else if (r == -ENOENT && command->ignore)
-                                log_struct_errno(LOG_INFO, r,
-                                                 "MESSAGE_ID=" SD_MESSAGE_SPAWN_FAILED_STR,
-                                                 LOG_UNIT_ID(unit),
-                                                 LOG_UNIT_MESSAGE(unit, "Skipped spawning %s: %m",
-                                                                  command->path),
-                                                 "EXECUTABLE=%s", command->path,
-                                                 NULL);
-                        else
-                                log_struct_errno(LOG_ERR, r,
-                                                 "MESSAGE_ID=" SD_MESSAGE_SPAWN_FAILED_STR,
-                                                 LOG_UNIT_ID(unit),
-                                                 LOG_UNIT_MESSAGE(unit, "Failed at step %s spawning %s: %m",
-                                                                  exit_status_to_string(exit_status, EXIT_STATUS_SYSTEMD),
-                                                                  command->path),
-                                                 "EXECUTABLE=%s", command->path,
-                                                 NULL);
+                        log_struct_errno(LOG_ERR, r,
+                                         "MESSAGE_ID=" SD_MESSAGE_SPAWN_FAILED_STR,
+                                         LOG_UNIT_ID(unit),
+                                         LOG_UNIT_MESSAGE(unit, "Failed at step %s spawning %s: %m",
+                                                          exit_status_to_string(exit_status, EXIT_STATUS_SYSTEMD),
+                                                          command->path),
+                                         "EXECUTABLE=%s", command->path,
+                                         NULL);
                 }
 
                 _exit(exit_status);
