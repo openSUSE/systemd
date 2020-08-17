@@ -603,26 +603,26 @@ static void spawn_read(struct udev_event *event,
 
 static int on_spawn_timeout(sd_event_source *s, uint64_t usec, void *userdata) {
         Spawn *spawn = userdata;
-        char timeout[FORMAT_TIMESTAMP_RELATIVE_MAX];
+        char timeout[FORMAT_TIMESPAN_MAX];
 
         assert(spawn);
 
         kill_and_sigcont(spawn->pid, SIGKILL);
 
         log_error("spawned process '%s' ["PID_FMT"] timed out after %s, killing", spawn->cmd, spawn->pid,
-                  format_timestamp_relative(timeout, sizeof(timeout), spawn->timeout));
+                  format_timespan(timeout, sizeof(timeout), spawn->timeout, USEC_PER_SEC));
 
         return 1;
 }
 
 static int on_spawn_timeout_warning(sd_event_source *s, uint64_t usec, void *userdata) {
         Spawn *spawn = userdata;
-        char timeout[FORMAT_TIMESTAMP_RELATIVE_MAX];
+        char timeout[FORMAT_TIMESPAN_MAX];
 
         assert(spawn);
 
         log_warning("spawned process '%s' ["PID_FMT"] is taking longer than %s to complete", spawn->cmd, spawn->pid,
-                    format_timestamp_relative(timeout, sizeof(timeout), spawn->timeout));
+                    format_timespan(timeout, sizeof(timeout), spawn->timeout_warn, USEC_PER_SEC));
 
         return 1;
 }
