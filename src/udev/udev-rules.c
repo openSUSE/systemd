@@ -452,6 +452,11 @@ static int rule_line_add_token(UdevRuleLine *rule_line, UdevRuleTokenType type, 
                                 }
                         }
                         *b = '\0';
+
+                        /* Make sure the value is end, so NULSTR_FOREACH can read correct match */
+                        if (b < a)
+                                b[1] = '\0';
+
                         if (bar)
                                 empty = true;
 
@@ -750,10 +755,8 @@ static int parse_token(UdevRules *rules, const char *key, char *attr, UdevRuleOp
                 check_value_format_and_warn(rules, key, value, true);
                 if (op == OP_REMOVE)
                         return log_token_invalid_op(rules, key);
-                if (!is_match) {
-                        log_token_debug(rules, "%s key takes '==' or '!=' operator, assuming '=='.", key);
+                if (!is_match)
                         op = OP_MATCH;
-                }
 
                 r = rule_line_add_token(rule_line, TK_M_PROGRAM, op, value, NULL);
         } else if (streq(key, "IMPORT")) {
@@ -762,10 +765,8 @@ static int parse_token(UdevRules *rules, const char *key, char *attr, UdevRuleOp
                 check_value_format_and_warn(rules, key, value, true);
                 if (op == OP_REMOVE)
                         return log_token_invalid_op(rules, key);
-                if (!is_match) {
-                        log_token_debug(rules, "%s key takes '==' or '!=' operator, assuming '=='.", key);
+                if (!is_match)
                         op = OP_MATCH;
-                }
 
                 if (streq(attr, "file"))
                         r = rule_line_add_token(rule_line, TK_M_IMPORT_FILE, op, value, NULL);
@@ -808,10 +809,8 @@ static int parse_token(UdevRules *rules, const char *key, char *attr, UdevRuleOp
                         return log_token_invalid_attr(rules, key);
                 if (is_match || op == OP_REMOVE)
                         return log_token_invalid_op(rules, key);
-                if (op == OP_ADD) {
-                        log_token_debug(rules, "Operator '+=' is specified to %s key, assuming '='.", key);
+                if (op == OP_ADD)
                         op = OP_ASSIGN;
-                }
 
                 if (streq(value, "string_escape=none"))
                         r = rule_line_add_token(rule_line, TK_A_OPTIONS_STRING_ESCAPE_NONE, op, NULL, NULL);
