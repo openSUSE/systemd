@@ -326,6 +326,7 @@ int network_verify(Network *network) {
 int network_load_one(Manager *manager, OrderedHashmap **networks, const char *filename) {
         _cleanup_free_ char *fname = NULL, *name = NULL;
         _cleanup_(network_unrefp) Network *network = NULL;
+        _cleanup_strv_free_ char **dropins = NULL;
         _cleanup_fclose_ FILE *file = NULL;
         const char *dropin_dirname;
         char *d;
@@ -491,7 +492,7 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                               "TokenBucketFilter\0"
                               "TrivialLinkEqualizer\0",
                               config_item_perf_lookup, network_network_gperf_lookup,
-                              CONFIG_PARSE_WARN, network);
+                              CONFIG_PARSE_WARN, network, &dropins);
         if (r < 0)
                 return r;
 
@@ -507,9 +508,22 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                                   network->filename);
 
         struct stat stats;
-        if (stat(filename, &stats) < 0)
-                return -errno;
-        network->timestamp = timespec_load(&stats.st_mtim);
+        if (stat(filename, &stats) >= 0)
+                network->timestamp = timespec_load(&stats.st_mtim);
+
+        char **f;
+        STRV_FOREACH(f, dropins) {
+                usec_t t;
+
+                if (stat(*f, &stats) < 0) {
+                        network->timestamp = 0;
+                        break;
+                }
+
+                t = timespec_load(&stats.st_mtim);
+                if (t > network->timestamp)
+                        network->timestamp = t;
+        }
 
         if (network_verify(network) < 0)
                 /* Ignore .network files that do not match the conditions. */
@@ -731,8 +745,8 @@ int network_get_by_name(Manager *manager, const char *name, Network **ret) {
 }
 
 int network_get(Manager *manager, unsigned short iftype, sd_device *device,
-                const char *ifname, char * const *alternative_names,
-                const struct ether_addr *address, const struct ether_addr *permanent_address,
+                const char *ifname, char * const *alternative_names, const char *driver,
+                const struct ether_addr *mac, const struct ether_addr *permanent_mac,
                 enum nl80211_iftype wlan_iftype, const char *ssid, const struct ether_addr *bssid,
                 Network **ret) {
         Network *network;
@@ -746,7 +760,7 @@ int network_get(Manager *manager, unsigned short iftype, sd_device *device,
                                      network->match_path, network->match_driver,
                                      network->match_type, network->match_name, network->match_property,
                                      network->match_wlan_iftype, network->match_ssid, network->match_bssid,
-                                     iftype, device, address, permanent_address,
+                                     device, mac, permanent_mac, driver, iftype,
                                      ifname, alternative_names, wlan_iftype, ssid, bssid)) {
                         if (network->match_name && device) {
                                 const char *attr;

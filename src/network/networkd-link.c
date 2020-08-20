@@ -618,9 +618,13 @@ static int link_new(Manager *manager, sd_netlink_message *message, Link **ret) {
         if (r < 0)
                 log_link_debug_errno(link, r, "MAC address not found for new device, continuing without");
 
-        r = ethtool_get_permanent_macaddr(NULL, link->ifname, &link->permanent_mac);
+        r = ethtool_get_permanent_macaddr(&manager->ethtool_fd, link->ifname, &link->permanent_mac);
         if (r < 0)
                 log_link_debug_errno(link, r, "Permanent MAC address not found for new device, continuing without: %m");
+
+        r = ethtool_get_driver(&manager->ethtool_fd, link->ifname, &link->driver);
+        if (r < 0)
+                log_link_debug_errno(link, r, "Failed to get driver, continuing without: %m");
 
         r = sd_netlink_message_read_strv(message, IFLA_PROP_LIST, IFLA_ALT_IFNAME, &link->alternative_names);
         if (r < 0 && r != -ENODATA)
@@ -725,6 +729,7 @@ static Link *link_free(Link *link) {
         strv_free(link->alternative_names);
         free(link->kind);
         free(link->ssid);
+        free(link->driver);
 
         (void) unlink(link->state_file);
         free(link->state_file);
@@ -1128,15 +1133,13 @@ void link_check_ready(Link *link) {
                     in_addr_is_null(AF_INET6, (const union in_addr_union*) &link->ipv6ll_address))
                         return;
 
-                if ((link_dhcp4_enabled(link) || link_dhcp6_enabled(link)) &&
+                if ((link_dhcp4_enabled(link) || link_dhcp6_enabled(link) || link_ipv6_accept_ra_enabled(link)) &&
                     !link->dhcp4_configured &&
                     !link->dhcp6_configured &&
+                    !link->ndisc_configured &&
                     !(link_ipv4ll_enabled(link, ADDRESS_FAMILY_FALLBACK_IPV4) && link->ipv4ll_address))
-                        /* When DHCP is enabled, at least one protocol must provide an address, or
+                        /* When DHCP or RA is enabled, at least one protocol must provide an address, or
                          * an IPv4ll fallback address must be configured. */
-                        return;
-
-                if (link_ipv6_accept_ra_enabled(link) && !link->ndisc_configured)
                         return;
         }
 
@@ -3041,8 +3044,10 @@ static int link_reconfigure_internal(Link *link, sd_netlink_message *m, bool for
                 strv_free_and_replace(link->alternative_names, s);
         }
 
-        r = network_get(link->manager, link->iftype, link->sd_device, link->ifname, link->alternative_names,
-                        &link->mac, &link->permanent_mac, link->wlan_iftype, link->ssid, &link->bssid, &network);
+        r = network_get(link->manager, link->iftype, link->sd_device,
+                        link->ifname, link->alternative_names, link->driver,
+                        &link->mac, &link->permanent_mac,
+                        link->wlan_iftype, link->ssid, &link->bssid, &network);
         if (r == -ENOENT) {
                 link_enter_unmanaged(link);
                 return 0;
@@ -3177,8 +3182,10 @@ static int link_initialized_and_synced(Link *link) {
                 if (r < 0)
                         return r;
 
-                r = network_get(link->manager, link->iftype, link->sd_device, link->ifname, link->alternative_names,
-                                &link->mac, &link->permanent_mac, link->wlan_iftype, link->ssid, &link->bssid, &network);
+                r = network_get(link->manager, link->iftype, link->sd_device,
+                                link->ifname, link->alternative_names, link->driver,
+                                &link->mac, &link->permanent_mac,
+                                link->wlan_iftype, link->ssid, &link->bssid, &network);
                 if (r == -ENOENT) {
                         link_enter_unmanaged(link);
                         return 0;
@@ -3293,7 +3300,6 @@ static int link_load(Link *link) {
                             *dhcp4_address = NULL,
                             *ipv4ll_address = NULL;
         union in_addr_union address;
-        const char *p;
         int r;
 
         assert(link);
@@ -3332,107 +3338,100 @@ static int link_load(Link *link) {
 
 network_file_fail:
 
-        if (addresses) {
-                p = addresses;
+        for (const char *p = addresses; p; ) {
+                _cleanup_free_ char *address_str = NULL;
+                char *prefixlen_str;
+                int family;
+                unsigned char prefixlen;
 
-                for (;;) {
-                        _cleanup_free_ char *address_str = NULL;
-                        char *prefixlen_str;
-                        int family;
-                        unsigned char prefixlen;
+                r = extract_first_word(&p, &address_str, NULL, 0);
+                if (r < 0)
+                        log_link_warning_errno(link, r, "failed to parse ADDRESSES: %m");
+                if (r <= 0)
+                        break;
 
-                        r = extract_first_word(&p, &address_str, NULL, 0);
-                        if (r < 0) {
-                                log_link_debug_errno(link, r, "Failed to extract next address string: %m");
-                                continue;
-                        }
-                        if (r == 0)
-                                break;
-
-                        prefixlen_str = strchr(address_str, '/');
-                        if (!prefixlen_str) {
-                                log_link_debug(link, "Failed to parse address and prefix length %s", address_str);
-                                continue;
-                        }
-
-                        *prefixlen_str++ = '\0';
-
-                        r = sscanf(prefixlen_str, "%hhu", &prefixlen);
-                        if (r != 1) {
-                                log_link_error(link, "Failed to parse prefixlen %s", prefixlen_str);
-                                continue;
-                        }
-
-                        r = in_addr_from_string_auto(address_str, &family, &address);
-                        if (r < 0) {
-                                log_link_debug_errno(link, r, "Failed to parse address %s: %m", address_str);
-                                continue;
-                        }
-
-                        r = address_add(link, family, &address, prefixlen, NULL);
-                        if (r < 0)
-                                return log_link_error_errno(link, r, "Failed to add address: %m");
+                prefixlen_str = strchr(address_str, '/');
+                if (!prefixlen_str) {
+                        log_link_debug(link, "Failed to parse address and prefix length %s", address_str);
+                        continue;
                 }
+                *prefixlen_str++ = '\0';
+
+                r = sscanf(prefixlen_str, "%hhu", &prefixlen);
+                if (r != 1) {
+                        log_link_error(link, "Failed to parse prefixlen %s", prefixlen_str);
+                        continue;
+                }
+
+                r = in_addr_from_string_auto(address_str, &family, &address);
+                if (r < 0) {
+                        log_link_debug_errno(link, r, "Failed to parse address %s: %m", address_str);
+                        continue;
+                }
+
+                r = address_add(link, family, &address, prefixlen, NULL);
+                if (r < 0)
+                        return log_link_error_errno(link, r, "Failed to add address: %m");
         }
 
-        if (routes) {
-                p = routes;
+        for (const char *p = routes; p; ) {
+                _cleanup_(sd_event_source_unrefp) sd_event_source *expire = NULL;
+                _cleanup_(route_freep) Route *tmp = NULL;
+                _cleanup_free_ char *route_str = NULL;
+                char *prefixlen_str;
+                Route *route;
 
-                for (;;) {
-                        _cleanup_(sd_event_source_unrefp) sd_event_source *expire = NULL;
-                        _cleanup_(route_freep) Route *tmp = NULL;
-                        _cleanup_free_ char *route_str = NULL;
-                        char *prefixlen_str;
-                        Route *route;
+                r = extract_first_word(&p, &route_str, NULL, 0);
+                if (r < 0)
+                        log_link_debug_errno(link, r, "failed to parse ROUTES: %m");
+                if (r <= 0)
+                        break;
 
-                        r = extract_first_word(&p, &route_str, NULL, 0);
-                        if (r < 0) {
-                                log_link_debug_errno(link, r, "Failed to extract next route string: %m");
-                                continue;
-                        }
-                        if (r == 0)
-                                break;
-
-                        prefixlen_str = strchr(route_str, '/');
-                        if (!prefixlen_str) {
-                                log_link_debug(link, "Failed to parse route %s", route_str);
-                                continue;
-                        }
-
-                        *prefixlen_str++ = '\0';
-
-                        r = route_new(&tmp);
-                        if (r < 0)
-                                return log_oom();
-
-                        r = sscanf(prefixlen_str, "%hhu/%hhu/%"SCNu32"/%"PRIu32"/"USEC_FMT, &tmp->dst_prefixlen, &tmp->tos, &tmp->priority, &tmp->table, &tmp->lifetime);
-                        if (r != 5) {
-                                log_link_debug(link,
-                                               "Failed to parse destination prefix length, tos, priority, table or expiration %s",
-                                               prefixlen_str);
-                                continue;
-                        }
-
-                        r = in_addr_from_string_auto(route_str, &tmp->family, &tmp->dst);
-                        if (r < 0) {
-                                log_link_debug_errno(link, r, "Failed to parse route destination %s: %m", route_str);
-                                continue;
-                        }
-
-                        r = route_add(link, tmp, &route);
-                        if (r < 0)
-                                return log_link_error_errno(link, r, "Failed to add route: %m");
-
-                        if (route->lifetime != USEC_INFINITY && !kernel_route_expiration_supported()) {
-                                r = sd_event_add_time(link->manager->event, &expire, clock_boottime_or_monotonic(), route->lifetime,
-                                                      0, route_expire_handler, route);
-                                if (r < 0)
-                                        log_link_warning_errno(link, r, "Could not arm route expiration handler: %m");
-                        }
-
-                        sd_event_source_unref(route->expire);
-                        route->expire = TAKE_PTR(expire);
+                prefixlen_str = strchr(route_str, '/');
+                if (!prefixlen_str) {
+                        log_link_debug(link, "Failed to parse route %s", route_str);
+                        continue;
                 }
+                *prefixlen_str++ = '\0';
+
+                r = route_new(&tmp);
+                if (r < 0)
+                        return log_oom();
+
+                r = sscanf(prefixlen_str,
+                           "%hhu/%hhu/%"SCNu32"/%"PRIu32"/"USEC_FMT,
+                           &tmp->dst_prefixlen,
+                           &tmp->tos,
+                           &tmp->priority,
+                           &tmp->table,
+                           &tmp->lifetime);
+                if (r != 5) {
+                        log_link_debug(link,
+                                       "Failed to parse destination prefix length, tos, priority, table or expiration %s",
+                                       prefixlen_str);
+                        continue;
+                }
+
+                r = in_addr_from_string_auto(route_str, &tmp->family, &tmp->dst);
+                if (r < 0) {
+                        log_link_debug_errno(link, r, "Failed to parse route destination %s: %m", route_str);
+                        continue;
+                }
+
+                r = route_add(link, tmp, &route);
+                if (r < 0)
+                        return log_link_error_errno(link, r, "Failed to add route: %m");
+
+                if (route->lifetime != USEC_INFINITY && !kernel_route_expiration_supported()) {
+                        r = sd_event_add_time(link->manager->event, &expire,
+                                              clock_boottime_or_monotonic(),
+                                              route->lifetime, 0, route_expire_handler, route);
+                        if (r < 0)
+                                log_link_warning_errno(link, r, "Could not arm route expiration handler: %m");
+                }
+
+                sd_event_source_unref(route->expire);
+                route->expire = TAKE_PTR(expire);
         }
 
         if (dhcp4_address) {

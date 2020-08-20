@@ -14,6 +14,7 @@
 #include "chattr-util.h"
 #include "efivars.h"
 #include "fd-util.h"
+#include "fileio.h"
 #include "io-util.h"
 #include "macro.h"
 #include "stdio-util.h"
@@ -24,11 +25,27 @@
 
 #if ENABLE_EFI
 
+/* Reads from efivarfs sometimes fail with EINTR. Retry that many times. */
+#define EFI_N_RETRIES_NO_DELAY 20
+#define EFI_N_RETRIES_TOTAL 25
+#define EFI_RETRY_DELAY (50 * USEC_PER_MSEC)
+
 char* efi_variable_path(sd_id128_t vendor, const char *name) {
         char *p;
 
         if (asprintf(&p,
                      "/sys/firmware/efi/efivars/%s-" SD_ID128_UUID_FORMAT_STR,
+                     name, SD_ID128_FORMAT_VAL(vendor)) < 0)
+                return NULL;
+
+        return p;
+}
+
+static char* efi_variable_cache_path(sd_id128_t vendor, const char *name) {
+        char *p;
+
+        if (asprintf(&p,
+                     "/run/systemd/efivars/%s-" SD_ID128_UUID_FORMAT_STR,
                      name, SD_ID128_FORMAT_VAL(vendor)) < 0)
                 return NULL;
 
@@ -46,6 +63,7 @@ int efi_get_variable(
         _cleanup_free_ char *p = NULL;
         _cleanup_free_ void *buf = NULL;
         struct stat st;
+        usec_t begin;
         uint32_t a;
         ssize_t n;
 
@@ -56,49 +74,85 @@ int efi_get_variable(
                 return -ENOMEM;
 
         if (!ret_value && !ret_size && !ret_attribute) {
-                /* If caller is not interested in anything, just check if the variable exists and is readable
-                 * to us. */
+                /* If caller is not interested in anything, just check if the variable exists and is
+                 * readable. */
                 if (access(p, R_OK) < 0)
                         return -errno;
 
                 return 0;
         }
 
+        if (DEBUG_LOGGING) {
+                log_debug("Reading EFI variable %s.", p);
+                begin = now(CLOCK_MONOTONIC);
+        }
+
         fd = open(p, O_RDONLY|O_NOCTTY|O_CLOEXEC);
         if (fd < 0)
-                return -errno;
+                return log_debug_errno(errno, "open(\"%s\") failed: %m", p);
 
         if (fstat(fd, &st) < 0)
-                return -errno;
+                return log_debug_errno(errno, "fstat(\"%s\") failed: %m", p);
         if (st.st_size < 4)
-                return -ENODATA;
+                return log_debug_errno(SYNTHETIC_ERRNO(ENODATA), "EFI variable %s is shorter than 4 bytes, refusing.", p);
         if (st.st_size > 4*1024*1024 + 4)
-                return -E2BIG;
+                return log_debug_errno(SYNTHETIC_ERRNO(E2BIG), "EFI variable %s is ridiculously large, refusing.", p);
 
         if (ret_value || ret_attribute) {
-                n = read(fd, &a, sizeof(a));
-                if (n < 0)
-                        return -errno;
+                /* The kernel ratelimits reads from the efivarfs because EFI is inefficient, and we'll
+                 * occasionally fail with EINTR here. A slowdown is better than a failure for us, so
+                 * retry a few times and eventually fail with -EBUSY.
+                 *
+                 * See https://github.com/torvalds/linux/blob/master/fs/efivarfs/file.c#L75
+                 * and
+                 * https://github.com/torvalds/linux/commit/bef3efbeb897b56867e271cdbc5f8adaacaeb9cd.
+                 */
+                for (unsigned try = 0;; try++) {
+                        n = read(fd, &a, sizeof(a));
+                        if (n >= 0)
+                                break;
+                        log_debug_errno(errno, "Reading from \"%s\" failed: %m", p);
+                        if (errno != EINTR)
+                                return -errno;
+                        if (try >= EFI_N_RETRIES_TOTAL)
+                                return -EBUSY;
+
+                        if (try >= EFI_N_RETRIES_NO_DELAY)
+                                (void) usleep(EFI_RETRY_DELAY);
+                }
+
                 if (n != sizeof(a))
-                        return -EIO;
+                        return log_debug_errno(SYNTHETIC_ERRNO(EIO),
+                                               "Read %zi bytes from EFI variable %s, expected %zu.",  n, p, sizeof(a));
         }
 
         if (ret_value) {
-                buf = malloc(st.st_size - 4 + 2);
+                buf = malloc(st.st_size - 4 + 3);
                 if (!buf)
                         return -ENOMEM;
 
                 n = read(fd, buf, (size_t) st.st_size - 4);
                 if (n < 0)
-                        return -errno;
+                        return log_debug_errno(errno, "Failed to read value of EFI variable %s: %m", p);
                 assert(n <= st.st_size - 4);
 
-                /* Always NUL terminate (2 bytes, to protect UTF-16) */
+                /* Always NUL terminate (3 bytes, to properly protect UTF-16, even if truncated in the middle of a character) */
                 ((char*) buf)[n] = 0;
                 ((char*) buf)[n + 1] = 0;
+                ((char*) buf)[n + 2] = 0;
         } else
                 /* Assume that the reported size is accurate */
                 n = st.st_size - 4;
+
+        if (DEBUG_LOGGING) {
+                char ts[FORMAT_TIMESPAN_MAX];
+                usec_t end;
+
+                end = now(CLOCK_MONOTONIC);
+                if (end > begin + EFI_RETRY_DELAY)
+                        log_debug("Detected slow EFI variable read access on " SD_ID128_FORMAT_STR "-%s: %s",
+                                  SD_ID128_FORMAT_VAL(vendor), name, format_timespan(ts, sizeof(ts), end - begin, 1));
+        }
 
         /* Note that efivarfs interestingly doesn't require ftruncate() to update an existing EFI variable
          * with a smaller value. */
@@ -194,6 +248,14 @@ int efi_set_variable(
         if (r < 0)
                 goto finish;
 
+        /* For some reason efivarfs doesn't update mtime automatically. Let's do it manually then. This is
+         * useful for processes that cache EFI variables to detect when changes occurred. */
+        if (futimens(fd, (struct timespec[2]) {
+                                { .tv_nsec = UTIME_NOW },
+                                { .tv_nsec = UTIME_NOW }
+                        }) < 0)
+                log_debug_errno(errno, "Failed to update mtime/atime on %s, ignoring: %m", p);
+
         r = 0;
 
 finish:
@@ -273,8 +335,49 @@ bool is_efi_secure_boot_setup_mode(void) {
         return cache > 0;
 }
 
+int cache_efi_options_variable(void) {
+        _cleanup_free_ char *line = NULL, *cachepath = NULL;
+        int r;
+
+        /* In SecureBoot mode this is probably not what you want. As your cmdline is cryptographically signed
+         * like when using Type #2 EFI Unified Kernel Images (https://systemd.io/BOOT_LOADER_SPECIFICATION/)
+         * The user's intention is then that the cmdline should not be modified. You want to make sure that
+         * the system starts up as exactly specified in the signed artifact.
+         *
+         * (NB: For testing purposes, we still check the $SYSTEMD_EFI_OPTIONS env var before accessing this
+         * cache, even when in SecureBoot mode.) */
+        if (is_efi_secure_boot()) {
+                _cleanup_free_ char *k;
+
+                k = efi_variable_path(EFI_VENDOR_SYSTEMD, "SystemdOptions");
+                if (!k)
+                        return -ENOMEM;
+
+                /* Let's be helpful with the returned error and check if the variable exists at all. If it
+                 * does, let's return a recognizable error (EPERM), and if not ENODATA. */
+
+                if (access(k, F_OK) < 0)
+                        return errno == ENOENT ? -ENODATA : -errno;
+
+                return -EPERM;
+        }
+
+        r = efi_get_variable_string(EFI_VENDOR_SYSTEMD, "SystemdOptions", &line);
+        if (r == -ENOENT)
+                return -ENODATA;
+        if (r < 0)
+                return r;
+
+        cachepath = efi_variable_cache_path(EFI_VENDOR_SYSTEMD, "SystemdOptions");
+        if (!cachepath)
+                return -ENOMEM;
+
+        return write_string_file(cachepath, line, WRITE_STRING_FILE_ATOMIC|WRITE_STRING_FILE_CREATE|WRITE_STRING_FILE_MKDIR_0755);
+}
+
 int systemd_efi_options_variable(char **line) {
         const char *e;
+        _cleanup_free_ char *cachepath = NULL;
         int r;
 
         assert(line);
@@ -292,10 +395,13 @@ int systemd_efi_options_variable(char **line) {
                 return 0;
         }
 
-        r = efi_get_variable_string(EFI_VENDOR_SYSTEMD, "SystemdOptions", line);
+        cachepath = efi_variable_cache_path(EFI_VENDOR_SYSTEMD, "SystemdOptions");
+        if (!cachepath)
+                return -ENOMEM;
+
+        r = read_one_line_file(cachepath, line);
         if (r == -ENOENT)
                 return -ENODATA;
-
         return r;
 }
 #endif
