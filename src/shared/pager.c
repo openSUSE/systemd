@@ -26,6 +26,7 @@
 #include <unistd.h>
 
 #include "copy.h"
+#include "env-util.h"
 #include "fd-util.h"
 #include "locale-util.h"
 #include "macro.h"
@@ -85,6 +86,7 @@ int pager_open(bool jump_to_end) {
         /* In the child start the pager */
         if (pager_pid == 0) {
                 const char* less_opts, *less_charset;
+                int r;
 
                 (void) reset_all_signal_handlers();
                 (void) reset_signal_mask();
@@ -100,8 +102,7 @@ int pager_open(bool jump_to_end) {
                         less_opts = strjoina(less_opts, " +G");
                 setenv("LESS", less_opts, 1);
 
-                /* Initialize a good charset for less. This is
-                 * particularly important if we output UTF-8
+                /* Initialize a good charset for less. This is particularly important if we output UTF-8
                  * characters. */
                 less_charset = getenv("SYSTEMD_LESSCHARSET");
                 if (!less_charset && is_locale_utf8())
@@ -117,6 +118,25 @@ int pager_open(bool jump_to_end) {
                  * to set the death signal */
                 if (getppid() != parent_pid)
                         _exit(EXIT_SUCCESS);
+
+                /* People might invoke us from sudo, don't needlessly allow less to be a way to shell out
+                 * privileged stuff. */
+                r = getenv_bool("SYSTEMD_LESSSECURE");
+                if (r == 0) { /* Remove env var if off */
+                        if (unsetenv("LESSSECURE") < 0) {
+                                log_error_errno(errno, "Failed to uset environment variable LESSSECURE: %m");
+                                _exit(EXIT_FAILURE);
+                        }
+                } else {
+                        /* Set env var otherwise */
+                        if (r < 0)
+                                log_warning_errno(r, "Unable to parse $SYSTEMD_LESSSECURE, ignoring: %m");
+
+                        if (setenv("LESSSECURE", "1", 1) < 0) {
+                                log_error_errno(errno, "Failed to set environment variable LESSSECURE: %m");
+                                _exit(EXIT_FAILURE);
+                        }
+                }
 
                 if (pager) {
                         execlp(pager, pager, NULL);
