@@ -50,23 +50,25 @@
 #include "user-util.h"
 #include "util.h"
 
-int user_new(User **out, Manager *m, uid_t uid, gid_t gid, const char *name) {
+int user_new(User **ret, Manager *m, uid_t uid, gid_t gid, const char *name) {
         _cleanup_(user_freep) User *u = NULL;
         char lu[DECIMAL_STR_MAX(uid_t) + 1];
         int r;
 
-        assert(out);
+        assert(ret);
         assert(m);
         assert(name);
 
-        u = new0(User, 1);
+        u = new(User, 1);
         if (!u)
                 return -ENOMEM;
 
-        u->manager = m;
-        u->uid = uid;
-        u->gid = gid;
-        xsprintf(lu, UID_FMT, uid);
+        *u = (User) {
+                .manager = m,
+                .uid = uid,
+                .gid = gid,
+                .last_session_timestamp = USEC_INFINITY,
+        };
 
         u->name = strdup(name);
         if (!u->name)
@@ -78,11 +80,16 @@ int user_new(User **out, Manager *m, uid_t uid, gid_t gid, const char *name) {
         if (asprintf(&u->runtime_path, "/run/user/"UID_FMT, uid) < 0)
                 return -ENOMEM;
 
+        xsprintf(lu, UID_FMT, uid);
         r = slice_build_subslice(SPECIAL_USER_SLICE, lu, &u->slice);
         if (r < 0)
                 return r;
 
         r = unit_name_build("user", lu, ".service", &u->service);
+        if (r < 0)
+                return r;
+
+        r = unit_name_build("user-runtime-dir", lu, ".service", &u->runtime_dir_service);
         if (r < 0)
                 return r;
 
@@ -98,8 +105,11 @@ int user_new(User **out, Manager *m, uid_t uid, gid_t gid, const char *name) {
         if (r < 0)
                 return r;
 
-        *out = u;
-        u = NULL;
+        r = hashmap_put(m->user_units, u->runtime_dir_service, u);
+        if (r < 0)
+                return r;
+
+        *ret = TAKE_PTR(u);
         return 0;
 }
 
@@ -116,15 +126,20 @@ User *user_free(User *u) {
         if (u->service)
                 hashmap_remove_value(u->manager->user_units, u->service, u);
 
+        if (u->runtime_dir_service)
+                hashmap_remove_value(u->manager->user_units, u->runtime_dir_service, u);
+
         if (u->slice)
                 hashmap_remove_value(u->manager->user_units, u->slice, u);
 
         hashmap_remove_value(u->manager->users, UID_TO_PTR(u->uid), u);
 
-        u->slice_job = mfree(u->slice_job);
+        (void) sd_event_source_unref(u->timer_event_source);
+
         u->service_job = mfree(u->service_job);
 
         u->service = mfree(u->service);
+        u->runtime_dir_service = mfree(u->runtime_dir_service);
         u->slice = mfree(u->slice);
         u->runtime_path = mfree(u->runtime_path);
         u->state_file = mfree(u->state_file);
@@ -154,9 +169,11 @@ static int user_save_internal(User *u) {
         fprintf(f,
                 "# This is private data. Do not parse.\n"
                 "NAME=%s\n"
-                "STATE=%s\n",
+                "STATE=%s\n"         /* friendly user-facing state */
+                "STOPPING=%s\n",     /* low-level state */
                 u->name,
-                user_state_to_string(user_get_state(u)));
+                user_state_to_string(user_get_state(u)),
+                yes_no(u->stopping));
 
         /* LEGACY: no-one reads RUNTIME= anymore, drop it at some point */
         if (u->runtime_path)
@@ -164,9 +181,6 @@ static int user_save_internal(User *u) {
 
         if (u->service_job)
                 fprintf(f, "SERVICE_JOB=%s\n", u->service_job);
-
-        if (u->slice_job)
-                fprintf(f, "SLICE_JOB=%s\n", u->slice_job);
 
         if (u->display)
                 fprintf(f, "DISPLAY=%s\n", u->display->id);
@@ -177,6 +191,10 @@ static int user_save_internal(User *u) {
                         "MONOTONIC="USEC_FMT"\n",
                         u->timestamp.realtime,
                         u->timestamp.monotonic);
+
+        if (u->last_session_timestamp != USEC_INFINITY)
+                fprintf(f, "LAST_SESSION_TIMESTAMP=" USEC_FMT "\n",
+                        u->last_session_timestamp);
 
         if (u->sessions) {
                 Session *i;
@@ -291,161 +309,83 @@ int user_save(User *u) {
         if (!u->started)
                 return 0;
 
-        return user_save_internal (u);
+        return user_save_internal(u);
 }
 
 int user_load(User *u) {
-        _cleanup_free_ char *display = NULL, *realtime = NULL, *monotonic = NULL;
-        Session *s = NULL;
+        _cleanup_free_ char *realtime = NULL, *monotonic = NULL, *stopping = NULL, *last_session_timestamp = NULL;
         int r;
 
         assert(u);
 
         r = parse_env_file(u->state_file, NEWLINE,
                            "SERVICE_JOB", &u->service_job,
-                           "SLICE_JOB",   &u->slice_job,
-                           "DISPLAY",     &display,
+                           "STOPPING",    &stopping,
                            "REALTIME",    &realtime,
                            "MONOTONIC",   &monotonic,
+                           "LAST_SESSION_TIMESTAMP", &last_session_timestamp,
                            NULL);
-        if (r < 0) {
-                if (r == -ENOENT)
-                        return 0;
-
+        if (r == -ENOENT)
+                return 0;
+        if (r < 0)
                 return log_error_errno(r, "Failed to read %s: %m", u->state_file);
+
+        if (stopping) {
+                r = parse_boolean(stopping);
+                if (r < 0)
+                        log_debug_errno(r, "Failed to parse 'STOPPING' boolean: %s", stopping);
+                else
+                        u->stopping = r;
         }
-
-        if (display)
-                s = hashmap_get(u->manager->sessions, display);
-
-        if (s && s->display && display_is_local(s->display))
-                u->display = s;
 
         if (realtime)
-                timestamp_deserialize(realtime, &u->timestamp.realtime);
+                (void) timestamp_deserialize(realtime, &u->timestamp.realtime);
         if (monotonic)
-                timestamp_deserialize(monotonic, &u->timestamp.monotonic);
-
-        return r;
-}
-
-static int user_mkdir_runtime_path(User *u) {
-        int r;
-
-        assert(u);
-
-        r = mkdir_safe_label("/run/user", 0755, 0, 0, false);
-        if (r < 0)
-                return log_error_errno(r, "Failed to create /run/user: %m");
-
-        if (path_is_mount_point(u->runtime_path, NULL, 0) <= 0) {
-                _cleanup_free_ char *t = NULL;
-
-                (void) mkdir_label(u->runtime_path, 0700);
-
-                if (mac_smack_use())
-                        r = asprintf(&t, "mode=0700,smackfsroot=*,uid=" UID_FMT ",gid=" GID_FMT ",size=%zu", u->uid, u->gid, u->manager->runtime_dir_size);
-                else
-                        r = asprintf(&t, "mode=0700,uid=" UID_FMT ",gid=" GID_FMT ",size=%zu", u->uid, u->gid, u->manager->runtime_dir_size);
-                if (r < 0) {
-                        r = log_oom();
-                        goto fail;
-                }
-
-                r = mount("tmpfs", u->runtime_path, "tmpfs", MS_NODEV|MS_NOSUID, t);
-                if (r < 0) {
-                        if (errno != EPERM && errno != EACCES) {
-                                r = log_error_errno(errno, "Failed to mount per-user tmpfs directory %s: %m", u->runtime_path);
-                                goto fail;
-                        }
-
-                        log_debug_errno(errno, "Failed to mount per-user tmpfs directory %s, assuming containerized execution, ignoring: %m", u->runtime_path);
-
-                        r = chmod_and_chown(u->runtime_path, 0700, u->uid, u->gid);
-                        if (r < 0) {
-                                log_error_errno(r, "Failed to change runtime directory ownership and mode: %m");
-                                goto fail;
-                        }
-                }
-
-                r = label_fix(u->runtime_path, 0);
-                if (r < 0)
-                        log_warning_errno(r, "Failed to fix label of '%s', ignoring: %m", u->runtime_path);
-        }
+                (void) timestamp_deserialize(monotonic, &u->timestamp.monotonic);
+        if (last_session_timestamp)
+                (void) timestamp_deserialize(last_session_timestamp, &u->last_session_timestamp);
 
         return 0;
-
-fail:
-        /* Try to clean up, but ignore errors */
-        (void) rmdir(u->runtime_path);
-        return r;
 }
 
-static int user_start_service(User *u) {
+static void user_start_service(User *u) {
         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
-        char *job;
         int r;
 
         assert(u);
+
+        /* Start the service containing the "systemd --user" instance (user@.service). Note that we don't explicitly
+         * start the per-user slice or the systemd-runtime-dir@.service instance, as those are pulled in both by
+         * user@.service and the session scopes as dependencies. */
 
         u->service_job = mfree(u->service_job);
 
-        r = manager_start_unit(
-                        u->manager,
-                        u->service,
-                        &error,
-                        &job);
+        r = manager_start_unit(u->manager, u->service, &error, &u->service_job);
         if (r < 0)
-                /* we don't fail due to this, let's try to continue */
-                log_error_errno(r, "Failed to start user service, ignoring: %s", bus_error_message(&error, r));
-        else
-                u->service_job = job;
-
-        return 0;
+                log_warning_errno(r, "Failed to start user service '%s', ignoring: %s", u->service, bus_error_message(&error, r));
 }
 
 int user_start(User *u) {
-        int r;
-
         assert(u);
 
         if (u->started && !u->stopping)
                 return 0;
 
-        /*
-         * If u->stopping is set, the user is marked for removal and the slice
-         * and service stop-jobs are queued. We have to clear that flag before
-         * queing the start-jobs again. If they succeed, the user object can be
-         * re-used just fine (pid1 takes care of job-ordering and proper
-         * restart), but if they fail, we want to force another user_stop() so
-         * possibly pending units are stopped.
-         * Note that we don't clear u->started, as we have no clue what state
-         * the user is in on failure here. Hence, we pretend the user is
-         * running so it will be properly taken down by GC. However, we clearly
-         * return an error from user_start() in that case, so no further
-         * reference to the user is taken.
-         */
+        /* If u->stopping is set, the user is marked for removal and service stop-jobs are queued. We have to clear
+         * that flag before queing the start-jobs again. If they succeed, the user object can be re-used just fine
+         * (pid1 takes care of job-ordering and proper restart), but if they fail, we want to force another user_stop()
+         * so possibly pending units are stopped. */
         u->stopping = false;
 
-        if (!u->started) {
-                log_debug("New user %s logged in.", u->name);
+        if (!u->started)
+                log_debug("Starting services for new user %s.", u->name);
 
-                /* Make XDG_RUNTIME_DIR */
-                r = user_mkdir_runtime_path(u);
-                if (r < 0)
-                        return r;
-        }
-
-        /* Save the user data so far, because pam_systemd will read the
-         * XDG_RUNTIME_DIR out of it while starting up systemd --user.
-         * We need to do user_save_internal() because we have not
-         * "officially" started yet. */
+        /* Save the user data so far, because pam_systemd will read the XDG_RUNTIME_DIR out of it while starting up
+         * systemd --user.  We need to do user_save_internal() because we have not "officially" started yet. */
         user_save_internal(u);
 
-        /* Spawn user systemd */
-        r = user_start_service(u);
-        if (r < 0)
-                return r;
+        /* Start user@UID.service */
+        user_start_service(u);
 
         if (!u->started) {
                 if (!dual_timestamp_is_set(&u->timestamp))
@@ -460,83 +400,50 @@ int user_start(User *u) {
         return 0;
 }
 
-static int user_stop_slice(User *u) {
+static void user_stop_service(User *u) {
         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
-        char *job;
         int r;
 
         assert(u);
+        assert(u->service);
 
-        r = manager_stop_unit(u->manager, u->slice, &error, &job);
+        /* The reverse of user_start_service(). Note that we only stop user@UID.service here, and let StopWhenUnneeded=
+         * deal with the slice and the user-runtime-dir@.service instance. */
+
+        u->service_job = mfree(u->service_job);
+
+        r = manager_stop_unit(u->manager, u->service, &error, &u->service_job);
         if (r < 0)
-                return log_error_errno(r, "Failed to stop user slice: %s", bus_error_message(&error, r));
-
-        return free_and_replace(u->slice_job, job);
-}
-
-static int user_stop_service(User *u) {
-        _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
-        char *job;
-        int r;
-
-        assert(u);
-
-        r = manager_stop_unit(u->manager, u->service, &error, &job);
-        if (r < 0)
-                return log_error_errno(r, "Failed to stop user service: %s", bus_error_message(&error, r));
-
-        return free_and_replace(u->service_job, job);
-}
-
-static int user_remove_runtime_path(User *u) {
-        int r;
-
-        assert(u);
-
-        r = rm_rf(u->runtime_path, 0);
-        if (r < 0)
-                log_error_errno(r, "Failed to remove runtime directory %s: %m", u->runtime_path);
-
-        /* Ignore cases where the directory isn't mounted, as that's
-         * quite possible, if we lacked the permissions to mount
-         * something */
-        r = umount2(u->runtime_path, MNT_DETACH);
-        if (r < 0 && errno != EINVAL && errno != ENOENT)
-                log_error_errno(errno, "Failed to unmount user runtime directory %s: %m", u->runtime_path);
-
-        r = rm_rf(u->runtime_path, REMOVE_ROOT);
-        if (r < 0)
-                log_error_errno(r, "Failed to remove runtime directory %s: %m", u->runtime_path);
-
-        return r;
+                log_warning_errno(r, "Failed to stop user service '%s', ignoring: %s", u->service, bus_error_message(&error, r));
 }
 
 int user_stop(User *u, bool force) {
         Session *s;
-        int r = 0, k;
+        int r = 0;
         assert(u);
 
-        /* Stop jobs have already been queued */
-        if (u->stopping) {
+        /* This is called whenever we begin with tearing down a user record. It's called in two cases: explicit API
+         * request to do so via the bus (in which case 'force' is true) and automatically due to GC, if there's no
+         * session left pinning it (in which case 'force' is false). Note that this just initiates tearing down of the
+         * user, the User object will remain in memory until user_finalize() is called, see below. */
+
+        if (!u->started)
+                return 0;
+
+        if (u->stopping) { /* Stop jobs have already been queued */
                 user_save(u);
-                return r;
+                return 0;
         }
 
         LIST_FOREACH(sessions_by_user, s, u->sessions) {
+                int k;
+
                 k = session_stop(s, force);
                 if (k < 0)
                         r = k;
         }
 
-        /* Kill systemd */
-        k = user_stop_service(u);
-        if (k < 0)
-                r = k;
-
-        /* Kill cgroup */
-        k = user_stop_slice(u);
-        if (k < 0)
-                r = k;
+        user_stop_service(u);
 
         u->stopping = true;
 
@@ -551,6 +458,9 @@ int user_finalize(User *u) {
 
         assert(u);
 
+        /* Called when the user is really ready to be freed, i.e. when all unit stop jobs and suchlike for it are
+         * done. This is called as a result of an earlier user_done() when all jobs are completed. */
+
         if (u->started)
                 log_debug("User %s logged out.", u->name);
 
@@ -559,11 +469,6 @@ int user_finalize(User *u) {
                 if (k < 0)
                         r = k;
         }
-
-        /* Kill XDG_RUNTIME_DIR */
-        k = user_remove_runtime_path(u);
-        if (k < 0)
-                r = k;
 
         /* Clean SysV + POSIX IPC objects, but only if this is not a system user. Background: in many setups cronjobs
          * are run in full PAM and thus logind sessions, even if the code run doesn't belong to actual users but to
@@ -577,7 +482,7 @@ int user_finalize(User *u) {
                         r = k;
         }
 
-        unlink(u->state_file);
+        (void) unlink(u->state_file);
         user_add_to_gc_queue(u);
 
         if (u->started) {
@@ -637,25 +542,46 @@ int user_check_linger_file(User *u) {
         return access(p, F_OK) >= 0;
 }
 
-bool user_check_gc(User *u, bool drop_not_started) {
+bool user_may_gc(User *u, bool drop_not_started) {
+        int r;
+
         assert(u);
 
         if (drop_not_started && !u->started)
-                return false;
+                return true;
 
         if (u->sessions)
-                return true;
+                return false;
 
+        if (u->last_session_timestamp != USEC_INFINITY) {
+                /* All sessions have been closed. Let's see if we shall leave the user record around for a bit */
+
+                if (u->manager->user_stop_delay == USEC_INFINITY)
+                        return false; /* Leave it around forever! */
+                if (u->manager->user_stop_delay > 0 &&
+                    now(CLOCK_MONOTONIC) < usec_add(u->last_session_timestamp, u->manager->user_stop_delay))
+                        return false; /* Leave it around for a bit longer. */
+        }
+
+        /* Is this a user that shall stay around forever? */
         if (user_check_linger_file(u) > 0)
-                return true;
+                return false;
 
-        if (u->slice_job && manager_job_is_active(u->manager, u->slice_job))
-                return true;
+        /* Check if our job is still pending */
+        if (u->service_job) {
+                _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
 
-        if (u->service_job && manager_job_is_active(u->manager, u->service_job))
-                return true;
+                r = manager_job_is_active(u->manager, u->service_job, &error);
+                if (r < 0)
+                        log_debug_errno(r, "Failed to determine whether job '%s' is pending, ignoring: %s", u->service_job, bus_error_message(&error, r));
+                if (r != 0)
+                        return false;
+        }
 
-        return false;
+        /* Note that we don't care if the three units we manage for each user object are up or not, as we are managing
+         * their state rather than tracking it. */
+
+        return true;
 }
 
 void user_add_to_gc_queue(User *u) {
@@ -676,7 +602,7 @@ UserState user_get_state(User *u) {
         if (u->stopping)
                 return USER_CLOSING;
 
-        if (!u->started || u->slice_job || u->service_job)
+        if (!u->started || u->service_job)
                 return USER_OPENING;
 
         if (u->sessions) {
@@ -771,6 +697,59 @@ void user_elect_display(User *u) {
                         log_debug("Choosing session %s in preference to %s", s->id, u->display ? u->display->id : "-");
                         u->display = s;
                 }
+        }
+}
+
+static int user_stop_timeout_callback(sd_event_source *es, uint64_t usec, void *userdata) {
+        User *u = userdata;
+
+        assert(u);
+        user_add_to_gc_queue(u);
+
+        return 0;
+}
+
+void user_update_last_session_timer(User *u) {
+        int r;
+
+        assert(u);
+
+        if (u->sessions) {
+                /* There are sessions, turn off the timer */
+                u->last_session_timestamp = USEC_INFINITY;
+                u->timer_event_source = sd_event_source_unref(u->timer_event_source);
+                return;
+        }
+
+        if (u->last_session_timestamp != USEC_INFINITY)
+                return; /* Timer already started */
+
+        u->last_session_timestamp = now(CLOCK_MONOTONIC);
+
+        assert(!u->timer_event_source);
+
+        if (u->manager->user_stop_delay == 0 || u->manager->user_stop_delay == USEC_INFINITY)
+                return;
+
+        if (sd_event_get_state(u->manager->event) == SD_EVENT_FINISHED) {
+                log_debug("Not allocating user stop timeout, since we are already exiting.");
+                return;
+        }
+
+        r = sd_event_add_time(u->manager->event,
+                              &u->timer_event_source,
+                              CLOCK_MONOTONIC,
+                              usec_add(u->last_session_timestamp, u->manager->user_stop_delay), 0,
+                              user_stop_timeout_callback, u);
+        if (r < 0)
+                log_warning_errno(r, "Failed to enqueue user stop event source, ignoring: %m");
+
+        if (_unlikely_(log_get_max_level() >= LOG_DEBUG)) {
+                char s[FORMAT_TIMESPAN_MAX];
+
+                log_debug("Last session of user '%s' logged out, terminating user context in %s.",
+                          u->name,
+                          format_timespan(s, sizeof(s), u->manager->user_stop_delay, USEC_PER_MSEC));
         }
 }
 

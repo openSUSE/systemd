@@ -42,18 +42,23 @@
 #include "cgroup-util.h"
 #include "terminal-util.h"
 
-static void manager_free(Manager *m);
+static Manager* manager_unref(Manager *m);
+DEFINE_TRIVIAL_CLEANUP_FUNC(Manager*, manager_unref);
 
-static Manager *manager_new(void) {
-        Manager *m;
+static int manager_new(Manager **ret) {
+        _cleanup_(manager_unrefp) Manager *m = NULL;
         int r;
 
-        m = new0(Manager, 1);
-        if (!m)
-                return NULL;
+        assert(ret);
 
-        m->console_active_fd = -1;
-        m->reserve_vt_fd = -1;
+        m = new(Manager, 1);
+        if (!m)
+                return -ENOMEM;
+
+        *m = (Manager) {
+                .console_active_fd = -1,
+                .reserve_vt_fd = -1,
+        };
 
         m->idle_action_not_before_usec = now(CLOCK_MONOTONIC);
 
@@ -68,28 +73,25 @@ static Manager *manager_new(void) {
         m->session_units = hashmap_new(&string_hash_ops);
 
         if (!m->devices || !m->seats || !m->sessions || !m->users || !m->inhibitors || !m->buttons || !m->user_units || !m->session_units)
-                goto fail;
+                return -ENOMEM;
 
         m->udev = udev_new();
         if (!m->udev)
-                goto fail;
+                return -errno;
 
         r = sd_event_default(&m->event);
         if (r < 0)
-                goto fail;
+                return r;
 
-        sd_event_set_watchdog(m->event, true);
+        (void) sd_event_set_watchdog(m->event, true);
 
         manager_reset_config(m);
 
-        return m;
-
-fail:
-        manager_free(m);
-        return NULL;
+        *ret = TAKE_PTR(m);
+        return 0;
 }
 
-static void manager_free(Manager *m) {
+static Manager* manager_unref(Manager *m) {
         Session *session;
         User *u;
         Device *d;
@@ -98,7 +100,7 @@ static void manager_free(Manager *m) {
         Button *b;
 
         if (!m)
-                return;
+                return NULL;
 
         while ((session = hashmap_first(m->sessions)))
                 session_free(session);
@@ -168,7 +170,8 @@ static void manager_free(Manager *m) {
         free(m->wall_message);
         free(m->action_job);
         free(m->user_tasks_max);
-        free(m);
+
+        return mfree(m);
 }
 
 static int manager_enumerate_devices(Manager *m) {
@@ -1006,7 +1009,7 @@ static void manager_gc(Manager *m, bool drop_not_started) {
                 LIST_REMOVE(gc_queue, m->seat_gc_queue, seat);
                 seat->in_gc_queue = false;
 
-                if (!seat_check_gc(seat, drop_not_started)) {
+                if (seat_may_gc(seat, drop_not_started)) {
                         seat_stop(seat, false);
                         seat_free(seat);
                 }
@@ -1017,15 +1020,15 @@ static void manager_gc(Manager *m, bool drop_not_started) {
                 session->in_gc_queue = false;
 
                 /* First, if we are not closing yet, initiate stopping */
-                if (!session_check_gc(session, drop_not_started) &&
+                if (session_may_gc(session, drop_not_started) &&
                     session_get_state(session) != SESSION_CLOSING)
-                        session_stop(session, false);
+                        (void) session_stop(session, false);
 
                 /* Normally, this should make the session referenced
                  * again, if it doesn't then let's get rid of it
                  * immediately */
-                if (!session_check_gc(session, drop_not_started)) {
-                        session_finalize(session);
+                if (session_may_gc(session, drop_not_started)) {
+                        (void) session_finalize(session);
                         session_free(session);
                 }
         }
@@ -1035,12 +1038,12 @@ static void manager_gc(Manager *m, bool drop_not_started) {
                 user->in_gc_queue = false;
 
                 /* First step: queue stop jobs */
-                if (!user_check_gc(user, drop_not_started))
-                        user_stop(user, false);
+                if (user_may_gc(user, drop_not_started))
+                        (void) user_stop(user, false);
 
                 /* Second step: finalize user */
-                if (!user_check_gc(user, drop_not_started)) {
-                        user_finalize(user);
+                if (user_may_gc(user, drop_not_started)) {
+                        (void) user_finalize(user);
                         user_free(user);
                 }
         }
@@ -1194,13 +1197,13 @@ static int manager_startup(Manager *m) {
 
         /* And start everything */
         HASHMAP_FOREACH(seat, m->seats, i)
-                seat_start(seat);
+                (void) seat_start(seat);
 
         HASHMAP_FOREACH(user, m->users, i)
-                user_start(user);
+                (void) user_start(user);
 
         HASHMAP_FOREACH(session, m->sessions, i)
-                session_start(session);
+                (void) session_start(session, NULL);
 
         HASHMAP_FOREACH(inhibitor, m->inhibitors, i)
                 inhibitor_start(inhibitor);
@@ -1240,7 +1243,7 @@ static int manager_run(Manager *m) {
 }
 
 int main(int argc, char *argv[]) {
-        Manager *m = NULL;
+        _cleanup_(manager_unrefp) Manager *m = NULL;
         int r;
 
         log_set_target(LOG_TARGET_AUTO);
@@ -1271,13 +1274,13 @@ int main(int argc, char *argv[]) {
         mkdir_label("/run/systemd/users", 0755);
         mkdir_label("/run/systemd/sessions", 0755);
 
-        m = manager_new();
-        if (!m) {
-                r = log_oom();
+        r = manager_new(&m);
+        if (r < 0) {
+                log_error_errno(r, "Failed to allocate manager object: %m");
                 goto finish;
         }
 
-        manager_parse_config_file(m);
+        (void) manager_parse_config_file(m);
 
         r = manager_startup(m);
         if (r < 0) {
@@ -1287,20 +1290,18 @@ int main(int argc, char *argv[]) {
 
         log_debug("systemd-logind running as pid "PID_FMT, getpid());
 
-        sd_notify(false,
-                  "READY=1\n"
-                  "STATUS=Processing requests...");
+        (void) sd_notify(false,
+                         "READY=1\n"
+                         "STATUS=Processing requests...");
 
         r = manager_run(m);
 
         log_debug("systemd-logind stopped as pid "PID_FMT, getpid());
 
+        (void) sd_notify(false,
+                         "STOPPING=1\n"
+                         "STATUS=Shutting down...");
+
 finish:
-        sd_notify(false,
-                  "STOPPING=1\n"
-                  "STATUS=Shutting down...");
-
-        manager_free(m);
-
         return r < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
 }

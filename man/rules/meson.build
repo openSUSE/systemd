@@ -169,6 +169,7 @@ manpages = [
    'sd_bus_error_get_errno',
    'sd_bus_error_has_name',
    'sd_bus_error_is_set',
+   'sd_bus_error_move',
    'sd_bus_error_set',
    'sd_bus_error_set_const',
    'sd_bus_error_set_errno',
@@ -761,6 +762,7 @@ manpages = [
   ''],
  ['udev_new', '3', ['udev_ref', 'udev_unref'], ''],
  ['udevadm', '8', [], ''],
+ ['user@.service', '5', ['user-runtime-dir@.service'], ''],
  ['vconsole.conf', '5', [], 'ENABLE_VCONSOLE']
 ]
 # Really, do not edit.

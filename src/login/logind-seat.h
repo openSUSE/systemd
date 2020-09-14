@@ -45,8 +45,10 @@ struct Seat {
         LIST_FIELDS(Seat, gc_queue);
 };
 
-Seat *seat_new(Manager *m, const char *id);
-void seat_free(Seat *s);
+int seat_new(Seat **ret, Manager *m, const char *id);
+Seat* seat_free(Seat *s);
+
+DEFINE_TRIVIAL_CLEANUP_FUNC(Seat *, seat_free);
 
 int seat_save(Seat *s);
 int seat_load(Seat *s);
@@ -78,7 +80,7 @@ int seat_start(Seat *s);
 int seat_stop(Seat *s, bool force);
 int seat_stop_sessions(Seat *s, bool force);
 
-bool seat_check_gc(Seat *s, bool drop_not_started);
+bool seat_may_gc(Seat *s, bool drop_not_started);
 void seat_add_to_gc_queue(Seat *s);
 
 bool seat_name_is_valid(const char *name);

@@ -569,6 +569,7 @@ nodist_systemunit_DATA = \
 	units/emergency.service \
 	units/rescue.service \
 	units/user@.service \
+	units/user-runtime-dir@.service \
 	units/systemd-suspend.service \
 	units/systemd-halt.service \
 	units/systemd-poweroff.service \
@@ -645,7 +646,8 @@ EXTRA_DIST += \
 	units/systemd-fsck@.service.in \
 	units/systemd-fsck-root.service.in \
 	units/systemd-machine-id-commit.service.in \
-	units/user@.service.m4.in \
+	units/user@.service.in \
+	units/user-runtime-dir@.service.in \
 	units/debug-shell.service.in \
 	units/systemd-suspend.service.in \
 	units/quotaon.service.in \
@@ -654,8 +656,7 @@ EXTRA_DIST += \
 	units/initrd-udevadm-cleanup-db.service.in \
 	units/initrd-switch-root.service.in \
 	units/systemd-nspawn@.service.in \
-	units/systemd-update-done.service.in \
-	units/tmp.mount.m4
+	units/systemd-update-done.service.in
 
 if HAVE_SYSV_COMPAT
 nodist_systemunit_DATA += \
@@ -5861,7 +5862,7 @@ gperf_gperf_sources += \
 	src/resolve/resolved-gperf.gperf
 
 EXTRA_DIST += \
-	units/systemd-resolved.service.m4.in \
+	units/systemd-resolved.service.in \
 	src/resolve/resolved.conf.in
 
 # ------------------------------------------------------------------------------
@@ -6060,7 +6061,7 @@ gperf_gperf_sources += \
 EXTRA_DIST += \
 	src/network/systemd-networkd.rules \
 	src/network/systemd-networkd.pkla \
-	units/systemd-networkd.service.m4.in \
+	units/systemd-networkd.service.in \
 	units/systemd-networkd-wait-online.service.in \
 	test/networkd-test.py \
 	test/test-exec-deserialization.py
@@ -6286,6 +6287,20 @@ endif
 
 EXTRA_DIST += \
 	units/systemd-user-sessions.service.in
+
+# ------------------------------------------------------------------------------
+if ENABLE_LOGIND
+systemd_user_runtime_dir_SOURCES = \
+	src/login/user-runtime-dir.c \
+	src/login/logind.h
+
+systemd_user_runtime_dir_LDADD = \
+	liblogind-core.la \
+	libsystemd-shared.la
+
+rootlibexec_PROGRAMS += \
+	systemd-user-runtime-dir
+endif
 
 # ------------------------------------------------------------------------------
 EXTRA_DIST += \

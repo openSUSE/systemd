@@ -37,33 +37,42 @@
 #include "terminal-util.h"
 #include "util.h"
 
-Seat *seat_new(Manager *m, const char *id) {
-        Seat *s;
+int seat_new(Seat** ret, Manager *m, const char *id) {
+        _cleanup_(seat_freep) Seat *s = NULL;
+        int r;
 
+        assert(ret);
         assert(m);
         assert(id);
 
-        s = new0(Seat, 1);
+        if (!seat_name_is_valid(id))
+                return -EINVAL;
+
+        s = new(Seat, 1);
         if (!s)
-                return NULL;
+                return -ENOMEM;
+
+        *s = (Seat) {
+                .manager = m,
+        };
 
         s->state_file = strappend("/run/systemd/seats/", id);
         if (!s->state_file)
-                return mfree(s);
+                return -ENOMEM;
 
         s->id = basename(s->state_file);
-        s->manager = m;
 
-        if (hashmap_put(m->seats, s->id, s) < 0) {
-                free(s->state_file);
-                return mfree(s);
-        }
+        r = hashmap_put(m->seats, s->id, s);
+        if (r < 0)
+                return r;
 
-        return s;
+        *ret = TAKE_PTR(s);
+        return 0;
 }
 
-void seat_free(Seat *s) {
-        assert(s);
+Seat* seat_free(Seat *s) {
+        if (!s)
+                return NULL;
 
         if (s->in_gc_queue)
                 LIST_REMOVE(gc_queue, s->manager->seat_gc_queue, s);
@@ -80,7 +89,8 @@ void seat_free(Seat *s) {
 
         free(s->positions);
         free(s->state_file);
-        free(s);
+
+        return mfree(s);
 }
 
 int seat_save(Seat *s) {
@@ -247,7 +257,7 @@ int seat_set_active(Seat *s, Session *session) {
                 session_send_changed(old_active, "Active", NULL);
         }
 
-        seat_apply_acls(s, old_active);
+        (void) seat_apply_acls(s, old_active);
 
         if (session && session->started) {
                 session_send_changed(session, "Active", NULL);
@@ -437,7 +447,7 @@ int seat_start(Seat *s) {
 }
 
 int seat_stop(Seat *s, bool force) {
-        int r = 0;
+        int r;
 
         assert(s);
 
@@ -448,9 +458,9 @@ int seat_stop(Seat *s, bool force) {
                            LOG_MESSAGE("Removed seat %s.", s->id),
                            NULL);
 
-        seat_stop_sessions(s, force);
+        r = seat_stop_sessions(s, force);
 
-        unlink(s->state_file);
+        (void) unlink(s->state_file);
         seat_add_to_gc_queue(s);
 
         if (s->started)
@@ -636,16 +646,16 @@ int seat_get_idle_hint(Seat *s, dual_timestamp *t) {
         return idle_hint;
 }
 
-bool seat_check_gc(Seat *s, bool drop_not_started) {
+bool seat_may_gc(Seat *s, bool drop_not_started) {
         assert(s);
 
         if (drop_not_started && !s->started)
-                return false;
-
-        if (seat_is_seat0(s))
                 return true;
 
-        return seat_has_master_device(s);
+        if (seat_is_seat0(s))
+                return false;
+
+        return !seat_has_master_device(s);
 }
 
 void seat_add_to_gc_queue(Seat *s) {

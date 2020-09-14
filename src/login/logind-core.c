@@ -36,10 +36,14 @@
 #include "user-util.h"
 
 void manager_reset_config(Manager *m) {
+        assert(m);
+
         m->n_autovts = 6;
         m->reserve_vt = 6;
         m->remove_ipc = false;
         m->inhibit_delay_max = 5 * USEC_PER_SEC;
+        m->user_stop_delay = 10 * USEC_PER_SEC;
+
         m->handle_power_key = HANDLE_POWEROFF;
         m->handle_suspend_key = HANDLE_SUSPEND;
         m->handle_hibernate_key = HANDLE_HIBERNATE;
@@ -100,15 +104,16 @@ int manager_add_device(Manager *m, const char *sysfs, bool master, Device **_dev
 
 int manager_add_seat(Manager *m, const char *id, Seat **_seat) {
         Seat *s;
+        int r;
 
         assert(m);
         assert(id);
 
         s = hashmap_get(m->seats, id);
         if (!s) {
-                s = seat_new(m, id);
-                if (!s)
-                        return -ENOMEM;
+                r = seat_new(&s, m, id);
+                if (r < 0)
+                        return r;
         }
 
         if (_seat)
@@ -119,15 +124,16 @@ int manager_add_seat(Manager *m, const char *id, Seat **_seat) {
 
 int manager_add_session(Manager *m, const char *id, Session **_session) {
         Session *s;
+        int r;
 
         assert(m);
         assert(id);
 
         s = hashmap_get(m->sessions, id);
         if (!s) {
-                s = session_new(m, id);
-                if (!s)
-                        return -ENOMEM;
+                r = session_new(&s, m, id);
+                if (r < 0)
+                        return r;
         }
 
         if (_session)
