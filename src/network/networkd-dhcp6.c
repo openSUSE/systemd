@@ -160,7 +160,8 @@ static int dhcp6_pd_remove_old(Link *link, bool force) {
                 if (k < 0)
                         r = k;
 
-                (void) sd_radv_remove_prefix(link->radv, &route->dst.in6, 64);
+                if (link->radv)
+                        (void) sd_radv_remove_prefix(link->radv, &route->dst.in6, 64);
                 dhcp6_pd_free(hashmap_get(link->manager->dhcp6_prefixes, &route->dst.in6));
         }
 
@@ -201,7 +202,8 @@ int dhcp6_pd_remove(Link *link) {
                 if (k < 0)
                         r = k;
 
-                (void) sd_radv_remove_prefix(link->radv, &route->dst.in6, 64);
+                if (link->radv)
+                        (void) sd_radv_remove_prefix(link->radv, &route->dst.in6, 64);
                 dhcp6_pd_free(hashmap_get(link->manager->dhcp6_prefixes, &route->dst.in6));
         }
 
@@ -992,7 +994,7 @@ static int dhcp6_update_address(
         addr->cinfo.ifa_valid = lifetime_valid;
 
         (void) in_addr_to_string(addr->family, &addr->in_addr, &buffer);
-        log_link_full(link, set_contains(link->dhcp6_addresses, addr) ? LOG_DEBUG : LOG_INFO, 0,
+        log_link_full(link, set_contains(link->dhcp6_addresses, addr) ? LOG_DEBUG : LOG_INFO,
                       "DHCPv6 address %s/%u timeout preferred %d valid %d",
                       strna(buffer), addr->prefixlen, lifetime_preferred, lifetime_valid);
 

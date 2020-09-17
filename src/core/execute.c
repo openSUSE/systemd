@@ -1072,26 +1072,42 @@ static int enforce_groups(gid_t gid, const gid_t *supplementary_gids, int ngids)
         return 0;
 }
 
+static int set_securebits(int bits, int mask) {
+        int current, applied;
+        current = prctl(PR_GET_SECUREBITS);
+        if (current < 0)
+                return -errno;
+        /* Clear all securebits defined in mask and set bits */
+        applied = (current & ~mask) | bits;
+        if (current == applied)
+                return 0;
+        if (prctl(PR_SET_SECUREBITS, applied) < 0)
+                return -errno;
+        return 1;
+}
+
 static int enforce_user(const ExecContext *context, uid_t uid) {
         assert(context);
+        int r;
 
         if (!uid_is_valid(uid))
                 return 0;
 
         /* Sets (but doesn't look up) the uid and make sure we keep the
-         * capabilities while doing so. */
+         * capabilities while doing so. For setting secure bits the capability CAP_SETPCAP is
+         * required, so we also need keep-caps in this case.
+         */
 
-        if (context->capability_ambient_set != 0) {
+        if (context->capability_ambient_set != 0 || context->secure_bits != 0) {
 
                 /* First step: If we need to keep capabilities but
                  * drop privileges we need to make sure we keep our
                  * caps, while we drop privileges. */
                 if (uid != 0) {
-                        int sb = context->secure_bits | 1<<SECURE_KEEP_CAPS;
-
-                        if (prctl(PR_GET_SECUREBITS) != sb)
-                                if (prctl(PR_SET_SECUREBITS, sb) < 0)
-                                        return -errno;
+                        /* Add KEEP_CAPS to the securebits */
+                        r = set_securebits(1<<SECURE_KEEP_CAPS, 0);
+                        if (r < 0)
+                                return r;
                 }
         }
 
@@ -3779,8 +3795,16 @@ static int exec_child(
                         }
                 }
 
-                /* This is done before enforce_user, but ambient set
-                 * does not survive over setresuid() if keep_caps is not set. */
+                /* Ambient capabilities are cleared during setresuid() (in enforce_user()) even with
+                 * keep-caps set.
+                 * To be able to raise the ambient capabilities after setresuid() they have to be
+                 * added to the inherited set and keep caps has to be set (done in enforce_user()).
+                 * After setresuid() the ambient capabilities can be raised as they are present in
+                 * the permitted and inhertiable set. However it is possible that someone wants to
+                 * set ambient capabilities without changing the user, so we also set the ambient
+                 * capabilities here.
+                 * The requested ambient capabilities are raised in the inheritable set if the
+                 * second argument is true. */
                 if (!needs_ambient_hack) {
                         r = capability_ambient_set_apply(context->capability_ambient_set, true);
                         if (r < 0) {
@@ -3806,21 +3830,12 @@ static int exec_child(
                         if (!needs_ambient_hack &&
                             context->capability_ambient_set != 0) {
 
-                                /* Fix the ambient capabilities after user change. */
+                                /* Raise the ambient capabilities after user change. */
                                 r = capability_ambient_set_apply(context->capability_ambient_set, false);
                                 if (r < 0) {
                                         *exit_status = EXIT_CAPABILITIES;
                                         return log_unit_error_errno(unit, r, "Failed to apply ambient capabilities (after UID change): %m");
                                 }
-
-                                /* If we were asked to change user and ambient capabilities
-                                 * were requested, we had to add keep-caps to the securebits
-                                 * so that we would maintain the inherited capability set
-                                 * through the setresuid(). Make sure that the bit is added
-                                 * also to the context secure_bits so that we don't try to
-                                 * drop the bit away next. */
-
-                                secure_bits |= 1<<SECURE_KEEP_CAPS;
                         }
                 }
         }
@@ -3862,12 +3877,27 @@ static int exec_child(
 #endif
 
                 /* PR_GET_SECUREBITS is not privileged, while PR_SET_SECUREBITS is. So to suppress potential EPERMs
-                 * we'll try not to call PR_SET_SECUREBITS unless necessary. */
-                if (prctl(PR_GET_SECUREBITS) != secure_bits)
+                 * we'll try not to call PR_SET_SECUREBITS unless necessary. Setting securebits requires
+                 * CAP_SETPCAP. */
+                if (prctl(PR_GET_SECUREBITS) != secure_bits) {
+                        /* CAP_SETPCAP is required to set securebits. This capabilitiy is raised into the
+                         * effective set here.
+                         * The effective set is overwritten during execve  with the following  values:
+                         * - ambient set (for non-root processes)
+                         * - (inheritable | bounding) set for root processes)
+                         *
+                         * Hence there is no security impact to raise it in the effective set before execve
+                         */
+                        r = capability_gain_cap_setpcap(NULL);
+                        if (r < 0) {
+                                *exit_status = EXIT_CAPABILITIES;
+                                return log_unit_error_errno(unit, r, "Failed to gain CAP_SETPCAP for setting secure bits");
+                        }
                         if (prctl(PR_SET_SECUREBITS, secure_bits) < 0) {
                                 *exit_status = EXIT_SECUREBITS;
                                 return log_unit_error_errno(unit, errno, "Failed to set process secure bits: %m");
                         }
+                }
 
                 if (context_has_no_new_privileges(context))
                         if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) < 0) {
@@ -5715,8 +5745,13 @@ int exec_runtime_deserialize_one(Manager *m, const char *value, FDSet *fds) {
 
                 n = strcspn(v, " ");
                 buf = strndupa(v, n);
-                if (safe_atoi(buf, &fdpair[0]) < 0 || !fdset_contains(fds, fdpair[0]))
-                        return log_debug("Unable to process exec-runtime netns fd specification.");
+
+                r = safe_atoi(buf, &fdpair[0]);
+                if (r < 0)
+                        return log_debug_errno(r, "Unable to parse exec-runtime specification netns-socket-0=%s: %m", buf);
+                if (!fdset_contains(fds, fdpair[0]))
+                        return log_debug_errno(SYNTHETIC_ERRNO(EBADF),
+                                               "exec-runtime specification netns-socket-0= refers to unknown fd %d: %m", fdpair[0]);
                 fdpair[0] = fdset_remove(fds, fdpair[0]);
                 if (v[n] != ' ')
                         goto finalize;
@@ -5729,8 +5764,12 @@ int exec_runtime_deserialize_one(Manager *m, const char *value, FDSet *fds) {
 
                 n = strcspn(v, " ");
                 buf = strndupa(v, n);
-                if (safe_atoi(buf, &fdpair[1]) < 0 || !fdset_contains(fds, fdpair[1]))
-                        return log_debug("Unable to process exec-runtime netns fd specification.");
+                r = safe_atoi(buf, &fdpair[1]);
+                if (r < 0)
+                        return log_debug_errno(r, "Unable to parse exec-runtime specification netns-socket-1=%s: %m", buf);
+                if (!fdset_contains(fds, fdpair[0]))
+                        return log_debug_errno(SYNTHETIC_ERRNO(EBADF),
+                                               "exec-runtime specification netns-socket-1= refers to unknown fd %d: %m", fdpair[1]);
                 fdpair[1] = fdset_remove(fds, fdpair[1]);
         }
 
