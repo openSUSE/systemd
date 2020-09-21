@@ -1352,7 +1352,7 @@ static int listen_fds(int *rctrl, int *rnetlink) {
 
 /*
  * read the kernel command line, in case we need to get into debug mode
- *   udev.log_priority=<level>                 syslog priority
+ *   udev.log_level=<level>                    syslog priority
  *   udev.children_max=<number of workers>     events are fully serialized if set to 1
  *   udev.exec_delay=<number of seconds>       delay execution of every executed program
  *   udev.event_timeout=<number of seconds>    seconds to wait before terminating an event
@@ -1374,7 +1374,7 @@ static int parse_proc_cmdline_item(const char *key, const char *value) {
         else
                 return 0;
 
-        if (STR_IN_SET(key, "log-priority", "log_priority")) {
+        if (STR_IN_SET(key, "log-priority", "log_priority", "log-level", "log_level")) {
                 int prio;
 
                 prio = util_log_priority(value);
