@@ -1352,10 +1352,10 @@ static int listen_fds(int *rctrl, int *rnetlink) {
 
 /*
  * read the kernel command line, in case we need to get into debug mode
- *   udev.log-priority=<level>                 syslog priority
- *   udev.children-max=<number of workers>     events are fully serialized if set to 1
- *   udev.exec-delay=<number of seconds>       delay execution of every executed program
- *   udev.event-timeout=<number of seconds>    seconds to wait before terminating an event
+ *   udev.log_priority=<level>                 syslog priority
+ *   udev.children_max=<number of workers>     events are fully serialized if set to 1
+ *   udev.exec_delay=<number of seconds>       delay execution of every executed program
+ *   udev.event_timeout=<number of seconds>    seconds to wait before terminating an event
  */
 static int parse_proc_cmdline_item(const char *key, const char *value) {
         const char *full_key = key;
@@ -1374,22 +1374,22 @@ static int parse_proc_cmdline_item(const char *key, const char *value) {
         else
                 return 0;
 
-        if (streq(key, "log-priority")) {
+        if (STR_IN_SET(key, "log-priority", "log_priority")) {
                 int prio;
 
                 prio = util_log_priority(value);
                 if (prio < 0)
                         goto invalid;
                 log_set_max_level(prio);
-        } else if (streq(key, "children-max")) {
+        } else if (STR_IN_SET(key, "children-max", "children_max")) {
                 r = safe_atou(value, &arg_children_max);
                 if (r < 0)
                         goto invalid;
-        } else if (streq(key, "exec-delay")) {
+        } else if (STR_IN_SET(key, "exec-delay", "exec_delay")) {
                 r = safe_atoi(value, &arg_exec_delay);
                 if (r < 0)
                         goto invalid;
-        } else if (streq(key, "event-timeout")) {
+        } else if (STR_IN_SET(key, "event-timeout", "event_timeout")) {
                 r = safe_atou64(value, &arg_event_timeout_usec);
                 if (r < 0)
                         goto invalid;
