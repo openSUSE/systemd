@@ -189,7 +189,7 @@ int link_load_one(link_config_ctx *ctx, const char *filename) {
 static bool enable_name_policy(void) {
         bool b;
 
-        return proc_cmdline_get_bool("net.ifnames", &b) <= 0 || b;
+        return proc_cmdline_get_bool("net.ifnames", &b) > 0 && b;
 }
 
 static int link_unsigned_attribute(sd_device *device, const char *attr, unsigned *type) {
@@ -217,7 +217,7 @@ int link_config_load(link_config_ctx *ctx) {
 
         if (!enable_name_policy()) {
                 ctx->enable_name_policy = false;
-                log_info("Network interface NamePolicy= disabled on kernel command line, ignoring.");
+                log_info("Network interface NamePolicy= disabled by default.");
         }
 
         /* update timestamp */
