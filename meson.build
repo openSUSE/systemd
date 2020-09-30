@@ -209,7 +209,7 @@ conf.set_quoted('SYSTEM_CONFIG_UNIT_DIR',                     join_paths(pkgsysc
 conf.set_quoted('SYSTEM_DATA_UNIT_PATH',                      systemunitdir)
 conf.set_quoted('SYSTEM_SYSVINIT_PATH',                       sysvinit_path)
 conf.set_quoted('SYSTEM_SYSVRCND_PATH',                       sysvrcnd_path)
-conf.set_quoted('RC_LOCAL_SCRIPT_PATH_START',                 get_option('rc-local'))
+conf.set_quoted('RC_LOCAL_PATH',                              get_option('rc-local'))
 
 conf.set('ANSI_OK_COLOR',                                     'ANSI_' + get_option('ok-color').underscorify().to_upper())
 
@@ -227,6 +227,7 @@ conf.set_quoted('SYSTEMCTL_BINARY_PATH',                      join_paths(rootbin
 conf.set_quoted('SYSTEMD_TTY_ASK_PASSWORD_AGENT_BINARY_PATH', join_paths(rootbindir, 'systemd-tty-ask-password-agent'))
 conf.set_quoted('SYSTEMD_STDIO_BRIDGE_BINARY_PATH',           join_paths(bindir, 'systemd-stdio-bridge'))
 conf.set_quoted('ROOTPREFIX',                                 rootprefixdir)
+conf.set_quoted('ROOTPREFIX_NOSLASH',                         rootprefixdir_noslash)
 conf.set_quoted('RANDOM_SEED_DIR',                            randomseeddir)
 conf.set_quoted('RANDOM_SEED',                                join_paths(randomseeddir, 'random-seed'))
 conf.set_quoted('SYSTEMD_CRYPTSETUP_PATH',                    join_paths(rootlibexecdir, 'systemd-cryptsetup'))
@@ -295,7 +296,7 @@ substs.set('CERTIFICATEROOT',                                 get_option('certif
 substs.set('RANDOM_SEED',                                     join_paths(randomseeddir, 'random-seed'))
 substs.set('SYSTEM_SYSVINIT_PATH',                            sysvinit_path)
 substs.set('SYSTEM_SYSVRCND_PATH',                            sysvrcnd_path)
-substs.set('RC_LOCAL_SCRIPT_PATH_START',                      get_option('rc-local'))
+substs.set('RC_LOCAL_PATH',                                   get_option('rc-local'))
 substs.set('MEMORY_ACCOUNTING_DEFAULT',                       memory_accounting_default ? 'yes' : 'no')
 substs.set('STATUS_UNIT_FORMAT_DEFAULT',                      status_unit_format_default)
 substs.set('HIGH_RLIMIT_NOFILE',                              conf.get('HIGH_RLIMIT_NOFILE'))
@@ -890,6 +891,7 @@ libmount = dependency('mount',
 want_libfdisk = get_option('fdisk')
 if want_libfdisk != 'false' and not skip_deps
         libfdisk = dependency('fdisk',
+                              version : '>= 2.33',
                               required : want_libfdisk == 'true')
         have = libfdisk.found()
 else
@@ -1414,42 +1416,43 @@ else
 endif
 conf.set10('ENABLE_REMOTE', have)
 
-foreach term : ['utmp',
-                'hibernate',
-                'environment-d',
+foreach term : ['analyze',
+                'backlight',
                 'binfmt',
                 'coredump',
-                'pstore',
-                'resolve',
-                'logind',
+                'efi',
+                'environment-d',
+                'firstboot',
+                'gshadow',
+                'hibernate',
                 'hostnamed',
+                'hwdb',
+                'idn',
+                'ima',
+                'initrd',
+                'ldconfig',
                 'localed',
+                'logind',
                 'machined',
-                'portabled',
-                'userdb',
                 'networkd',
+                'nss-myhostname',
+                'nss-systemd',
+                'portabled',
+                'pstore',
+                'quotacheck',
+                'randomseed',
+                'resolve',
+                'rfkill',
+                'smack',
+                'sysusers',
                 'timedated',
                 'timesyncd',
-                'firstboot',
-                'randomseed',
-                'backlight',
-                'vconsole',
-                'quotacheck',
-                'sysusers',
                 'tmpfiles',
-                'hwdb',
-                'rfkill',
-                'xdg-autostart',
-                'ldconfig',
-                'efi',
                 'tpm',
-                'ima',
-                'smack',
-                'gshadow',
-                'idn',
-                'initrd',
-                'nss-myhostname',
-                'nss-systemd']
+                'userdb',
+                'utmp',
+                'vconsole',
+                'xdg-autostart']
         have = get_option(term)
         name = 'ENABLE_' + term.underscorify().to_upper()
         conf.set10(name, have)
@@ -1766,7 +1769,7 @@ public_programs += executable(
                         libmount,
                         libblkid],
         install_rpath : rootlibexecdir,
-        install : get_option('analyze'))
+        install : conf.get('ENABLE_ANALYZE'))
 
 executable(
         'systemd-journald',
@@ -3682,7 +3685,7 @@ foreach tuple : [
         ['link-networkd-shared',  get_option('link-networkd-shared')],
         ['link-timesyncd-shared', get_option('link-timesyncd-shared')],
         ['kernel-install',        get_option('kernel-install')],
-        ['systemd-analyze',       get_option('analyze')],
+        ['systemd-analyze',  conf.get('ENABLE_ANALYZE') == 1],
 ]
 
         if tuple.length() >= 2

@@ -10,6 +10,7 @@
 #include "netlink-util.h"
 #include "networkd-address.h"
 #include "networkd-manager.h"
+#include "networkd-ndisc.h"
 #include "parse-util.h"
 #include "set.h"
 #include "socket-util.h"
@@ -123,6 +124,9 @@ void address_free(Address *address) {
         }
 
         if (address->link && !address->acd) {
+                NDiscAddress *n;
+                Iterator i;
+
                 set_remove(address->link->addresses, address);
                 set_remove(address->link->addresses_foreign, address);
                 set_remove(address->link->static_addresses, address);
@@ -134,8 +138,9 @@ void address_free(Address *address) {
                 set_remove(address->link->dhcp6_addresses_old, address);
                 set_remove(address->link->dhcp6_pd_addresses, address);
                 set_remove(address->link->dhcp6_pd_addresses_old, address);
-                set_remove(address->link->ndisc_addresses, address);
-                set_remove(address->link->ndisc_addresses_old, address);
+                SET_FOREACH(n, address->link->ndisc_addresses, i)
+                        if (n->address == address)
+                                free(set_remove(address->link->ndisc_addresses, n));
 
                 if (in_addr_equal(AF_INET6, &address->in_addr, (const union in_addr_union *) &address->link->ipv6ll_address))
                         memzero(&address->link->ipv6ll_address, sizeof(struct in6_addr));
@@ -162,7 +167,7 @@ static uint32_t address_prefix(const Address *a) {
                 return be32toh(a->in_addr.in.s_addr) >> (32 - a->prefixlen);
 }
 
-static void address_hash_func(const Address *a, struct siphash *state) {
+void address_hash_func(const Address *a, struct siphash *state) {
         assert(a);
 
         siphash24_compress(&a->family, sizeof(a->family), state);
@@ -187,7 +192,7 @@ static void address_hash_func(const Address *a, struct siphash *state) {
         }
 }
 
-static int address_compare_func(const Address *a1, const Address *a2) {
+int address_compare_func(const Address *a1, const Address *a2) {
         int r;
 
         r = CMP(a1->family, a2->family);
@@ -487,7 +492,7 @@ static int address_remove_handler(sd_netlink *rtnl, sd_netlink_message *m, Link 
         r = sd_netlink_message_get_errno(m);
         if (r < 0 && r != -EADDRNOTAVAIL)
                 log_link_message_warning_errno(link, m, r, "Could not drop address");
-        else
+        else if (r >= 0)
                 (void) manager_rtnl_process_address(rtnl, m, link->manager);
 
         return 1;

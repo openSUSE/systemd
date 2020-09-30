@@ -949,7 +949,7 @@ int transaction_add_job_and_dependencies(
 
         /* Safety check that the unit is a valid state, i.e. not in UNIT_STUB or UNIT_MERGED which should only be set
          * temporarily. */
-        if (!IN_SET(unit->load_state, UNIT_LOADED, UNIT_ERROR, UNIT_NOT_FOUND, UNIT_BAD_SETTING, UNIT_MASKED))
+        if (!UNIT_IS_LOAD_COMPLETE(unit->load_state))
                 return sd_bus_error_setf(e, BUS_ERROR_LOAD_FAILED, "Unit %s is not loaded properly.", unit->id);
 
         if (type != JOB_STOP) {
@@ -960,12 +960,14 @@ int transaction_add_job_and_dependencies(
                  * first if anything in the usual paths was modified since the last time
                  * the cache was loaded. Also check if the last time an attempt to load the
                  * unit was made was before the most recent cache refresh, so that we know
-                 * we need to try again - even if the cache is current, it might have been
+                 * we need to try again — even if the cache is current, it might have been
                  * updated in a different context before we had a chance to retry loading
                  * this particular unit.
+                 *
                  * Given building up the transaction is a synchronous operation, attempt
                  * to load the unit immediately. */
-                if (r < 0 && manager_unit_file_maybe_loadable_from_cache(unit)) {
+                if (r < 0 && manager_unit_cache_should_retry_load(unit)) {
+                        sd_bus_error_free(e);
                         unit->load_state = UNIT_STUB;
                         r = unit_load(unit);
                         if (r < 0 || unit->load_state == UNIT_STUB)
@@ -1007,10 +1009,9 @@ int transaction_add_job_and_dependencies(
                         SET_FOREACH(dep, following, i) {
                                 r = transaction_add_job_and_dependencies(tr, type, dep, ret, false, false, false, ignore_order, e);
                                 if (r < 0) {
-                                        log_unit_full(dep,
-                                                      r == -ERFKILL ? LOG_INFO : LOG_WARNING,
-                                                      r, "Cannot add dependency job, ignoring: %s",
-                                                      bus_error_message(e, r));
+                                        log_unit_full_errno(dep, r == -ERFKILL ? LOG_INFO : LOG_WARNING, r,
+                                                            "Cannot add dependency job, ignoring: %s",
+                                                            bus_error_message(e, r));
                                         sd_bus_error_free(e);
                                 }
                         }
@@ -1044,10 +1045,10 @@ int transaction_add_job_and_dependencies(
                                 r = transaction_add_job_and_dependencies(tr, JOB_START, dep, ret, false, false, false, ignore_order, e);
                                 if (r < 0) {
                                         /* unit masked, job type not applicable and unit not found are not considered as errors. */
-                                        log_unit_full(dep,
-                                                      IN_SET(r, -ERFKILL, -EBADR, -ENOENT) ? LOG_DEBUG : LOG_WARNING,
-                                                      r, "Cannot add dependency job, ignoring: %s",
-                                                      bus_error_message(e, r));
+                                        log_unit_full_errno(dep,
+                                                            IN_SET(r, -ERFKILL, -EBADR, -ENOENT) ? LOG_DEBUG : LOG_WARNING,
+                                                            r, "Cannot add dependency job, ignoring: %s",
+                                                            bus_error_message(e, r));
                                         sd_bus_error_free(e);
                                 }
                         }

@@ -75,6 +75,7 @@ typedef struct Link {
         LinkAddressState address_state;
 
         unsigned address_messages;
+        unsigned address_remove_messages;
         unsigned address_label_messages;
         unsigned neighbor_messages;
         unsigned route_messages;
@@ -111,6 +112,7 @@ typedef struct Link {
         sd_ipv4ll *ipv4ll;
         bool ipv4ll_address_configured:1;
 
+        bool request_static_addresses:1;
         bool addresses_configured:1;
         bool addresses_ready:1;
         bool neighbors_configured:1;
@@ -130,8 +132,8 @@ typedef struct Link {
         sd_ndisc *ndisc;
         Set *ndisc_rdnss;
         Set *ndisc_dnssl;
-        Set *ndisc_addresses, *ndisc_addresses_old;
-        Set *ndisc_routes, *ndisc_routes_old;
+        Set *ndisc_addresses;
+        Set *ndisc_routes;
         unsigned ndisc_addresses_messages;
         unsigned ndisc_routes_messages;
         bool ndisc_addresses_configured:1;

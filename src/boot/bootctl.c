@@ -1249,15 +1249,15 @@ static int verb_status(int argc, char *argv[], void *userdata) {
                 printf("  Secure Boot: %sd\n", enable_disable(is_efi_secure_boot()));
                 printf("   Setup Mode: %s\n", is_efi_secure_boot_setup_mode() ? "setup" : "user");
 
-                r = efi_get_reboot_to_firmware();
-                if (r > 0)
+                k = efi_get_reboot_to_firmware();
+                if (k > 0)
                         printf(" Boot into FW: %sactive%s\n", ansi_highlight_yellow(), ansi_normal());
-                else if (r == 0)
+                else if (k == 0)
                         printf(" Boot into FW: supported\n");
-                else if (r == -EOPNOTSUPP)
+                else if (k == -EOPNOTSUPP)
                         printf(" Boot into FW: not supported\n");
                 else {
-                        errno = -r;
+                        errno = -k;
                         printf(" Boot into FW: %sfailed%s (%m)\n", ansi_highlight_red(), ansi_normal());
                 }
                 printf("\n");
@@ -1472,7 +1472,9 @@ static int install_random_seed(const char *esp) {
         }
 
         r = efi_get_variable(EFI_VENDOR_LOADER, "LoaderSystemToken", NULL, NULL, &token_size);
-        if (r < 0) {
+        if (r == -ENODATA)
+                log_debug_errno(r, "LoaderSystemToken EFI variable is invalid (too short?), replacing.");
+        else if (r < 0) {
                 if (r != -ENOENT)
                         return log_error_errno(r, "Failed to test system token validity: %m");
         } else {

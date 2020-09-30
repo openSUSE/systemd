@@ -720,7 +720,6 @@ static Link *link_free(Link *link) {
         link->dhcp6_pd_routes = set_free(link->dhcp6_pd_routes);
         link->dhcp6_pd_routes_old = set_free(link->dhcp6_pd_routes_old);
         link->ndisc_routes = set_free(link->ndisc_routes);
-        link->ndisc_routes_old = set_free(link->ndisc_routes_old);
 
         link->nexthops = set_free(link->nexthops);
         link->nexthops_foreign = set_free(link->nexthops_foreign);
@@ -736,7 +735,6 @@ static Link *link_free(Link *link) {
         link->dhcp6_pd_addresses = set_free(link->dhcp6_pd_addresses);
         link->dhcp6_pd_addresses_old = set_free(link->dhcp6_pd_addresses_old);
         link->ndisc_addresses = set_free(link->ndisc_addresses);
-        link->ndisc_addresses_old = set_free(link->ndisc_addresses_old);
 
         while ((address = link->pool_addresses)) {
                 LIST_REMOVE(addresses, link->pool_addresses, address);
@@ -1163,6 +1161,8 @@ void link_check_ready(Link *link) {
         }
 
         if (link_has_carrier(link) || !link->network->configure_without_carrier) {
+                bool has_ndisc_address = false;
+                NDiscAddress *n;
 
                 if (link_ipv4ll_enabled(link, ADDRESS_FAMILY_IPV4) && !link->ipv4ll_address_configured) {
                         log_link_debug(link, "%s(): IPv4LL is not configured.", __func__);
@@ -1175,8 +1175,14 @@ void link_check_ready(Link *link) {
                         return;
                 }
 
+                SET_FOREACH(n, link->ndisc_addresses, i)
+                        if (!n->marked) {
+                                has_ndisc_address = true;
+                                break;
+                        }
+
                 if ((link_dhcp4_enabled(link) || link_dhcp6_enabled(link)) &&
-                    !link->dhcp_address && set_isempty(link->dhcp6_addresses) && set_isempty(link->ndisc_addresses) &&
+                    !link->dhcp_address && set_isempty(link->dhcp6_addresses) && !has_ndisc_address &&
                     !(link_ipv4ll_enabled(link, ADDRESS_FAMILY_FALLBACK_IPV4) && link->ipv4ll_address_configured)) {
                         log_link_debug(link, "%s(): DHCP4 or DHCP6 is enabled but no dynamic address is assigned yet.", __func__);
                         return;
@@ -1365,7 +1371,14 @@ static int link_request_set_addresses(Link *link) {
         assert(link->network);
         assert(link->state != _LINK_STATE_INVALID);
 
+        if (link->address_remove_messages != 0) {
+                log_link_debug(link, "Removing old addresses, new addresses will be configured later.");
+                link->request_static_addresses = true;
+                return 0;
+        }
+
         /* Reset all *_configured flags we are configuring. */
+        link->request_static_addresses = false;
         link->addresses_configured = false;
         link->addresses_ready = false;
         link->neighbors_configured = false;
@@ -2884,6 +2897,35 @@ static int link_drop_foreign_config(Link *link) {
         return 0;
 }
 
+static int remove_static_address_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *link) {
+        int r;
+
+        assert(m);
+        assert(link);
+        assert(link->ifname);
+        assert(link->address_remove_messages > 0);
+
+        link->address_remove_messages--;
+
+        if (IN_SET(link->state, LINK_STATE_FAILED, LINK_STATE_LINGER))
+                return 1;
+
+        r = sd_netlink_message_get_errno(m);
+        if (r < 0 && r != -EADDRNOTAVAIL)
+                log_link_message_warning_errno(link, m, r, "Could not drop address");
+        else if (r >= 0)
+                (void) manager_rtnl_process_address(rtnl, m, link->manager);
+
+        if (link->address_remove_messages == 0 && link->request_static_addresses) {
+                link_set_state(link, LINK_STATE_CONFIGURING);
+                r = link_request_set_addresses(link);
+                if (r < 0)
+                        link_enter_failed(link);
+        }
+
+        return 1;
+}
+
 static int link_drop_config(Link *link) {
         Address *address, *pool_address;
         Neighbor *neighbor;
@@ -2896,9 +2938,11 @@ static int link_drop_config(Link *link) {
                 if (address->family == AF_INET6 && in_addr_is_link_local(AF_INET6, &address->in_addr) == 1 && link_ipv6ll_enabled(link))
                         continue;
 
-                r = address_remove(address, link, NULL);
+                r = address_remove(address, link, remove_static_address_handler);
                 if (r < 0)
                         return r;
+
+                link->address_remove_messages++;
 
                 /* If this address came from an address pool, clean up the pool */
                 LIST_FOREACH(addresses, pool_address, link->pool_addresses) {
@@ -4636,10 +4680,10 @@ int log_link_message_full_errno(Link *link, sd_netlink_message *m, int level, in
         const char *err_msg = NULL;
 
         (void) sd_netlink_message_read_string(m, NLMSGERR_ATTR_MSG, &err_msg);
-        return log_link_full(link, level, err,
-                             "%s: %s%s%s%m",
-                             msg,
-                             strempty(err_msg),
-                             err_msg && !endswith(err_msg, ".") ? "." : "",
-                             err_msg ? " " : "");
+        return log_link_full_errno(link, level, err,
+                                   "%s: %s%s%s%m",
+                                   msg,
+                                   strempty(err_msg),
+                                   err_msg && !endswith(err_msg, ".") ? "." : "",
+                                   err_msg ? " " : "");
 }

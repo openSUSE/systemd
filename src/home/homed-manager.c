@@ -232,7 +232,13 @@ int manager_new(Manager **ret) {
 }
 
 Manager* manager_free(Manager *m) {
+        Home *h;
+        Iterator i;
+
         assert(m);
+
+        HASHMAP_FOREACH(h, m->homes_by_worker_pid, i)
+                (void) home_wait_for_worker(h);
 
         hashmap_free(m->homes_by_uid);
         hashmap_free(m->homes_by_name);
@@ -512,6 +518,8 @@ static int search_quota(uid_t uid, const char *exclude_quota_path) {
                 if (r < 0) {
                         if (ERRNO_IS_NOT_SUPPORTED(r))
                                 log_debug_errno(r, "No UID quota support on %s, ignoring.", where);
+                        else if (ERRNO_IS_PRIVILEGE(r))
+                                log_debug_errno(r, "UID quota support for %s prohibited, ignoring.", where);
                         else
                                 log_warning_errno(r, "Failed to query quota on %s, ignoring: %m", where);
 

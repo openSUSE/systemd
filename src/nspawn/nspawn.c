@@ -2172,7 +2172,7 @@ static int setup_pts(const char *dest) {
 }
 
 static int setup_stdio_as_dev_console(void) {
-        int terminal;
+        _cleanup_close_ int terminal = -1;
         int r;
 
         terminal = open_terminal("/dev/console", O_RDWR);
@@ -2187,6 +2187,7 @@ static int setup_stdio_as_dev_console(void) {
 
         /* invalidates 'terminal' on success and failure */
         r = rearrange_stdio(terminal, terminal, terminal);
+        TAKE_FD(terminal);
         if (r < 0)
                 return log_error_errno(r, "Failed to move console to stdin/stdout/stderr: %m");
 
@@ -3259,7 +3260,7 @@ static int inner_child(
                  * binary. */
                 dollar_path = strv_env_get(env_use, "PATH");
                 if (dollar_path) {
-                        if (putenv((char*) dollar_path) != 0)
+                        if (setenv("PATH", dollar_path, 1) < 0)
                                 return log_error_errno(errno, "Failed to update $PATH: %m");
                 }
 
@@ -3531,7 +3532,7 @@ static int outer_child(
 
         (void) dev_setup(directory, arg_uid_shift, arg_uid_shift);
 
-        p = prefix_roota(directory, "/run");
+        p = prefix_roota(directory, "/run/host");
         (void) make_inaccessible_nodes(p, arg_uid_shift, arg_uid_shift);
 
         r = setup_pts(directory);

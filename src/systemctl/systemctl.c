@@ -2085,8 +2085,10 @@ static int parse_proc_cmdline_item(const char *key, const char *value, void *dat
         if (streq(key, "systemd.unit")) {
                 if (proc_cmdline_value_missing(key, value))
                         return 0;
-                if (!unit_name_is_valid(value, UNIT_NAME_PLAIN|UNIT_NAME_INSTANCE))
-                        return log_warning("Unit name specified on %s= is not valid, ignoring: %s", key, value);
+                if (!unit_name_is_valid(value, UNIT_NAME_PLAIN|UNIT_NAME_INSTANCE)) {
+                        log_warning("Unit name specified on %s= is not valid, ignoring: %s", key, value);
+                        return 0;
+                }
 
                 return free_and_strdup_warn(ret, key);
 
@@ -7718,7 +7720,7 @@ static int systemctl_help(void) {
                "  -M --machine=CONTAINER Operate on a local container\n"
                "  -t --type=TYPE         List units of a particular type\n"
                "     --state=STATE       List units with particular LOAD or SUB or ACTIVE state\n"
-               "     --failed            Shorcut for --state=failed\n"
+               "     --failed            Shortcut for --state=failed\n"
                "  -p --property=NAME     Show only properties by this name\n"
                "  -P NAME                Equivalent to --value --property=NAME\n"
                "  -a --all               Show all properties/all units currently in memory,\n"
