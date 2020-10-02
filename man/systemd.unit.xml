@@ -839,6 +839,7 @@
         <varname>vmware</varname>,
         <varname>microsoft</varname>,
         <varname>oracle</varname>,
+        <literal>powervm</literal>,
         <varname>xen</varname>,
         <varname>bochs</varname>,
         <varname>uml</varname>,
