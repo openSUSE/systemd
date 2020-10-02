@@ -939,7 +939,7 @@ static int on_ctrl_msg(sd_event_source *s, int fd, uint32_t revents, void *userd
 
         i = udev_ctrl_get_set_log_level(ctrl_msg);
         if (i >= 0) {
-                log_debug("udevd message (SET_LOG_LEVEL) received, log_priority=%i", i);
+                log_debug("udevd message (SET_LOG_LEVEL) received, log_level=%i", i);
                 log_set_max_level(i);
                 manager_kill_workers(manager);
         }
@@ -1351,7 +1351,7 @@ static int listen_fds(int *rctrl, int *rnetlink) {
 
 /*
  * read the kernel command line, in case we need to get into debug mode
- *   udev.log_priority=<level>                 syslog priority
+ *   udev.log_level=<level>                    syslog priority
  *   udev.children_max=<number of workers>     events are fully serialized if set to 1
  *   udev.exec_delay=<number of seconds>       delay execution of every executed program
  *   udev.event_timeout=<number of seconds>    seconds to wait before terminating an event
@@ -1364,7 +1364,8 @@ static int parse_proc_cmdline_item(const char *key, const char *value, void *dat
         if (!value)
                 return 0;
 
-        if (proc_cmdline_key_streq(key, "udev.log_priority")) {
+        if (proc_cmdline_key_streq(key, "udev.log_level") ||
+            proc_cmdline_key_streq(key, "udev.log_priority")) { /* kept for backward compatibility */
 
                 if (proc_cmdline_value_missing(key, value))
                         return 0;
