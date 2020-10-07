@@ -55,6 +55,8 @@ static void test_seccomp_arch_to_string(void) {
         uint32_t a, b;
         const char *name;
 
+        log_info("/* %s */", __func__);
+
         a = seccomp_arch_native();
         assert_se(a > 0);
         name = seccomp_arch_to_string(a);
@@ -65,6 +67,8 @@ static void test_seccomp_arch_to_string(void) {
 
 static void test_architecture_table(void) {
         const char *n, *n2;
+
+        log_info("/* %s */", __func__);
 
         NULSTR_FOREACH(n,
                        "native\0"
@@ -94,6 +98,8 @@ static void test_architecture_table(void) {
 }
 
 static void test_syscall_filter_set_find(void) {
+        log_info("/* %s */", __func__);
+
         assert_se(!syscall_filter_set_find(NULL));
         assert_se(!syscall_filter_set_find(""));
         assert_se(!syscall_filter_set_find("quux"));
@@ -108,10 +114,16 @@ static void test_filter_sets(void) {
         unsigned i;
         int r;
 
-        if (!is_seccomp_available())
+        log_info("/* %s */", __func__);
+
+        if (!is_seccomp_available()) {
+                log_notice("Seccomp not available, skipping %s", __func__);
                 return;
-        if (geteuid() != 0)
+        }
+        if (geteuid() != 0) {
+                log_notice("Not root, skipping %s", __func__);
                 return;
+        }
 
         for (i = 0; i < _SYSCALL_FILTER_SET_MAX; i++) {
                 pid_t pid;
@@ -152,6 +164,8 @@ static void test_restrict_namespace(void) {
         unsigned long ul;
         pid_t pid;
 
+        log_info("/* %s */", __func__);
+
         assert_se(namespace_flag_to_string(0) == NULL);
         assert_se(streq(namespace_flag_to_string(CLONE_NEWNS), "mnt"));
         assert_se(namespace_flag_to_string(CLONE_NEWNS|CLONE_NEWIPC) == NULL);
@@ -172,10 +186,14 @@ static void test_restrict_namespace(void) {
         assert_se(streq(s, "cgroup ipc net mnt pid user uts"));
         assert_se(namespace_flag_from_string_many(s, &ul) == 0 && ul == NAMESPACE_FLAGS_ALL);
 
-        if (!is_seccomp_available())
+        if (!is_seccomp_available()) {
+                log_notice("Seccomp not available, skipping remaining tests in %s", __func__);
                 return;
-        if (geteuid() != 0)
+        }
+        if (geteuid() != 0) {
+                log_notice("Not root, skipping remaining tests in %s", __func__);
                 return;
+        }
 
         pid = fork();
         assert_se(pid >= 0);
@@ -235,13 +253,22 @@ static void test_restrict_namespace(void) {
 static void test_protect_sysctl(void) {
         pid_t pid;
 
-        if (!is_seccomp_available())
-                return;
-        if (geteuid() != 0)
-                return;
+        log_info("/* %s */", __func__);
 
-        if (detect_container() > 0) /* in containers _sysctl() is likely missing anyway */
+        if (!is_seccomp_available()) {
+                log_notice("Seccomp not available, skipping %s", __func__);
                 return;
+        }
+        if (geteuid() != 0) {
+                log_notice("Not root, skipping %s", __func__);
+                return;
+        }
+
+        /* in containers _sysctl() is likely missing anyway */
+        if (detect_container() > 0) {
+                log_notice("Testing in container, skipping %s", __func__);
+                return;
+        }
 
         pid = fork();
         assert_se(pid >= 0);
@@ -268,10 +295,16 @@ static void test_protect_sysctl(void) {
 static void test_restrict_address_families(void) {
         pid_t pid;
 
-        if (!is_seccomp_available())
+        log_info("/* %s */", __func__);
+
+        if (!is_seccomp_available()) {
+                log_notice("Seccomp not available, skipping %s", __func__);
                 return;
-        if (geteuid() != 0)
+        }
+        if (geteuid() != 0) {
+                log_notice("Not root, skipping %s", __func__);
                 return;
+        }
 
         pid = fork();
         assert_se(pid >= 0);
@@ -351,13 +384,22 @@ static void test_restrict_address_families(void) {
 static void test_restrict_realtime(void) {
         pid_t pid;
 
-        if (!is_seccomp_available())
-                return;
-        if (geteuid() != 0)
-                return;
+        log_info("/* %s */", __func__);
 
-        if (detect_container() > 0) /* in containers RT privs are likely missing anyway */
+        if (!is_seccomp_available()) {
+                log_notice("Seccomp not available, skipping %s", __func__);
                 return;
+        }
+        if (geteuid() != 0) {
+                log_notice("Not root, skipping %s", __func__);
+                return;
+        }
+
+        /* in containers RT privs are likely missing anyway */
+        if (detect_container() > 0) {
+                log_notice("Testing in container, skipping %s", __func__);
+                return;
+        }
 
         pid = fork();
         assert_se(pid >= 0);
@@ -389,10 +431,16 @@ static void test_restrict_realtime(void) {
 static void test_memory_deny_write_execute_mmap(void) {
         pid_t pid;
 
-        if (!is_seccomp_available())
+        log_info("/* %s */", __func__);
+
+        if (!is_seccomp_available()) {
+                log_notice("Seccomp not available, skipping %s", __func__);
                 return;
-        if (geteuid() != 0)
+        }
+        if (geteuid() != 0) {
+                log_notice("Not root, skipping %s", __func__);
                 return;
+        }
 
         pid = fork();
         assert_se(pid >= 0);
@@ -432,11 +480,26 @@ static void test_memory_deny_write_execute_mmap(void) {
 static void test_memory_deny_write_execute_shmat(void) {
         int shmid;
         pid_t pid;
+        uint32_t arch;
 
-        if (!is_seccomp_available())
+        log_info("/* %s */", __func__);
+
+        SECCOMP_FOREACH_LOCAL_ARCH(arch) {
+                log_debug("arch %s: SCMP_SYS(mmap) = %d", seccomp_arch_to_string(arch), SCMP_SYS(mmap));
+                log_debug("arch %s: SCMP_SYS(mmap2) = %d", seccomp_arch_to_string(arch), SCMP_SYS(mmap2));
+                log_debug("arch %s: SCMP_SYS(shmget) = %d", seccomp_arch_to_string(arch), SCMP_SYS(shmget));
+                log_debug("arch %s: SCMP_SYS(shmat) = %d", seccomp_arch_to_string(arch), SCMP_SYS(shmat));
+                log_debug("arch %s: SCMP_SYS(shmdt) = %d", seccomp_arch_to_string(arch), SCMP_SYS(shmdt));
+        }
+
+        if (!is_seccomp_available()) {
+                log_notice("Seccomp not available, skipping %s", __func__);
                 return;
-        if (geteuid() != 0)
+        }
+        if (geteuid() != 0) {
+                log_notice("Not root, skipping %s", __func__);
                 return;
+        }
 
         shmid = shmget(IPC_PRIVATE, page_size(), 0);
         assert_se(shmid >= 0);
@@ -479,10 +542,16 @@ static void test_memory_deny_write_execute_shmat(void) {
 static void test_restrict_archs(void) {
         pid_t pid;
 
-        if (!is_seccomp_available())
+        log_info("/* %s */", __func__);
+
+        if (!is_seccomp_available()) {
+                log_notice("Seccomp not available, skipping %s", __func__);
                 return;
-        if (geteuid() != 0)
+        }
+        if (geteuid() != 0) {
+                log_notice("Not root, skipping %s", __func__);
                 return;
+        }
 
         pid = fork();
         assert_se(pid >= 0);
@@ -513,10 +582,16 @@ static void test_restrict_archs(void) {
 static void test_load_syscall_filter_set_raw(void) {
         pid_t pid;
 
-        if (!is_seccomp_available())
+        log_info("/* %s */", __func__);
+
+        if (!is_seccomp_available()) {
+                log_notice("Seccomp not available, skipping %s", __func__);
                 return;
-        if (geteuid() != 0)
+        }
+        if (geteuid() != 0) {
+                log_notice("Not root, skipping %s", __func__);
                 return;
+        }
 
         pid = fork();
         assert_se(pid >= 0);
