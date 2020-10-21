@@ -3869,6 +3869,7 @@ systemd_cat_SOURCES = \
 systemd_cat_LDADD = \
 	libjournal-core.la
 
+if HAVE_REMOTE
 if HAVE_LIBCURL
 rootlibexec_PROGRAMS += \
         systemd-journal-upload
@@ -3892,11 +3893,13 @@ nodist_systemunit_DATA += \
 nodist_pkgsysconf_DATA += \
         src/journal-remote/journal-upload.conf
 endif
+endif
 
 EXTRA_DIST += \
         units/systemd-journal-upload.service.in \
         src/journal-remote/journal-upload.conf.in
 
+if HAVE_REMOTE
 if HAVE_MICROHTTPD
 rootlibexec_PROGRAMS += \
 	systemd-journal-remote
@@ -3949,6 +3952,7 @@ EXTRA_DIST += \
 	units/systemd-journal-remote.service.in \
 	src/journal-remote/journal-remote.conf.in \
 	src/journal-remote/log-generator.py
+endif
 endif
 
 # using _CFLAGS = in the conditional below would suppress AM_CFLAGS
@@ -4272,6 +4276,7 @@ gperf_gperf_sources += \
 	src/journal/journald-gperf.gperf
 
 # ------------------------------------------------------------------------------
+if HAVE_REMOTE
 if HAVE_MICROHTTPD
 gatewayddocumentrootdir=$(pkgdatadir)/gatewayd
 
@@ -4309,6 +4314,7 @@ nodist_systemunit_DATA += \
 dist_gatewayddocumentroot_DATA = \
 	src/journal-remote/browse.html
 
+endif
 endif
 
 EXTRA_DIST += \

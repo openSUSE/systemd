@@ -924,7 +924,20 @@ fi
 AM_CONDITIONAL(HAVE_LIBCURL, [test "$have_libcurl" = "yes"])
 
 # ------------------------------------------------------------------------------
-AM_CONDITIONAL(HAVE_REMOTE, [test "$have_microhttpd" = "yes" -o "$have_libcurl" = "yes"])
+have_remote=no
+AC_ARG_ENABLE(remote, AS_HELP_STRING([--disable-remote], [disable support for journal over the network]))
+if test "x$enable_remote" = "xyes"; then
+        if test "x$have_microhttpd" = "xno" -o "x$have_libcurl" = "xno"; then
+                AC_MSG_ERROR([*** remote support was requested but dependencies are not available])
+        fi
+        have_remote=yes
+elif test "x$enable_remote" != "xno"; then
+        if test "x$have_microhttpd" = "xyes" -o "x$have_libcurl" = "xyes"; then
+                have_remote=yes
+        fi
+fi
+
+AM_CONDITIONAL(HAVE_REMOTE, [test "$have_remote" = "yes"])
 
 # ------------------------------------------------------------------------------
 have_libidn=no
@@ -1590,6 +1603,7 @@ AC_MSG_RESULT([
         randomseed:              ${have_randomseed}
         backlight:               ${have_backlight}
         rfkill:                  ${have_rfkill}
+        journal over network:    ${have_remote}
         logind:                  ${have_logind}
         machined:                ${have_machined}
         importd:                 ${have_importd}
