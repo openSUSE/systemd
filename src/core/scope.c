@@ -26,6 +26,7 @@
 #include "dbus-scope.h"
 #include "load-dropin.h"
 #include "log.h"
+#include "process-util.h"
 #include "scope.h"
 #include "special.h"
 #include "string-table.h"
@@ -197,8 +198,19 @@ static int scope_coldplug(Unit *u) {
                                 return r;
                 }
 
-                if (!IN_SET(s->deserialized_state, SCOPE_DEAD, SCOPE_FAILED))
-                        unit_watch_all_pids(UNIT(s));
+                if (!IN_SET(s->deserialized_state, SCOPE_DEAD, SCOPE_FAILED)) {
+                        if (u->pids) {
+                                Iterator i;
+                                void *pidp;
+
+                                SET_FOREACH(pidp, u->pids, i) {
+                                        r = unit_watch_pid(u, PTR_TO_PID(pidp));
+                                        if (r < 0 && r != -EEXIST)
+                                                return r;
+                                }
+                        } else
+                                unit_watch_all_pids(UNIT(s));
+                }
 
                 scope_set_state(s, s->deserialized_state);
         }
@@ -310,6 +322,10 @@ static int scope_start(Unit *u) {
                 return r;
         }
 
+        /* Now u->pids have been moved into the scope cgroup, it's not needed
+         * anymore. */
+        u->pids = set_free(u->pids);
+
         s->result = SCOPE_SUCCESS;
 
         scope_set_state(s, SCOPE_RUNNING);
@@ -363,17 +379,24 @@ static int scope_get_timeout(Unit *u, uint64_t *timeout) {
 
 static int scope_serialize(Unit *u, FILE *f, FDSet *fds) {
         Scope *s = SCOPE(u);
+        Iterator i;
+        void *pidp;
 
         assert(s);
         assert(f);
         assert(fds);
 
         unit_serialize_item(u, f, "state", scope_state_to_string(s->state));
+
+        SET_FOREACH(pidp, u->pids, i)
+                unit_serialize_item_format(u, f, "pids", PID_FMT, PTR_TO_PID(pidp));
+
         return 0;
 }
 
 static int scope_deserialize_item(Unit *u, const char *key, const char *value, FDSet *fds) {
         Scope *s = SCOPE(u);
+        int r;
 
         assert(u);
         assert(key);
@@ -388,6 +411,21 @@ static int scope_deserialize_item(Unit *u, const char *key, const char *value, F
                         log_unit_debug(u, "Failed to parse state value: %s", value);
                 else
                         s->deserialized_state = state;
+
+        } else if (streq(key, "pids")) {
+                pid_t pid;
+
+                if (parse_pid(value, &pid) < 0)
+                        log_unit_debug(u, "Failed to parse pids value: %s", value);
+                else {
+                        r = set_ensure_allocated(&u->pids, NULL);
+                        if (r < 0)
+                                return r;
+
+                        r = set_put(u->pids, PID_TO_PTR(pid));
+                        if (r < 0)
+                                return r;
+                }
 
         } else
                 log_unit_debug(u, "Unknown serialization key: %s", key);
