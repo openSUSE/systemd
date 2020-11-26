@@ -99,6 +99,6 @@ if conf.get('ENABLE_HOMED') == 1
 
         if install_sysconfdir
                 install_data('homed.conf',
-                             install_dir : sysconfdir)
+                             install_dir : pkgsysconfdir)
         endif
 endif
