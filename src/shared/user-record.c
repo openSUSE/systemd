@@ -1865,6 +1865,11 @@ uint64_t user_record_ratelimit_next_try(UserRecord *h) {
             h->ratelimit_count == UINT64_MAX)
                 return UINT64_MAX;
 
+        if (h->ratelimit_begin_usec > now(CLOCK_REALTIME)) /* If the ratelimit time is in the future, then
+                                                            * the local clock is probably incorrect. Let's
+                                                            * not refuse login then. */
+                return UINT64_MAX;
+
         if (h->ratelimit_count < user_record_ratelimit_burst(h))
                 return 0;
 
@@ -1971,18 +1976,19 @@ int user_record_test_blocked(UserRecord *h) {
 
         assert(h);
 
-        n = now(CLOCK_REALTIME);
-        if (h->last_change_usec != UINT64_MAX &&
-            h->last_change_usec > n) /* Don't allow log ins when the record is from the future */
-                return -ESTALE;
-
         if (h->locked > 0)
                 return -ENOLCK;
+
+        n = now(CLOCK_REALTIME);
 
         if (h->not_before_usec != UINT64_MAX && n < h->not_before_usec)
                 return -EL2HLT;
         if (h->not_after_usec != UINT64_MAX && n > h->not_after_usec)
                 return -EL3HLT;
+
+        if (h->last_change_usec != UINT64_MAX &&
+            h->last_change_usec > n) /* Complain during log-ins when the record is from the future */
+                return -ESTALE;
 
         return 0;
 }
@@ -2001,6 +2007,7 @@ int user_record_test_password_change_required(UserRecord *h) {
             -EKEYEXPIRED: Password is about to expire, warn user
                -ENETDOWN: Record has expiration info but no password change timestamp
                   -EROFS: No password change required nor permitted
+                 -ESTALE: RTC likely incorrect, last password change is in the future
                        0: No password change required, but permitted
          */
 
@@ -2009,6 +2016,14 @@ int user_record_test_password_change_required(UserRecord *h) {
                 return -EKEYREVOKED;
 
         n = now(CLOCK_REALTIME);
+
+        /* Password change in the future? Then our RTC is likely incorrect */
+        if (h->last_password_change_usec != UINT64_MAX &&
+            h->last_password_change_usec > n &&
+            (h->password_change_min_usec != UINT64_MAX ||
+             h->password_change_max_usec != UINT64_MAX ||
+             h->password_change_inactive_usec != UINT64_MAX))
+            return -ESTALE;
 
         /* Then, let's check if password changing is currently allowed at all */
         if (h->password_change_min_usec != UINT64_MAX) {

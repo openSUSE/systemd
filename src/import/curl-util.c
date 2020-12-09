@@ -50,7 +50,7 @@ static int curl_glue_on_io(sd_event_source *s, int fd, uint32_t revents, void *u
         return 0;
 }
 
-static int curl_glue_socket_callback(CURLM *curl, curl_socket_t s, int action, void *userdata, void *socketp) {
+static int curl_glue_socket_callback(CURL *curl, curl_socket_t s, int action, void *userdata, void *socketp) {
         sd_event_source *io = socketp;
         CurlGlue *g = userdata;
         uint32_t events = 0;
@@ -178,7 +178,7 @@ CurlGlue *curl_glue_unref(CurlGlue *g) {
 
 int curl_glue_new(CurlGlue **glue, sd_event *event) {
         _cleanup_(curl_glue_unrefp) CurlGlue *g = NULL;
-        _cleanup_(curl_multi_cleanupp) CURL *c = NULL;
+        _cleanup_(curl_multi_cleanupp) CURLM *c = NULL;
         _cleanup_(sd_event_unrefp) sd_event *e = NULL;
         int r;
 

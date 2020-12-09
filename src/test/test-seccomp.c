@@ -30,7 +30,7 @@
 #include "virt.h"
 
 /* __NR_socket may be invalid due to libseccomp */
-#if !defined(__NR_socket) || __NR_socket < 0 || defined(__i386__) || defined(__s390x__) || defined(__s390__)
+#if !defined(__NR_socket) || __NR_socket < 0 || defined(__i386__) || defined(__s390x__) || defined(__s390__) || defined(__powerpc64__) || defined(__powerpc__)
 /* On these archs, socket() is implemented via the socketcall() syscall multiplexer,
  * and we can't restrict it hence via seccomp. */
 #  define SECCOMP_RESTRICT_ADDRESS_FAMILIES_BROKEN 1
@@ -313,7 +313,7 @@ static void test_protect_sysctl(void) {
         if (pid == 0) {
 #if defined __NR__sysctl && __NR__sysctl >= 0
                 assert_se(syscall(__NR__sysctl, NULL) < 0);
-                assert_se(errno == EFAULT);
+                assert_se(IN_SET(errno, EFAULT, ENOSYS));
 #endif
 
                 assert_se(seccomp_protect_sysctl() >= 0);

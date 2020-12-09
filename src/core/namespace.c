@@ -1353,6 +1353,11 @@ int setup_namespace(
         if (root_directory)
                 root = root_directory;
         else {
+                /* /run/systemd should have been created by PID 1 early on already, but in some cases, like
+                 * when running tests (test-execute), it might not have been created yet so let's make sure
+                 * we create it if it doesn't already exist. */
+                (void) mkdir_p_label("/run/systemd", 0755);
+
                 /* Always create the mount namespace in a temporary directory, instead of operating
                  * directly in the root. The temporary directory prevents any mounts from being
                  * potentially obscured my other mounts we already applied.
@@ -1827,25 +1832,9 @@ static int make_tmp_prefix(const char *prefix) {
 
 }
 
-static int make_tmp_subdir(const char *parent, char **ret) {
-        _cleanup_free_ char *y = NULL;
-
-        y = path_join(parent, "/tmp");
-        if (!y)
-                return -ENOMEM;
-
-        RUN_WITH_UMASK(0000) {
-                if (mkdir(y, 0777 | S_ISVTX) < 0)
-                        return -errno;
-        }
-
-        if (ret)
-                *ret = TAKE_PTR(y);
-        return 0;
-}
-
 static int setup_one_tmp_dir(const char *id, const char *prefix, char **path, char **tmp_path) {
         _cleanup_free_ char *x = NULL;
+        _cleanup_free_ char *y = NULL;
         char bid[SD_ID128_STRING_MAX];
         sd_id128_t boot_id;
         bool rw = true;
@@ -1879,9 +1868,21 @@ static int setup_one_tmp_dir(const char *id, const char *prefix, char **path, ch
                 }
 
         if (rw) {
-                r = make_tmp_subdir(x, tmp_path);
+                y = strjoin(x, "/tmp");
+                if (!y)
+                        return -ENOMEM;
+
+                RUN_WITH_UMASK(0000) {
+                        if (mkdir(y, 0777 | S_ISVTX) < 0)
+                                    return -errno;
+                }
+
+                r = label_fix_container(y, prefix, 0);
                 if (r < 0)
                         return r;
+
+                if (tmp_path)
+                        *tmp_path = TAKE_PTR(y);
         } else {
                 /* Trouble: we failed to create the directory. Instead of failing, let's simulate /tmp being
                  * read-only. This way the service will get the EROFS result as if it was writing to the real

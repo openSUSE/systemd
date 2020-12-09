@@ -3189,6 +3189,8 @@ static int container_next_item(sd_bus_message *m, struct bus_container *c, size_
                 int sz;
 
                 sz = bus_gvariant_get_size(c->signature);
+                if (sz == 0)
+                        return -EBADMSG;
                 if (sz < 0) {
                         int alignment;
 
@@ -4795,8 +4797,13 @@ _public_ int sd_bus_message_read_array(
         assert_return(!BUS_MESSAGE_NEED_BSWAP(m), -EOPNOTSUPP);
 
         r = sd_bus_message_enter_container(m, SD_BUS_TYPE_ARRAY, CHAR_TO_STR(type));
-        if (r <= 0)
+        if (r < 0)
                 return r;
+        if (r == 0) {
+                *ptr = NULL;
+                *size = 0;
+                return 0;
+        }
 
         c = message_get_last_container(m);
 

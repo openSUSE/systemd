@@ -530,12 +530,12 @@ int dns_server_adjust_opt(DnsServer *server, DnsPacket *packet, DnsServerFeature
 
         edns_do = level >= DNS_SERVER_FEATURE_LEVEL_DO;
 
-        if (level >= DNS_SERVER_FEATURE_LEVEL_LARGE)
+        if (level == DNS_SERVER_FEATURE_LEVEL_LARGE)
                 packet_size = DNS_PACKET_UNICAST_SIZE_LARGE_MAX;
         else
                 packet_size = server->received_udp_packet_max;
 
-        return dns_packet_append_opt(packet, packet_size, edns_do, 0, NULL);
+        return dns_packet_append_opt(packet, packet_size, edns_do, /* include_rfc6975 = */ true, 0, NULL);
 }
 
 int dns_server_ifindex(const DnsServer *s) {
