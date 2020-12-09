@@ -439,9 +439,36 @@ static int dns_scope_socket(
         if (ret_socket_address)
                 *ret_socket_address = sa;
         else {
+                bool bound = false;
+
+                /* Let's temporarily bind the socket to the specified ifindex. The kernel currently takes
+                 * only the SO_BINDTODEVICE/SO_BINDTOINDEX ifindex into account when making routing decisions
+                 * in connect() — and not IP_UNICAST_IF. We don't really want any of the other semantics of
+                 * SO_BINDTODEVICE/SO_BINDTOINDEX, hence we immediately unbind the socket after the fact
+                 * again.
+                 *
+                 * As a special exception we don't do this if we notice that the specified IP address is on
+                 * the local host. SO_BINDTODEVICE in combination with destination addresses on the local
+                 * host result in EHOSTUNREACH, since Linux won't send the packets out of the specified
+                 * interface, but delivers them directly to the local socket. */
+                if (s->link &&
+                    !manager_find_link_address(s->manager, sa.sa.sa_family, sockaddr_in_addr(&sa.sa))) {
+                        r = socket_bind_to_ifindex(fd, ifindex);
+                        if (r < 0)
+                                return r;
+
+                        bound = true;
+                }
+
                 r = connect(fd, &sa.sa, salen);
                 if (r < 0 && errno != EINPROGRESS)
                         return -errno;
+
+                if (bound) {
+                        r = socket_bind_to_ifindex(fd, 0);
+                        if (r < 0)
+                                return r;
+                }
         }
 
         return TAKE_FD(fd);
@@ -505,9 +532,8 @@ DnsScopeMatch dns_scope_good_domain(
         if ((SD_RESOLVED_FLAGS_MAKE(s->protocol, s->family, 0) & flags) == 0)
                 return DNS_SCOPE_NO;
 
-        /* Never resolve any loopback hostname or IP address via DNS,
-         * LLMNR or mDNS. Instead, always rely on synthesized RRs for
-         * these. */
+        /* Never resolve any loopback hostname or IP address via DNS, LLMNR or mDNS. Instead, always rely on
+         * synthesized RRs for these. */
         if (is_localhost(domain) ||
             dns_name_endswith(domain, "127.in-addr.arpa") > 0 ||
             dns_name_equal(domain, "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa") > 0)
@@ -521,6 +547,15 @@ DnsScopeMatch dns_scope_good_domain(
 
         /* Never respond to some of the domains listed in RFC6761 */
         if (dns_name_endswith(domain, "invalid") > 0)
+                return DNS_SCOPE_NO;
+
+        /* Never go to network for the _gateway domain, it's something special, synthesized locally. Note
+         * that we don't use is_gateway_hostname() here, since that has support for the legacy "gateway"
+         * hostname (without the prefix underscore), which we don't want to filter on all protocols. i.e. we
+         * don't want to filter "gateway" on classic DNS, since there might very well be such a host inside
+         * some search domain, and we shouldn't block that. We do filter it in LLMNR however (and on mDNS by
+         * side-effect, since it's a single-label name which mDNS doesn't accept anyway). */
+        if (dns_name_equal(domain, "_gateway") > 0)
                 return DNS_SCOPE_NO;
 
         switch (s->protocol) {
@@ -615,7 +650,8 @@ DnsScopeMatch dns_scope_good_domain(
                         return DNS_SCOPE_MAYBE;
 
                 if ((dns_name_is_single_label(domain) && /* only resolve single label names via LLMNR */
-                     !is_gateway_hostname(domain) && /* don't resolve "gateway" with LLMNR, let nss-myhostname handle this */
+                     !is_gateway_hostname(domain) && /* don't resolve "_gateway" with LLMNR, let local synthesizing logic handle that */
+                     dns_name_equal(domain, "local") == 0 && /* don't resolve "local" with LLMNR, it's the top-level domain of mDNS after all, see above */
                      manager_is_own_hostname(s->manager, domain) <= 0))  /* never resolve the local hostname via LLMNR */
                         return DNS_SCOPE_YES_BASE + 1; /* Return +1, as we consider ourselves authoritative
                                                         * for single-label names, i.e. one label. This is

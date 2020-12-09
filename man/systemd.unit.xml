@@ -60,12 +60,14 @@
 <filename>$XDG_RUNTIME_DIR/systemd/user.control/*</filename>
 <filename>$XDG_RUNTIME_DIR/systemd/transient/*</filename>
 <filename>$XDG_RUNTIME_DIR/systemd/generator.early/*</filename>
-<filename>~/.config/systemd/user/*</filename>
+<filename>$XDG_CONFIG_HOME/systemd/user/*</filename>
+<filename>$XDG_CONFIG_DIRS/systemd/user/*</filename>
 <filename>/etc/systemd/user/*</filename>
 <filename>$XDG_RUNTIME_DIR/systemd/user/*</filename>
 <filename>/run/systemd/user/*</filename>
 <filename>$XDG_RUNTIME_DIR/systemd/generator/*</filename>
-<filename>~/.local/share/systemd/user/*</filename>
+<filename>$XDG_DATA_HOME/systemd/user/*</filename>
+<filename>$XDG_DATA_DIRS/systemd/user/*</filename>
 <filename index='false'>…</filename>
 <filename>/usr/lib/systemd/user/*</filename>
 <filename>$XDG_RUNTIME_DIR/systemd/generator.late/*</filename></literallayout></para>
@@ -255,9 +257,8 @@
     start it even manually.</para>
 
     <para>The unit file format is covered by the
-    <ulink
-    url="https://www.freedesktop.org/wiki/Software/systemd/InterfaceStabilityPromise">Interface
-    Stability Promise</ulink>.</para>
+    <ulink url="https://systemd.io/PORTABILITY_AND_STABILITY/">Interface
+    Portability and Stability Promise</ulink>.</para>
 
   </refsect1>
 
@@ -436,6 +437,10 @@
             <entry>User configuration (<varname>$XDG_CONFIG_HOME</varname> is used if set, <filename>~/.config</filename> otherwise)</entry>
           </row>
           <row>
+            <entry><filename>$XDG_CONFIG_DIRS/systemd/user</filename> or <filename>/etc/xdg/systemd/user</filename></entry>
+            <entry>Additional configuration directories as specified by the XDG base directory specification (<varname>$XDG_CONFIG_DIRS</varname> is used if set, <filename>/etc/xdg</filename> otherwise)</entry>
+          </row>
+          <row>
             <entry><filename>/etc/systemd/user</filename></entry>
             <entry>User units created by the administrator</entry>
           </row>
@@ -455,6 +460,10 @@
           <row>
             <entry><filename>$XDG_DATA_HOME/systemd/user</filename> or <filename>$HOME/.local/share/systemd/user</filename></entry>
             <entry>Units of packages that have been installed in the home directory (<varname>$XDG_DATA_HOME</varname> is used if set, <filename>~/.local/share</filename> otherwise)</entry>
+          </row>
+          <row>
+            <entry><filename>$XDG_DATA_DIRS/systemd/user</filename> or <filename>/usr/local/share/systemd/user</filename> and <filename>/usr/share/systemd/user</filename></entry>
+            <entry>Additional data directories as specified by the XDG base directory specification (<varname>$XDG_DATA_DIRS</varname> is used if set, <filename>/usr/local/share</filename> and <filename>/usr/share</filename> otherwise)</entry>
           </row>
           <row>
             <entry><filename>$dir/systemd/user</filename> for each <varname index="false">$dir</varname> in <varname>$XDG_DATA_DIRS</varname></entry>
@@ -1200,7 +1209,10 @@
           argument must either be a single word, or an assignment (i.e. two words, separated by
           <literal>=</literal>). In the former case the kernel command line is searched for the word
           appearing as is, or as left hand side of an assignment. In the latter case, the exact assignment is
-          looked for with right and left hand side matching.</para>
+          looked for with right and left hand side matching. This operates on the kernel command line
+          communicated to userspace via <filename>/proc/cmdline</filename>, except when the service manager
+          is invoked as payload of a container manager, in which case the command line of <filename>PID
+          1</filename> is used instead (i.e. <filename>/proc/1/cmdline</filename>).</para>
           </listitem>
         </varlistentry>
 

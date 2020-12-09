@@ -80,7 +80,7 @@ static int boot_entry_load(
                 return log_oom();
 
         if (!efi_loader_entry_name_valid(tmp.id))
-                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Invalid loader entry: %s", tmp.id);
+                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Invalid loader entry name: %s", tmp.id);
 
         tmp.path = strdup(path);
         if (!tmp.path)
@@ -327,7 +327,7 @@ static int boot_entry_load_unified(
                 return log_oom();
 
         if (!efi_loader_entry_name_valid(tmp.id))
-                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Invalid loader entry: %s", tmp.id);
+                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Invalid loader entry name: %s", tmp.id);
 
         tmp.path = strdup(path);
         if (!tmp.path)
@@ -842,19 +842,21 @@ static int verify_esp_blkid(
         else if (r != 0)
                 return log_error_errno(errno ?: SYNTHETIC_ERRNO(EIO), "Failed to probe file system \"%s\": %m", node);
 
-        errno = 0;
         r = blkid_probe_lookup_value(b, "TYPE", &v, NULL);
         if (r != 0)
-                return log_error_errno(errno ?: SYNTHETIC_ERRNO(EIO), "Failed to probe file system type of \"%s\": %m", node);
+                return log_full_errno(searching ? LOG_DEBUG : LOG_ERR,
+                                      SYNTHETIC_ERRNO(searching ? EADDRNOTAVAIL : ENODEV),
+                                      "No filesystem found on \"%s\": %m", node);
         if (!streq(v, "vfat"))
                 return log_full_errno(searching ? LOG_DEBUG : LOG_ERR,
                                       SYNTHETIC_ERRNO(searching ? EADDRNOTAVAIL : ENODEV),
                                       "File system \"%s\" is not FAT.", node);
 
-        errno = 0;
         r = blkid_probe_lookup_value(b, "PART_ENTRY_SCHEME", &v, NULL);
         if (r != 0)
-                return log_error_errno(errno ?: SYNTHETIC_ERRNO(EIO), "Failed to probe partition scheme of \"%s\": %m", node);
+                return log_full_errno(searching ? LOG_DEBUG : LOG_ERR,
+                                      SYNTHETIC_ERRNO(searching ? EADDRNOTAVAIL : ENODEV),
+                                      "File system \"%s\" is not located on a partitioned block device.", node);
         if (!streq(v, "gpt"))
                 return log_full_errno(searching ? LOG_DEBUG : LOG_ERR,
                                       SYNTHETIC_ERRNO(searching ? EADDRNOTAVAIL : ENODEV),

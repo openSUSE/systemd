@@ -1104,7 +1104,7 @@
       <para>An [IPv6AddressLabel] section accepts the following keys. Specify several [IPv6AddressLabel]
       sections to configure several address labels. IPv6 address labels are used for address selection. See
       <ulink url="https://tools.ietf.org/html/rfc3484">RFC 3484</ulink>. Precedence is managed by userspace,
-      and only the label itself is stored in the kernel</para>
+      and only the label itself is stored in the kernel.</para>
 
       <variablelist class='network-directives'>
         <varlistentry>
@@ -1941,7 +1941,7 @@
     <title>[DHCPv6PrefixDelegation] Section Options</title>
     <para>The [DHCPv6PrefixDelegation] section configures delegated prefix assigned by DHCPv6 server.
     The settings in this section are used only when <varname>IPv6PrefixDelegation=</varname> setting is
-    enabled, or set to <literal>dhcp6</literal>.</para>
+    enabled, or set to <literal>dhcpv6</literal>.</para>
 
     <variablelist class='network-directives'>
       <varlistentry>
@@ -2219,9 +2219,8 @@
       <varlistentry>
         <term><varname>RouterLifetimeSec=</varname></term>
 
-        <listitem><para>Takes a timespan. Configures the IPv6 router lifetime in seconds. If set,
-        this host also announces itself in Router Advertisements as an IPv6
-        router for the network link. When unset, the host is not acting as a router.</para>
+        <listitem><para>Takes a timespan. Configures the IPv6 router lifetime in seconds. When set to
+        0, the host is not acting as a router. Defaults to 30 minutes.</para>
         </listitem>
       </varlistentry>
 
