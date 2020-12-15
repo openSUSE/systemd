@@ -1147,7 +1147,7 @@ static int mount_start(Unit *u) {
                 return -EAGAIN;
 
         /* Already on it! */
-        if (m->state == MOUNT_MOUNTING)
+        if (IN_SET(m->state, MOUNT_MOUNTING, MOUNT_MOUNTING_DONE))
                 return 0;
 
         assert(IN_SET(m->state, MOUNT_DEAD, MOUNT_FAILED));
@@ -1950,6 +1950,15 @@ static int mount_process_proc_self_mountinfo(Manager *m) {
                         case MOUNT_MOUNTED:
                                 /* This has just been unmounted by somebody else, follow the state change. */
                                 mount_enter_dead(mount, MOUNT_SUCCESS);
+                                break;
+
+                        case MOUNT_MOUNTING_DONE:
+                                /* The mount command may add the corresponding proc mountinfo entry and
+                                 * then remove it because of an internal error. E.g., fuse.sshfs seems
+                                 * to do that when the connection fails. See #17617. To handle such the
+                                 * case, let's once set the state back to mounting. Then, the unit can
+                                 * correctly enter the failed state later in mount_sigchld(). */
+                                mount_set_state(mount, MOUNT_MOUNTING);
                                 break;
 
                         default:

@@ -1041,13 +1041,17 @@ static int path_set_acl(const char *path, const char *pretty, acl_type_t type, a
                   strna(t), pretty);
 
         r = acl_set_file(path, type, dup);
-        if (r < 0)
-                /* Return positive to indicate we already warned */
-                return -log_error_errno(errno,
-                                        "Setting %s ACL \"%s\" on %s failed: %m",
-                                        type == ACL_TYPE_ACCESS ? "access" : "default",
-                                        strna(t), pretty);
-
+        if (r < 0) {
+                if (ERRNO_IS_NOT_SUPPORTED(errno))
+                        /* No error if filesystem doesn't support ACLs. Return negative. */
+                        return -errno;
+                else
+                        /* Return positive to indicate we already warned */
+                        return -log_error_errno(errno,
+                                                "Setting %s ACL \"%s\" on %s failed: %m",
+                                                type == ACL_TYPE_ACCESS ? "access" : "default",
+                                                strna(t), pretty);
+        }
         return 0;
 }
 #endif
@@ -1087,6 +1091,11 @@ static int fd_set_acls(Item *item, int fd, const char *path, const struct stat *
         if (r == 0 && item->acl_default && S_ISDIR(st->st_mode))
                 r = path_set_acl(procfs_path, path, ACL_TYPE_DEFAULT, item->acl_default, item->append_or_force);
 
+        if (ERRNO_IS_NOT_SUPPORTED(r)) {
+                log_debug_errno(r, "ACLs not supported by file system at %s", path);
+                return 0;
+        }
+
         if (r > 0)
                 return -r; /* already warned */
 
@@ -1094,10 +1103,6 @@ static int fd_set_acls(Item *item, int fd, const char *path, const struct stat *
         if (r == -ENOENT && proc_mounted() == 0)
                 r = -ENOSYS;
 
-        if (r == -EOPNOTSUPP) {
-                log_debug_errno(r, "ACLs not supported by file system at %s", path);
-                return 0;
-        }
         if (r < 0)
                 return log_error_errno(r, "ACL operation on \"%s\" failed: %m", path);
 #endif
@@ -3246,10 +3251,20 @@ static int run(int argc, char *argv[]) {
 
         if (DEBUG_LOGGING) {
                 _cleanup_free_ char *t = NULL;
+                char **i;
 
-                t = strv_join(config_dirs, "\n\t");
-                if (t)
-                        log_debug("Looking for configuration files in (higher priority first):\n\t%s", t);
+                STRV_FOREACH(i, config_dirs) {
+                        _cleanup_free_ char *j = NULL;
+
+                        j = path_join(arg_root, *i);
+                        if (!j)
+                                return log_oom();
+
+                        if (!strextend(&t, "\n\t", j, NULL))
+                                return log_oom();
+                }
+
+                log_debug("Looking for configuration files in (higher priority first):%s", t);
         }
 
         if (arg_cat_config) {

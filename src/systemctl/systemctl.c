@@ -190,8 +190,6 @@ static int trivial_method(int argc, char *argv[], void *userdata);
 static int halt_now(enum action a);
 static int get_state_one_unit(sd_bus *bus, const char *name, UnitActiveState *active_state);
 
-static bool original_stdout_is_tty;
-
 typedef enum BusFocus {
         BUS_FULL,      /* The full bus indicated via --system or --user */
         BUS_MANAGER,   /* The manager itself, possibly directly, possibly via the bus */
@@ -228,7 +226,7 @@ static int acquire_bus(BusFocus focus, sd_bus **ret) {
                 else
                         r = bus_connect_transport(arg_transport, arg_host, user, &buses[focus]);
                 if (r < 0)
-                        return log_error_errno(r, "Failed to connect to bus: %m");
+                        return bus_log_connect_error(r);
 
                 (void) sd_bus_set_allow_interactive_authorization(buses[focus], arg_ask_password);
         }
@@ -6439,6 +6437,12 @@ static int set_environment(int argc, char *argv[], void *userdata) {
         return 0;
 }
 
+static void invalid_callback(const char *p, void *userdata) {
+        _cleanup_free_ char *t = cescape(p);
+
+        log_debug("Ignoring invalid environment assignment \"%s\".", strnull(t));
+}
+
 static int import_environment(int argc, char *argv[], void *userdata) {
         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
         _cleanup_(sd_bus_message_unrefp) sd_bus_message *m = NULL;
@@ -6455,9 +6459,18 @@ static int import_environment(int argc, char *argv[], void *userdata) {
         if (r < 0)
                 return bus_log_create_error(r);
 
-        if (argc < 2)
-                r = sd_bus_message_append_strv(m, environ);
-        else {
+        if (argc < 2) {
+                _cleanup_strv_free_ char **copy = NULL;
+
+                copy = strv_copy(environ);
+                if (!copy)
+                        return log_oom();
+
+                strv_env_clean_with_callback(copy, invalid_callback, NULL);
+
+                r = sd_bus_message_append_strv(m, copy);
+
+        } else {
                 char **a, **b;
 
                 r = sd_bus_message_open_container(m, 'a', "s");
@@ -9300,11 +9313,6 @@ static int run(int argc, char *argv[]) {
         (void) rlimit_nofile_bump(HIGH_RLIMIT_NOFILE);
 
         sigbus_install();
-
-        /* Explicitly not on_tty() to avoid setting cached value.
-         * This becomes relevant for piping output which might be
-         * ellipsized. */
-        original_stdout_is_tty = isatty(STDOUT_FILENO);
 
         r = parse_argv(argc, argv);
         if (r <= 0)

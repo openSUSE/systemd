@@ -257,6 +257,8 @@ const SyscallFilterSet syscall_filter_sets[_SYSCALL_FILTER_SET_MAX] = {
                 .name = "@default",
                 .help = "System calls that are always permitted",
                 .value =
+                "brk\0"
+                "cacheflush\0"
                 "clock_getres\0"
                 "clock_getres_time64\0"
                 "clock_gettime\0"
@@ -293,6 +295,9 @@ const SyscallFilterSet syscall_filter_sets[_SYSCALL_FILTER_SET_MAX] = {
                 "getuid\0"
                 "getuid32\0"
                 "membarrier\0"
+                "mmap\0"
+                "mmap2\0"
+                "munmap\0"
                 "nanosleep\0"
                 "pause\0"
                 "prlimit64\0"
@@ -329,6 +334,7 @@ const SyscallFilterSet syscall_filter_sets[_SYSCALL_FILTER_SET_MAX] = {
                 .value =
                 "_llseek\0"
                 "close\0"
+                "close_range\0"
                 "dup\0"
                 "dup2\0"
                 "dup3\0"
@@ -442,9 +448,6 @@ const SyscallFilterSet syscall_filter_sets[_SYSCALL_FILTER_SET_MAX] = {
                 "mkdirat\0"
                 "mknod\0"
                 "mknodat\0"
-                "mmap\0"
-                "mmap2\0"
-                "munmap\0"
                 "newfstatat\0"
                 "oldfstat\0"
                 "oldlstat\0"
@@ -675,7 +678,7 @@ const SyscallFilterSet syscall_filter_sets[_SYSCALL_FILTER_SET_MAX] = {
         },
         [SYSCALL_FILTER_SET_PROCESS] = {
                 .name = "@process",
-                .help = "Process control, execution, namespaceing operations",
+                .help = "Process control, execution, namespacing operations",
                 .value =
                 "arch_prctl\0"
                 "capget\0"      /* Able to query arbitrary processes */
@@ -817,7 +820,6 @@ const SyscallFilterSet syscall_filter_sets[_SYSCALL_FILTER_SET_MAX] = {
                 "@signal\0"
                 "@sync\0"
                 "@timer\0"
-                "brk\0"
                 "capget\0"
                 "capset\0"
                 "copy_file_range\0"
@@ -1329,9 +1331,6 @@ int seccomp_restrict_address_families(Set *address_families, bool allow_list) {
                 case SCMP_ARCH_X32:
                 case SCMP_ARCH_ARM:
                 case SCMP_ARCH_AARCH64:
-                case SCMP_ARCH_PPC:
-                case SCMP_ARCH_PPC64:
-                case SCMP_ARCH_PPC64LE:
                 case SCMP_ARCH_MIPSEL64N32:
                 case SCMP_ARCH_MIPS64N32:
                 case SCMP_ARCH_MIPSEL64:
@@ -1345,6 +1344,9 @@ int seccomp_restrict_address_families(Set *address_families, bool allow_list) {
                 case SCMP_ARCH_X86:
                 case SCMP_ARCH_MIPSEL:
                 case SCMP_ARCH_MIPS:
+                case SCMP_ARCH_PPC:
+                case SCMP_ARCH_PPC64:
+                case SCMP_ARCH_PPC64LE:
                 default:
                         /* These we either know we don't support (i.e. are the ones that do use socketcall()), or we
                          * don't know */
