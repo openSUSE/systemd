@@ -55,29 +55,30 @@ static void cgroup_compat_warn(void) {
 void cgroup_context_init(CGroupContext *c) {
         assert(c);
 
-        /* Initialize everything to the kernel defaults, assuming the
-         * structure is preinitialized to 0 */
+        /* Initialize everything to the kernel defaults. */
 
-        c->cpu_weight = CGROUP_WEIGHT_INVALID;
-        c->startup_cpu_weight = CGROUP_WEIGHT_INVALID;
-        c->cpu_quota_per_sec_usec = USEC_INFINITY;
+        *c = (CGroupContext) {
+                .cpu_weight = CGROUP_WEIGHT_INVALID,
+                .startup_cpu_weight = CGROUP_WEIGHT_INVALID,
+                .cpu_quota_per_sec_usec = USEC_INFINITY,
 
-        c->cpu_shares = CGROUP_CPU_SHARES_INVALID;
-        c->startup_cpu_shares = CGROUP_CPU_SHARES_INVALID;
+                .cpu_shares = CGROUP_CPU_SHARES_INVALID,
+                .startup_cpu_shares = CGROUP_CPU_SHARES_INVALID,
 
-        c->memory_high = CGROUP_LIMIT_MAX;
-        c->memory_max = CGROUP_LIMIT_MAX;
-        c->memory_swap_max = CGROUP_LIMIT_MAX;
+                .memory_high = CGROUP_LIMIT_MAX,
+                .memory_max = CGROUP_LIMIT_MAX,
+                .memory_swap_max = CGROUP_LIMIT_MAX,
 
-        c->memory_limit = CGROUP_LIMIT_MAX;
+                .memory_limit = CGROUP_LIMIT_MAX,
 
-        c->io_weight = CGROUP_WEIGHT_INVALID;
-        c->startup_io_weight = CGROUP_WEIGHT_INVALID;
+                .io_weight = CGROUP_WEIGHT_INVALID,
+                .startup_io_weight = CGROUP_WEIGHT_INVALID,
 
-        c->blockio_weight = CGROUP_BLKIO_WEIGHT_INVALID;
-        c->startup_blockio_weight = CGROUP_BLKIO_WEIGHT_INVALID;
+                .blockio_weight = CGROUP_BLKIO_WEIGHT_INVALID,
+                .startup_blockio_weight = CGROUP_BLKIO_WEIGHT_INVALID,
 
-        c->tasks_max = (uint64_t) -1;
+                .tasks_max = CGROUP_LIMIT_MAX,
+        };
 }
 
 void cgroup_context_free_device_allow(CGroupContext *c, CGroupDeviceAllow *a) {
@@ -904,7 +905,7 @@ static void cgroup_context_apply(
                                 max = c->memory_limit;
 
                                 if (max != CGROUP_LIMIT_MAX)
-                                        log_cgroup_compat(u, "Applying MemoryLimit %" PRIu64 " as MemoryMax", max);
+                                        log_cgroup_compat(u, "Applying MemoryLimit=%" PRIu64 " as MemoryMax=", max);
                         }
 
                         cgroup_apply_unified_memory_limit(u, "memory.low", c->memory_low);
@@ -917,7 +918,7 @@ static void cgroup_context_apply(
 
                         if (cgroup_context_has_unified_memory_config(c)) {
                                 val = c->memory_max;
-                                log_cgroup_compat(u, "Applying MemoryMax %" PRIi64 " as MemoryLimit", val);
+                                log_cgroup_compat(u, "Applying MemoryMax=%" PRIi64 " as MemoryLimit=", val);
                         } else
                                 val = c->memory_limit;
 
@@ -1018,7 +1019,35 @@ static void cgroup_context_apply(
                 cgroup_apply_firewall(u);
 }
 
-CGroupMask cgroup_context_get_mask(CGroupContext *c) {
+static bool unit_get_needs_bpf_firewall(Unit *u) {
+        CGroupContext *c;
+        Unit *p;
+        assert(u);
+
+        c = unit_get_cgroup_context(u);
+        if (!c)
+                return false;
+
+        if (c->ip_accounting ||
+            c->ip_address_allow ||
+            c->ip_address_deny)
+                return true;
+
+        /* If any parent slice has an IP access list defined, it applies too */
+        for (p = UNIT_DEREF(u->slice); p; p = UNIT_DEREF(p->slice)) {
+                c = unit_get_cgroup_context(p);
+                if (!c)
+                        return false;
+
+                if (c->ip_address_allow ||
+                    c->ip_address_deny)
+                        return true;
+        }
+
+        return false;
+}
+
+static CGroupMask cgroup_context_get_mask(CGroupContext *c) {
         CGroupMask mask = 0;
 
         /* Figure out which controllers we need */
@@ -1048,7 +1077,7 @@ CGroupMask cgroup_context_get_mask(CGroupContext *c) {
         return mask;
 }
 
-CGroupMask unit_get_bpf_mask(Unit *u) {
+static CGroupMask unit_get_bpf_mask(Unit *u) {
         CGroupMask mask = 0;
 
         if (unit_get_needs_bpf_firewall(u))
@@ -1060,7 +1089,11 @@ CGroupMask unit_get_bpf_mask(Unit *u) {
 CGroupMask unit_get_own_mask(Unit *u) {
         CGroupContext *c;
 
-        /* Returns the mask of controllers the unit needs for itself */
+        /* Returns the mask of controllers the unit needs for itself. If a unit is not properly loaded, return an empty
+         * mask, as we shouldn't reflect it in the cgroup hierarchy then. */
+
+        if (u->load_state != UNIT_LOADED)
+                return 0;
 
         c = unit_get_cgroup_context(u);
         if (!c)
@@ -1094,7 +1127,7 @@ CGroupMask unit_get_members_mask(Unit *u) {
          * require, merged */
 
         if (u->cgroup_members_mask_valid)
-                return u->cgroup_members_mask;
+                return u->cgroup_members_mask; /* Use cached value if possible */
 
         u->cgroup_members_mask = 0;
 
@@ -1175,81 +1208,14 @@ CGroupMask unit_get_enable_mask(Unit *u) {
         return mask;
 }
 
-bool unit_get_needs_bpf_firewall(Unit *u) {
-        CGroupContext *c;
-        Unit *p;
+void unit_invalidate_cgroup_members_masks(Unit *u) {
         assert(u);
 
-        c = unit_get_cgroup_context(u);
-        if (!c)
-                return false;
+        /* Recurse invalidate the member masks cache all the way up the tree */
+        u->cgroup_members_mask_valid = false;
 
-        if (c->ip_accounting ||
-            c->ip_address_allow ||
-            c->ip_address_deny)
-                return true;
-
-        /* If any parent slice has an IP access list defined, it applies too */
-        for (p = UNIT_DEREF(u->slice); p; p = UNIT_DEREF(p->slice)) {
-                c = unit_get_cgroup_context(p);
-                if (!c)
-                        return false;
-
-                if (c->ip_address_allow ||
-                    c->ip_address_deny)
-                        return true;
-        }
-
-        return false;
-}
-
-/* Recurse from a unit up through its containing slices, propagating
- * mask bits upward. A unit is also member of itself. */
-void unit_update_cgroup_members_masks(Unit *u) {
-        CGroupMask m;
-        bool more;
-
-        assert(u);
-
-        /* Calculate subtree mask */
-        m = unit_get_subtree_mask(u);
-
-        /* See if anything changed from the previous invocation. If
-         * not, we're done. */
-        if (u->cgroup_subtree_mask_valid && m == u->cgroup_subtree_mask)
-                return;
-
-        more =
-                u->cgroup_subtree_mask_valid &&
-                ((m & ~u->cgroup_subtree_mask) != 0) &&
-                ((~m & u->cgroup_subtree_mask) == 0);
-
-        u->cgroup_subtree_mask = m;
-        u->cgroup_subtree_mask_valid = true;
-
-        if (UNIT_ISSET(u->slice)) {
-                Unit *s = UNIT_DEREF(u->slice);
-
-                if (more)
-                        /* There's more set now than before. We
-                         * propagate the new mask to the parent's mask
-                         * (not caring if it actually was valid or
-                         * not). */
-
-                        s->cgroup_members_mask |= m;
-
-                else
-                        /* There's less set now than before (or we
-                         * don't know), we need to recalculate
-                         * everything, so let's invalidate the
-                         * parent's members mask */
-
-                        s->cgroup_members_mask_valid = false;
-
-                /* And now make sure that this change also hits our
-                 * grandparents */
-                unit_update_cgroup_members_masks(s);
-        }
+        if (UNIT_ISSET(u->slice))
+                unit_invalidate_cgroup_members_masks(UNIT_DEREF(u->slice));
 }
 
 static const char *migrate_callback(CGroupMask mask, void *userdata) {
@@ -1624,7 +1590,8 @@ int unit_realize_cgroup(Unit *u) {
 void unit_release_cgroup(Unit *u) {
         assert(u);
 
-        /* Forgets all cgroup details for this cgroup */
+        /* Forgets all cgroup details for this cgroup — but does *not* destroy the cgroup. This is hence OK to call
+         * when we close down everything for reexecution, where we really want to leave the cgroup in place. */
 
         if (u->cgroup_path) {
                 (void) hashmap_remove(u->manager->cgroup_unit, u->cgroup_path);
@@ -1908,9 +1875,9 @@ int manager_setup_cgroup(Manager *m) {
                 return log_error_errno(r, "Couldn't determine if we are running in the unified hierarchy: %m");
 
         all_unified = cg_all_unified();
-        if (r < 0)
-                return log_error_errno(r, "Couldn't determine whether we are in all unified mode: %m");
-        if (r > 0)
+        if (all_unified < 0)
+                return log_error_errno(all_unified, "Couldn't determine whether we are in all unified mode: %m");
+        if (all_unified > 0)
                 log_debug("Unified cgroup hierarchy is located at %s.", path);
         else {
                 r = cg_unified_controller(SYSTEMD_CGROUP_CONTROLLER);

@@ -539,8 +539,7 @@ void unit_free(Unit *u) {
         if (!u)
                 return;
 
-        if (u->transient_file)
-                fclose(u->transient_file);
+        u->transient_file = safe_fclose(u->transient_file);
 
         if (!MANAGER_IS_RELOADING(u->manager))
                 unit_remove_transient(u);
@@ -1325,9 +1324,7 @@ int unit_load(Unit *u) {
                 if (r < 0)
                         goto fail;
 
-                fclose(u->transient_file);
-                u->transient_file = NULL;
-
+                u->transient_file = safe_fclose(u->transient_file);
                 u->fragment_mtime = now(CLOCK_REALTIME);
         }
 
@@ -1369,7 +1366,8 @@ int unit_load(Unit *u) {
                 if (u->job_running_timeout != USEC_INFINITY && u->job_running_timeout > u->job_timeout)
                         log_unit_warning(u, "JobRunningTimeoutSec= is greater than JobTimeoutSec=, it has no effect.");
 
-                unit_update_cgroup_members_masks(u);
+                /* We finished loading, let's ensure our parents recalculate the members mask */
+                unit_invalidate_cgroup_members_masks(u);
         }
 
         assert((u->load_state != UNIT_MERGED) == !u->merged_into);
