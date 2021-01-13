@@ -52,15 +52,37 @@
 
 #define READ_FULL_BYTES_MAX (4U*1024U*1024U)
 
-int write_string_stream_ts(FILE *f, const char *line, bool enforce_newline, struct timespec *ts) {
+int write_string_stream_ts(
+                FILE *f,
+                const char *line,
+                WriteStringFileFlags flags,
+                struct timespec *ts) {
         int r;
+
+        bool needs_nl;
 
         assert(f);
         assert(line);
 
-        fputs(line, f);
-        if (enforce_newline && !endswith(line, "\n"))
-                fputc('\n', f);
+        if (ferror(f))
+                return -EIO;
+
+        needs_nl = !(flags & WRITE_STRING_FILE_AVOID_NEWLINE) && !endswith(line, "\n");
+
+        if (needs_nl && (flags & WRITE_STRING_FILE_DISABLE_BUFFER)) {
+                /* If STDIO buffering was disabled, then let's append the newline character to the string itself, so
+                 * that the write goes out in one go, instead of two */
+
+                line = strjoina(line, "\n");
+                needs_nl = false;
+        }
+
+        if (fputs(line, f) == EOF)
+                return -errno;
+
+        if (needs_nl)
+                if (fputc('\n', f) == EOF)
+                        return -errno;
 
         r = fflush_and_check(f);
         if (r < 0)
@@ -79,7 +101,7 @@ int write_string_stream_ts(FILE *f, const char *line, bool enforce_newline, stru
 static int write_string_file_atomic(
                 const char *fn,
                 const char *line,
-                bool enforce_newline,
+                WriteStringFileFlags flags,
                 struct timespec *ts) {
 
         _cleanup_fclose_ FILE *f = NULL;
@@ -95,7 +117,7 @@ static int write_string_file_atomic(
 
         (void) fchmod_umask(fileno(f), 0644);
 
-        r = write_string_stream_ts(f, line, enforce_newline, ts);
+        r = write_string_stream_ts(f, line, flags, ts);
         if (r >= 0) {
                 if (rename(p, fn) < 0)
                         r = -errno;
@@ -107,7 +129,12 @@ static int write_string_file_atomic(
         return r;
 }
 
-int write_string_file_ts(const char *fn, const char *line, WriteStringFileFlags flags, struct timespec *ts) {
+int write_string_file_ts(
+                const char *fn,
+                const char *line,
+                WriteStringFileFlags flags,
+                struct timespec *ts) {
+
         _cleanup_fclose_ FILE *f = NULL;
         int q, r;
 
@@ -117,10 +144,7 @@ int write_string_file_ts(const char *fn, const char *line, WriteStringFileFlags 
         if (flags & WRITE_STRING_FILE_ATOMIC) {
                 assert(flags & WRITE_STRING_FILE_CREATE);
 
-                r = write_string_file_atomic(fn,
-                                             line,
-                                             !(flags & WRITE_STRING_FILE_AVOID_NEWLINE),
-                                             ts);
+                r = write_string_file_atomic(fn, line, flags, ts);
                 if (r < 0)
                         goto fail;
 
@@ -156,7 +180,7 @@ int write_string_file_ts(const char *fn, const char *line, WriteStringFileFlags 
         if (flags & WRITE_STRING_FILE_DISABLE_BUFFER)
                 setvbuf(f, NULL, _IONBF, 0);
 
-        r = write_string_stream_ts(f, line, !(flags & WRITE_STRING_FILE_AVOID_NEWLINE), ts);
+        r = write_string_stream_ts(f, line, flags, ts);
         if (r < 0)
                 goto fail;
 
