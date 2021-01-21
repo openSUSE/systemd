@@ -2905,6 +2905,9 @@ int manager_reload(Manager *m) {
         if (m->api_bus)
                 manager_sync_bus_names(m, m->api_bus);
 
+        /* Clean up deserialized tracked clients */
+        m->deserialized_subscribed = strv_free(m->deserialized_subscribed);
+
         assert(m->n_reloading > 0);
         m->n_reloading--;
 
