@@ -13,6 +13,7 @@
 #include "fs-util.h"
 #include "hashmap.h"
 #include "main-func.h"
+#include "nscd-flush.h"
 #include "pager.h"
 #include "path-util.h"
 #include "pretty-print.h"
@@ -777,6 +778,9 @@ static int write_files(void) {
                         return r;
 
                 group_tmp = mfree(group_tmp);
+
+                if (!arg_root)
+                        (void) nscd_flush_cache(STRV_MAKE("group"));
         }
         if (gshadow) {
                 r = rename_and_apply_smack_floor_label(gshadow_tmp, gshadow_path);
@@ -792,6 +796,9 @@ static int write_files(void) {
                         return r;
 
                 passwd_tmp = mfree(passwd_tmp);
+
+                if (!arg_root)
+                        (void) nscd_flush_cache(STRV_MAKE("passwd"));
         }
         if (shadow) {
                 r = rename_and_apply_smack_floor_label(shadow_tmp, shadow_path);
