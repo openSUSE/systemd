@@ -51,7 +51,7 @@
 #include "initreq.h"
 #include "install.h"
 #include "io-util.h"
-#include "journal-util.h"
+#include "journal-file.h"
 #include "list.h"
 #include "locale-util.h"
 #include "log.h"
@@ -7239,7 +7239,7 @@ static int unit_is_enabled(int argc, char *argv[], void *userdata) {
                         if (r < 0)
                                 return bus_log_parse_error(r);
 
-                        if (STR_IN_SET(s, "enabled", "enabled-runtime", "static", "indirect", "generated"))
+                        if (STR_IN_SET(s, "enabled", "enabled-runtime", "static", "alias", "indirect", "generated"))
                                 enabled = true;
 
                         if (!arg_quiet) {
