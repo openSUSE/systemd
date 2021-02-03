@@ -25,6 +25,7 @@ static int dns_query_candidate_new(DnsQueryCandidate **ret, DnsQuery *q, DnsScop
         if (!c)
                 return -ENOMEM;
 
+        c->n_ref = 1;
         c->query = q;
         c->scope = s;
 
@@ -47,8 +48,7 @@ static void dns_query_candidate_stop(DnsQueryCandidate *c) {
         }
 }
 
-DnsQueryCandidate* dns_query_candidate_free(DnsQueryCandidate *c) {
-
+static DnsQueryCandidate* dns_query_candidate_free(DnsQueryCandidate *c) {
         if (!c)
                 return NULL;
 
@@ -66,8 +66,10 @@ DnsQueryCandidate* dns_query_candidate_free(DnsQueryCandidate *c) {
         return mfree(c);
 }
 
+DEFINE_PUBLIC_TRIVIAL_REF_UNREF_FUNC(DnsQueryCandidate, dns_query_candidate, dns_query_candidate_free);
+
 static int dns_query_candidate_next_search_domain(DnsQueryCandidate *c) {
-        DnsSearchDomain *next = NULL;
+        DnsSearchDomain *next;
 
         assert(c);
 
@@ -128,12 +130,16 @@ static int dns_query_candidate_add_transaction(DnsQueryCandidate *c, DnsResource
 }
 
 static int dns_query_candidate_go(DnsQueryCandidate *c) {
+        _cleanup_(dns_query_candidate_unrefp) DnsQueryCandidate *keep_c = NULL;
         DnsTransaction *t;
         Iterator i;
         int r;
         unsigned n = 0;
 
         assert(c);
+
+        /* Let's keep a reference to the query while we're operating */
+        keep_c = dns_query_candidate_ref(c);
 
         /* Start the transactions that are not started yet */
         SET_FOREACH(t, c->transactions, i) {
@@ -298,11 +304,11 @@ static void dns_query_stop(DnsQuery *q) {
                 dns_query_candidate_stop(c);
 }
 
-static void dns_query_free_candidates(DnsQuery *q) {
+static void dns_query_unref_candidates(DnsQuery *q) {
         assert(q);
 
         while (q->candidates)
-                dns_query_candidate_free(q->candidates);
+                dns_query_candidate_unref(q->candidates);
 }
 
 static void dns_query_reset_answer(DnsQuery *q) {
@@ -331,7 +337,7 @@ DnsQuery *dns_query_free(DnsQuery *q) {
                 LIST_REMOVE(auxiliary_queries, q->auxiliary_for->auxiliary_queries, q);
         }
 
-        dns_query_free_candidates(q);
+        dns_query_unref_candidates(q);
 
         dns_question_unref(q->question_idna);
         dns_question_unref(q->question_utf8);
@@ -500,7 +506,7 @@ static int on_query_timeout(sd_event_source *s, usec_t usec, void *userdata) {
 }
 
 static int dns_query_add_candidate(DnsQuery *q, DnsScope *s) {
-        _cleanup_(dns_query_candidate_freep) DnsQueryCandidate *c = NULL;
+        _cleanup_(dns_query_candidate_unrefp) DnsQueryCandidate *c = NULL;
         int r;
 
         assert(q);
@@ -587,8 +593,8 @@ static int dns_query_try_etc_hosts(DnsQuery *q) {
 
         assert(q);
 
-        /* Looks in /etc/hosts for matching entries. Note that this is done *before* the normal lookup is done. The
-         * data from /etc/hosts hence takes precedence over the network. */
+        /* Looks in /etc/hosts for matching entries. Note that this is done *before* the normal lookup is
+         * done. The data from /etc/hosts hence takes precedence over the network. */
 
         r = manager_etc_hosts_lookup(
                         q->manager,
@@ -924,7 +930,7 @@ static int dns_query_cname_redirect(DnsQuery *q, const DnsResourceRecord *cname)
         dns_question_unref(q->question_utf8);
         q->question_utf8 = TAKE_PTR(nq_utf8);
 
-        dns_query_free_candidates(q);
+        dns_query_unref_candidates(q);
         dns_query_reset_answer(q);
 
         q->state = DNS_TRANSACTION_NULL;
