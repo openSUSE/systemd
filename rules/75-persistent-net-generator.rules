@@ -23,9 +23,6 @@ KERNEL!="eth*|ath*|wlan*[0-9]|msh*|ra*|sta*|ctc*|lcs*|hsi*", GOTO="persistent_ne
 IMPORT{cmdline}="net.ifnames"
 ENV{net.ifnames}=="1", GOTO="persistent_net_generator_end"
 
-# ignore Xen virtual interfaces
-SUBSYSTEMS=="xen", GOTO="persistent_net_generator_end"
-
 # read MAC address
 ENV{MATCHADDR}="$attr{address}"
 
