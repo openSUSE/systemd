@@ -1121,6 +1121,7 @@ DecryptedImage* decrypted_image_unref(DecryptedImage* d) {
                 free(p->name);
         }
 
+        free(d->decrypted);
         free(d);
 #endif
         return NULL;
@@ -1677,8 +1678,8 @@ int dissected_image_acquire_metadata(DissectedImage *m) {
                 [META_HOSTNAME]     = "/etc/hostname\0",
                 [META_MACHINE_ID]   = "/etc/machine-id\0",
                 [META_MACHINE_INFO] = "/etc/machine-info\0",
-                [META_OS_RELEASE]   = "/etc/os-release\0"
-                                      "/usr/lib/os-release\0",
+                [META_OS_RELEASE]   = ("/etc/os-release\0"
+                                       "/usr/lib/os-release\0"),
         };
 
         _cleanup_strv_free_ char **machine_info = NULL, **os_release = NULL;

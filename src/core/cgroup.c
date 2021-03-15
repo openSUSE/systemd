@@ -1048,6 +1048,23 @@ static int cgroup_apply_devices(Unit *u) {
         return r;
 }
 
+static void set_io_weight(Unit *u, const char *controller, uint64_t weight) {
+        char buf[8+DECIMAL_STR_MAX(uint64_t)+1];
+        const char *p;
+
+        p = strjoina(controller, ".weight");
+        xsprintf(buf, "default %" PRIu64 "\n", weight);
+        (void) set_attribute_and_warn(u, controller, p, buf);
+
+        /* FIXME: drop this when distro kernels properly support BFQ through "io.weight"
+         * See also: https://github.com/systemd/systemd/pull/13335 and
+         * https://github.com/torvalds/linux/commit/65752aef0a407e1ef17ec78a7fc31ba4e0b360f9.
+         * The range is 1..1000 apparently. */
+        p = strjoina(controller, ".bfq.weight");
+        xsprintf(buf, "%" PRIu64 "\n", (weight + 9) / 10);
+        (void) set_attribute_and_warn(u, controller, p, buf);
+}
+
 static void cgroup_context_apply(
                 Unit *u,
                 CGroupMask apply_mask,
@@ -1134,7 +1151,6 @@ static void cgroup_context_apply(
          * controller), and in case of containers we want to leave control of these attributes to the container manager
          * (and we couldn't access that stuff anyway, even if we tried if proper delegation is used). */
         if ((apply_mask & CGROUP_MASK_IO) && !is_local_root) {
-                char buf[8+DECIMAL_STR_MAX(uint64_t)+1];
                 bool has_io, has_blockio;
                 uint64_t weight;
 
@@ -1154,13 +1170,7 @@ static void cgroup_context_apply(
                 } else
                         weight = CGROUP_WEIGHT_DEFAULT;
 
-                xsprintf(buf, "default %" PRIu64 "\n", weight);
-                (void) set_attribute_and_warn(u, "io", "io.weight", buf);
-
-                /* FIXME: drop this when distro kernels properly support BFQ through "io.weight"
-                 * See also: https://github.com/systemd/systemd/pull/13335 */
-                xsprintf(buf, "%" PRIu64 "\n", weight);
-                (void) set_attribute_and_warn(u, "io", "io.bfq.weight", buf);
+                set_io_weight(u, "io", weight);
 
                 if (has_io) {
                         CGroupIODeviceLatency *latency;
@@ -1216,7 +1226,6 @@ static void cgroup_context_apply(
                 /* Applying a 'weight' never makes sense for the host root cgroup, and for containers this should be
                  * left to our container manager, too. */
                 if (!is_local_root) {
-                        char buf[DECIMAL_STR_MAX(uint64_t)+1];
                         uint64_t weight;
 
                         if (has_io) {
@@ -1232,13 +1241,7 @@ static void cgroup_context_apply(
                         else
                                 weight = CGROUP_BLKIO_WEIGHT_DEFAULT;
 
-                        xsprintf(buf, "%" PRIu64 "\n", weight);
-                        (void) set_attribute_and_warn(u, "blkio", "blkio.weight", buf);
-
-                        /* FIXME: drop this when distro kernels properly support BFQ through "blkio.weight"
-                         * See also: https://github.com/systemd/systemd/pull/13335 */
-                        xsprintf(buf, "%" PRIu64 "\n", weight);
-                        (void) set_attribute_and_warn(u, "blkio", "blkio.bfq.weight", buf);
+                        set_io_weight(u, "blkio", weight);
 
                         if (has_io) {
                                 CGroupIODeviceWeight *w;
@@ -1571,19 +1574,19 @@ CGroupMask unit_get_subtree_mask(Unit *u) {
 }
 
 CGroupMask unit_get_target_mask(Unit *u) {
-        CGroupMask mask;
+        CGroupMask own_mask, mask;
 
-        /* This returns the cgroup mask of all controllers to enable
-         * for a specific cgroup, i.e. everything it needs itself,
-         * plus all that its children need, plus all that its siblings
-         * need. This is primarily useful on the legacy cgroup
-         * hierarchy, where we need to duplicate each cgroup in each
+        /* This returns the cgroup mask of all controllers to enable for a specific cgroup, i.e. everything
+         * it needs itself, plus all that its children need, plus all that its siblings need. This is
+         * primarily useful on the legacy cgroup hierarchy, where we need to duplicate each cgroup in each
          * hierarchy that shall be enabled for it. */
 
-        mask = unit_get_own_mask(u) | unit_get_members_mask(u) | unit_get_siblings_mask(u);
+        own_mask = unit_get_own_mask(u);
 
-        if (mask & CGROUP_MASK_BPF_FIREWALL & ~u->manager->cgroup_supported)
+        if (own_mask & CGROUP_MASK_BPF_FIREWALL & ~u->manager->cgroup_supported)
                 emit_bpf_firewall_warning(u);
+
+        mask = own_mask | unit_get_members_mask(u) | unit_get_siblings_mask(u);
 
         mask &= u->manager->cgroup_supported;
         mask &= ~unit_get_ancestor_disable_mask(u);
