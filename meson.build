@@ -625,7 +625,7 @@ conf.set_quoted('GETTEXT_PACKAGE', meson.project_name())
 substs.set('SUSHELL', get_option('debug-shell'))
 substs.set('DEBUGTTY', get_option('debug-tty'))
 
-debug = get_option('debug')
+debug = get_option('debug-extra')
 if debug != ''
         foreach name : debug.split(',')
                 if name == 'hashmap'
@@ -1196,8 +1196,7 @@ foreach tuple : [['myhostname', 'HAVE_MYHOSTNAME'],
                         version : '2',
                         include_directories : includes,
                         link_args : ['-shared',
-                                     '-Wl,--version-script=' + version_script_arg,
-                                     '-Wl,--undefined'],
+                                     '-Wl,--version-script=' + version_script_arg],
                         link_with : [libsystemd_internal,
                                      libbasic],
                         dependencies : [threads,
