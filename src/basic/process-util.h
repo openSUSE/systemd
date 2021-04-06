@@ -28,6 +28,7 @@
 
 #include "formats-util.h"
 #include "macro.h"
+#include "time-util.h"
 
 #define procfs_file_alloca(pid, field)                                  \
         ({                                                              \
@@ -57,6 +58,7 @@ int get_process_umask(pid_t pid, mode_t *umask);
 
 int wait_for_terminate(pid_t pid, siginfo_t *status);
 int wait_for_terminate_and_warn(const char *name, pid_t pid, bool check_exit_code);
+int wait_for_terminate_with_timeout(pid_t pid, usec_t timeout);
 
 void sigkill_wait(pid_t *pid);
 #define _cleanup_sigkill_wait_ _cleanup_(sigkill_wait)

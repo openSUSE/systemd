@@ -1258,6 +1258,7 @@ int manager_startup(Manager *m, FILE *serialization, FDSet *fds) {
         manager_setup_kdbus(m);
         manager_connect_bus(m, !!serialization);
         bus_track_coldplug(m, &m->subscribed, &m->deserialized_subscribed);
+        m->deserialized_subscribed = strv_free(m->deserialized_subscribed);
 
         /* Third, fire things up! */
         manager_coldplug(m);
@@ -2807,6 +2808,9 @@ int manager_reload(Manager *m) {
         /* Sync current state of bus names with our set of listening units */
         if (m->api_bus)
                 manager_sync_bus_names(m, m->api_bus);
+
+        /* Clean up deserialized tracked clients */
+        m->deserialized_subscribed = strv_free(m->deserialized_subscribed);
 
         assert(m->n_reloading > 0);
         m->n_reloading--;

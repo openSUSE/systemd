@@ -33,6 +33,8 @@
 
 #include "alloc-util.h"
 #include "cgroup-util.h"
+#include "extract-word.h"
+#include "fd-util.h"
 #include "def.h"
 #include "fileio.h"
 #include "killall.h"
@@ -40,8 +42,11 @@
 #include "missing.h"
 #include "parse-util.h"
 #include "process-util.h"
+#include "signal-util.h"
+#include "stdio-util.h"
 #include "string-util.h"
 #include "switch-root.h"
+#include "sysctl-util.h"
 #include "terminal-util.h"
 #include "umount.h"
 #include "util.h"
@@ -49,6 +54,9 @@
 #include "watchdog.h"
 
 #define FINALIZE_ATTEMPTS 50
+
+#define SYNC_PROGRESS_ATTEMPTS 3
+#define SYNC_TIMEOUT_USEC (10*USEC_PER_SEC)
 
 static char* arg_verb;
 static uint8_t arg_exit_code;
@@ -84,14 +92,14 @@ static int parse_argv(int argc, char *argv[]) {
                 case ARG_LOG_LEVEL:
                         r = log_set_max_level_from_string(optarg);
                         if (r < 0)
-                                log_error("Failed to parse log level %s, ignoring.", optarg);
+                                log_error_errno(r, "Failed to parse log level %s, ignoring.", optarg);
 
                         break;
 
                 case ARG_LOG_TARGET:
                         r = log_set_target_from_string(optarg);
                         if (r < 0)
-                                log_error("Failed to parse log target %s, ignoring", optarg);
+                                log_error_errno(r, "Failed to parse log target %s, ignoring", optarg);
 
                         break;
 
@@ -100,7 +108,7 @@ static int parse_argv(int argc, char *argv[]) {
                         if (optarg) {
                                 r = log_show_color_from_string(optarg);
                                 if (r < 0)
-                                        log_error("Failed to parse log color setting %s, ignoring", optarg);
+                                        log_error_errno(r, "Failed to parse log color setting %s, ignoring", optarg);
                         } else
                                 log_show_color(true);
 
@@ -110,7 +118,7 @@ static int parse_argv(int argc, char *argv[]) {
                         if (optarg) {
                                 r = log_show_location_from_string(optarg);
                                 if (r < 0)
-                                        log_error("Failed to parse log location setting %s, ignoring", optarg);
+                                        log_error_errno(r, "Failed to parse log location setting %s, ignoring", optarg);
                         } else
                                 log_show_location(true);
 
@@ -119,7 +127,7 @@ static int parse_argv(int argc, char *argv[]) {
                 case ARG_EXIT_CODE:
                         r = safe_atou8(optarg, &arg_exit_code);
                         if (r < 0)
-                                log_error("Failed to parse exit code %s, ignoring", optarg);
+                                log_error_errno(r, "Failed to parse exit code %s, ignoring", optarg);
 
                         break;
 
@@ -159,6 +167,142 @@ static int switch_root_initramfs(void) {
         return switch_root("/run/initramfs", "/oldroot", false, MS_BIND);
 }
 
+/* Read the following fields from /proc/meminfo:
+ *
+ *  NFS_Unstable
+ *  Writeback
+ *  Dirty
+ *
+ * Return true if the sum of these fields is greater than the previous
+ * value input. For all other issues, report the failure and indicate that
+ * the sync is not making progress.
+ */
+static bool sync_making_progress(unsigned long long *prev_dirty) {
+        _cleanup_fclose_ FILE *f = NULL;
+        char line[LINE_MAX];
+        bool r = false;
+        unsigned long long val = 0;
+
+        f = fopen("/proc/meminfo", "re");
+        if (!f)
+                return log_warning_errno(errno, "Failed to open /proc/meminfo: %m");
+
+        FOREACH_LINE(line, f, log_warning_errno(errno, "Failed to parse /proc/meminfo: %m")) {
+                unsigned long long ull = 0;
+
+                if (!first_word(line, "NFS_Unstable:") && !first_word(line, "Writeback:") && !first_word(line, "Dirty:"))
+                        continue;
+
+                errno = 0;
+                if (sscanf(line, "%*s %llu %*s", &ull) != 1) {
+                        if (errno != 0)
+                                log_warning_errno(errno, "Failed to parse /proc/meminfo: %m");
+                        else
+                                log_warning("Failed to parse /proc/meminfo");
+
+                        return false;
+                }
+
+                val += ull;
+        }
+
+        r = *prev_dirty > val;
+
+        *prev_dirty = val;
+
+        return r;
+}
+
+static void sync_with_progress(void) {
+        unsigned checks;
+        pid_t pid;
+        int r;
+        unsigned long long dirty = ULONG_LONG_MAX;
+
+        BLOCK_SIGNALS(SIGCHLD);
+
+        /* Due to the possiblity of the sync operation hanging, we fork
+         * a child process and monitor the progress. If the timeout
+         * lapses, the assumption is that that particular sync stalled. */
+        pid = fork();
+        if (pid < 0) {
+                log_error_errno(errno, "Failed to fork: %m");
+                return;
+        }
+
+        if (pid == 0) {
+                /* Start the sync operation here in the child */
+                sync();
+                _exit(EXIT_SUCCESS);
+        }
+
+        log_info("Syncing filesystems and block devices.");
+
+        /* Start monitoring the sync operation. If more than
+         * SYNC_PROGRESS_ATTEMPTS lapse without progress being made,
+         * we assume that the sync is stalled */
+        for (checks = 0; checks < SYNC_PROGRESS_ATTEMPTS; checks++) {
+                r = wait_for_terminate_with_timeout(pid, SYNC_TIMEOUT_USEC);
+                if (r == 0)
+                        /* Sync finished without error.
+                         * (The sync itself does not return an error code) */
+                        return;
+                else if (r == -ETIMEDOUT) {
+                        /* Reset the check counter if the "Dirty" value is
+                         * decreasing */
+                        if (sync_making_progress(&dirty))
+                                checks = 0;
+                } else {
+                        log_error_errno(r, "Failed to sync filesystems and block devices: %m");
+                        return;
+                }
+        }
+
+        /* Only reached in the event of a timeout. We should issue a kill
+         * to the stray process. */
+        log_error("Syncing filesystems and block devices - timed out, issuing SIGKILL to PID "PID_FMT".", pid);
+        (void) kill(pid, SIGKILL);
+}
+
+static int read_current_sysctl_printk_log_level(void) {
+        _cleanup_free_ char *sysctl_printk_vals = NULL, *sysctl_printk_curr = NULL;
+        int current_lvl;
+        const char *p;
+        int r;
+
+        r = sysctl_read("kernel/printk", &sysctl_printk_vals);
+        if (r < 0)
+                return log_debug_errno(r, "Cannot read sysctl kernel.printk: %m");
+
+        p = sysctl_printk_vals;
+        r = extract_first_word(&p, &sysctl_printk_curr, NULL, 0);
+        if (r < 0)
+                return log_debug_errno(r, "Failed to split out kernel printk priority: %m");
+        if (r == 0) {
+                log_debug("Short read while reading kernel.printk sysctl");
+                return -EINVAL;
+        }
+
+        r = safe_atoi(sysctl_printk_curr, &current_lvl);
+        if (r < 0)
+                return log_debug_errno(r, "Failed to parse kernel.printk sysctl: %s", sysctl_printk_vals);
+
+        return current_lvl;
+}
+
+static void bump_sysctl_printk_log_level(int min_level) {
+        int current_lvl, r;
+
+        /* Set the logging level to be able to see messages with log level smaller or equal to min_level */
+
+        current_lvl = read_current_sysctl_printk_log_level();
+        if (current_lvl < 0 || current_lvl >= min_level + 1)
+                return;
+
+        r = sysctl_writef("kernel/printk", "%i", min_level + 1);
+        if (r < 0)
+                log_debug_errno(r, "Failed to bump kernel.printk to %i: %m", min_level + 1);
+}
 
 int main(int argc, char *argv[]) {
         bool need_umount, need_swapoff, need_loop_detach, need_dm_detach;
@@ -204,20 +348,38 @@ int main(int argc, char *argv[]) {
                 goto error;
         }
 
-        cg_get_root_path(&cgroup);
+        (void) cg_get_root_path(&cgroup);
+        in_container = detect_container() > 0;
 
         use_watchdog = !!getenv("WATCHDOG_USEC");
 
-        /* lock us into memory */
+        /* If the logging messages are going to KMSG, and if we are not running from a container, then try to
+         * update the sysctl kernel.printk current value in order to see "info" messages; This current log
+         * level is not updated if already big enough.
+         */
+        if (!in_container &&
+            IN_SET(log_get_target(),
+                   LOG_TARGET_AUTO,
+                   LOG_TARGET_JOURNAL_OR_KMSG,
+                   LOG_TARGET_SYSLOG_OR_KMSG,
+                   LOG_TARGET_KMSG))
+                bump_sysctl_printk_log_level(LOG_WARNING);
+
+        /* Lock us into memory */
         mlockall(MCL_CURRENT|MCL_FUTURE);
+
+        /* Synchronize everything that is not written to disk yet at this point already. This is a good idea so that
+         * slow IO is processed here already and the final process killing spree is not impacted by processes
+         * desperately trying to sync IO to disk within their timeout. Do not remove this sync, data corruption will
+         * result. */
+        if (!in_container)
+                sync_with_progress();
 
         log_info("Sending SIGTERM to remaining processes...");
         broadcast_signal(SIGTERM, true, true);
 
         log_info("Sending SIGKILL to remaining processes...");
         broadcast_signal(SIGKILL, true, false);
-
-        in_container = detect_container() > 0;
 
         need_umount = !in_container;
         need_swapoff = !in_container;
@@ -347,12 +509,12 @@ int main(int argc, char *argv[]) {
                           need_loop_detach ? " loop devices," : "",
                           need_dm_detach ? " DM devices," : "");
 
-        /* The kernel will automaticall flush ATA disks and suchlike
-         * on reboot(), but the file systems need to be synce'd
-         * explicitly in advance. So let's do this here, but not
-         * needlessly slow down containers. */
+        /* The kernel will automatically flush ATA disks and suchlike on reboot(), but the file systems need to be
+         * sync'ed explicitly in advance. So let's do this here, but not needlessly slow down containers. Note that we
+         * sync'ed things already once above, but we did some more work since then which might have caused IO, hence
+         * let's do it once more. Do not remove this sync, data corruption will result. */
         if (!in_container)
-                sync();
+                sync_with_progress();
 
         if (streq(arg_verb, "exit")) {
                 if (in_container)
