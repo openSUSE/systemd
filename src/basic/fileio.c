@@ -252,7 +252,8 @@ int write_string_file_ts(
         /* We manually build our own version of fopen(..., "we") that works without O_CREAT and with O_NOFOLLOW if needed. */
         fd = open(fn, O_WRONLY|O_CLOEXEC|O_NOCTTY |
                   (FLAGS_SET(flags, WRITE_STRING_FILE_NOFOLLOW) ? O_NOFOLLOW : 0) |
-                  (FLAGS_SET(flags, WRITE_STRING_FILE_CREATE) ? O_CREAT : 0),
+                  (FLAGS_SET(flags, WRITE_STRING_FILE_CREATE) ? O_CREAT : 0) |
+                  (FLAGS_SET(flags, WRITE_STRING_FILE_TRUNCATE) ? O_TRUNC : 0),
                   (FLAGS_SET(flags, WRITE_STRING_FILE_MODE_0600) ? 0600 : 0666));
         if (fd < 0) {
                 r = -errno;
@@ -283,7 +284,7 @@ fail:
         /* OK, the operation failed, but let's see if the right
          * contents in place already. If so, eat up the error. */
 
-        q = verify_file(fn, line, !(flags & WRITE_STRING_FILE_AVOID_NEWLINE));
+        q = verify_file(fn, line, !(flags & WRITE_STRING_FILE_AVOID_NEWLINE) || (flags & WRITE_STRING_FILE_VERIFY_IGNORE_NEWLINE));
         if (q <= 0)
                 return r;
 
