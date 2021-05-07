@@ -939,7 +939,7 @@ int bus_cgroup_set_property(
                 r = sd_bus_message_read(message, "t", &v);
                 if (r < 0)
                         return r;
-                if (v <= 0)
+                if (v <= 0 && !STR_IN_SET(name, "MemoryLow", "MemorySwapMax"))
                         return sd_bus_error_set_errnof(error, EINVAL, "%s= is too small", name);
 
                 if (mode != UNIT_CHECK) {
@@ -962,7 +962,7 @@ int bus_cgroup_set_property(
 
                 return 1;
 
-        } else if (STR_IN_SET(name, "MemoryLowScale", "MemoryHighScale", "MemoryMaxScale")) {
+        } else if (STR_IN_SET(name, "MemoryLowScale", "MemoryHighScale", "MemoryMaxScale", "MemorySwapMaxScale")) {
                 uint32_t raw;
                 uint64_t v;
 
@@ -971,7 +971,7 @@ int bus_cgroup_set_property(
                         return r;
 
                 v = physical_memory_scale(raw, UINT32_MAX);
-                if (v <= 0 || v == UINT64_MAX)
+                if ((v <= 0 && !STR_IN_SET(name, "MemoryLowScale", "MemorySwapMaxScale")) || v == UINT64_MAX)
                         return sd_bus_error_set_errnof(error, EINVAL, "%s= is out of range", name);
 
                 if (mode != UNIT_CHECK) {
@@ -985,7 +985,9 @@ int bus_cgroup_set_property(
                                 c->memory_low = v;
                         else if (streq(name, "MemoryHigh"))
                                 c->memory_high = v;
-                        else
+                        else if (streq(name, "MemorySwapMax"))
+                                c->memory_swap_max = v;
+                        else /* MemoryMax */
                                 c->memory_max = v;
 
                         unit_invalidate_cgroup(u, CGROUP_MASK_MEMORY);
@@ -1008,7 +1010,7 @@ int bus_cgroup_set_property(
                         c->memory_limit = limit;
                         unit_invalidate_cgroup(u, CGROUP_MASK_MEMORY);
 
-                        if (limit == (uint64_t) -1)
+                        if (limit == CGROUP_LIMIT_MAX)
                                 unit_write_drop_in_private(u, mode, name, "MemoryLimit=infinity");
                         else
                                 unit_write_drop_in_private_format(u, mode, name, "MemoryLimit=%" PRIu64, limit);

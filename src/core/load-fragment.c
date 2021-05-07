@@ -3043,7 +3043,9 @@ int config_parse_memory_limit(
         uint64_t bytes = CGROUP_LIMIT_MAX;
         int r;
 
-        if (!isempty(rvalue) && !streq(rvalue, "infinity")) {
+        if (isempty(rvalue) && STR_IN_SET(lvalue, "MemoryLow"))
+                bytes = CGROUP_LIMIT_MIN;
+        else if (!isempty(rvalue) && !streq(rvalue, "infinity")) {
 
                 r = parse_percent(rvalue);
                 if (r < 0) {
@@ -3055,7 +3057,8 @@ int config_parse_memory_limit(
                 } else
                         bytes = physical_memory_scale(r, 100U);
 
-                if (bytes <= 0 || bytes >= UINT64_MAX) {
+                if (bytes >= UINT64_MAX ||
+                    (bytes <= 0 && !STR_IN_SET(lvalue, "MemorySwapMax", "MemoryLow"))) {
                         log_syntax(unit, LOG_ERR, filename, line, 0, "Memory limit '%s' out of range. Ignoring.", rvalue);
                         return 0;
                 }
