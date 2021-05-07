@@ -150,7 +150,7 @@
 
       <varlistentry>
         <term><varname>RuntimeWatchdogSec=</varname></term>
-        <term><varname>ShutdownWatchdogSec=</varname></term>
+        <term><varname>RebootWatchdogSec=</varname></term>
 
         <listitem><para>Configure the hardware watchdog at runtime and
         at reboot. Takes a timeout value in seconds (or in other time
@@ -167,12 +167,12 @@
         be present, as it is commonly the case in embedded and server
         systems. Not all hardware watchdogs allow configuration of the
         reboot timeout, in which case the closest available timeout is
-        picked. <varname>ShutdownWatchdogSec=</varname> may be used to
+        picked. <varname>RebootWatchdogSec=</varname> may be used to
         configure the hardware watchdog when the system is asked to
         reboot. It works as a safety net to ensure that the reboot
         takes place even if a clean reboot attempt times out. By
         default <varname>RuntimeWatchdogSec=</varname> defaults to 0
-        (off), and <varname>ShutdownWatchdogSec=</varname> to 10min.
+        (off), and <varname>RebootWatchdogSec=</varname> to 10min.
         These settings have no effect if a hardware watchdog is not
         available.</para></listitem>
       </varlistentry>

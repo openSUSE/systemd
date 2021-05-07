@@ -2277,7 +2277,7 @@ static int exec_child(
         bool needs_mount_namespace;
         uid_t uid = UID_INVALID;
         gid_t gid = GID_INVALID;
-        int i, r, ngids = 0;
+        int r, ngids = 0;
         unsigned n_fds;
 
         assert(unit);
@@ -2601,6 +2601,20 @@ static int exec_child(
         }
 
         if ((params->flags & EXEC_APPLY_PERMISSIONS) && !command->privileged) {
+                int which_failed;
+
+                /* Let's set the resource limits before we call into PAM, so that pam_limits wins over what
+                 * is set here. (See below.) */
+
+                r = setrlimit_closest_all((const struct rlimit* const *) context->rlimit, &which_failed);
+                if (r < 0) {
+                        *exit_status = EXIT_LIMITS;
+                        return log_unit_error_errno(unit, r, "Failed to adjust resource limit RLIMIT_%s: %m", rlimit_to_string(which_failed));
+                }
+
+                /* Let's call into PAM after we set up our own idea of resource limits to that pam_limits
+                 * wins here. (See above.) */
+
                 if (context->pam_name && username) {
                         r = setup_pam(context->pam_name, username, uid, gid, context->tty_path, &accum_env, fds, n_fds);
                         if (r < 0) {
@@ -2686,19 +2700,9 @@ static int exec_child(
 
                 int secure_bits = context->secure_bits;
 
-                for (i = 0; i < _RLIMIT_MAX; i++) {
-
-                        if (!context->rlimit[i])
-                                continue;
-
-                        r = setrlimit_closest(i, context->rlimit[i]);
-                        if (r < 0) {
-                                *exit_status = EXIT_LIMITS;
-                                return log_unit_error_errno(unit, r, "Failed to adjust resource limit %s: %m", rlimit_to_string(i));
-                        }
-                }
-
-                /* Set the RTPRIO resource limit to 0, but only if nothing else was explicitly requested. */
+                /* Set the RTPRIO resource limit to 0, but only if nothing else was explicitly
+                 * requested. (Note this is placed after the general resource limit initialization, see
+                 * above, in order to take precedence.) */
                 if (context->restrict_realtime && !context->rlimit[RLIMIT_RTPRIO]) {
                         if (setrlimit(RLIMIT_RTPRIO, &RLIMIT_MAKE_CONST(0)) < 0) {
                                 *exit_status = EXIT_LIMITS;
