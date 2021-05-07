@@ -29,5 +29,6 @@ const char *rlimit_to_string(int i) _const_;
 int rlimit_from_string(const char *s) _pure_;
 
 int setrlimit_closest(int resource, const struct rlimit *rlim);
+int setrlimit_closest_all(const struct rlimit * const *rlim, int *which_failed);
 
 #define RLIMIT_MAKE_CONST(lim) ((struct rlimit) { lim, lim })
