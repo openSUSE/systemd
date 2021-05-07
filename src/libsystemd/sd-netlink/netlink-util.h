@@ -25,6 +25,8 @@
 
 #include "util.h"
 
+int rtnl_set_link_name_wait(sd_netlink **rtnl, int ifindex, const char *oldname, const char *name);
+
 int rtnl_message_new_synthetic_error(int error, uint32_t serial, sd_netlink_message **ret);
 uint32_t rtnl_message_get_serial(sd_netlink_message *m);
 void rtnl_message_seal(sd_netlink_message *m);

@@ -836,56 +836,18 @@ out:
 
 static int rename_netif(struct udev_event *event) {
         struct udev_device *dev = event->dev;
-        char name[IFNAMSIZ];
         const char *oldname;
         int r;
-        int loop;
 
         oldname = udev_device_get_sysname(dev);
 
-        strscpy(name, IFNAMSIZ, event->name);
-
-        r = rtnl_set_link_name(&event->rtnl, udev_device_get_ifindex(dev), name);
-        if (r >= 0) {
-                log_debug("renamed network interface %s to %s\n", oldname, name);
-                goto out;
-        }
-
-        /* keep trying if the destination interface name already exists */
-        if (r != -EEXIST)
-                goto out;
-
-        /* free our own name, another process may wait for us */
-        snprintf(name, IFNAMSIZ, "rename%u", udev_device_get_ifindex(dev));
-        r = rtnl_set_link_name(&event->rtnl, udev_device_get_ifindex(dev), name);
+        r = rtnl_set_link_name_wait(&event->rtnl, udev_device_get_ifindex(dev), oldname, event->name);
         if (r < 0)
-                  goto out;
+                return log_error_errno(r, "Error changing net interface name '%s' to '%s': %m", oldname, event->name);
 
-        /* log temporary name */
-        log_debug("renamed network interface %s to %s\n", oldname, name);
+        log_debug("renamed network interface '%s' to '%s'", oldname, event->name);
 
-        /* wait a maximum of 90 seconds for our target to become available */
-        strscpy(name, IFNAMSIZ, event->name);
-        loop = 90 * 20;
-        while (loop--) {
-                const struct timespec duration = { 0, 1000 * 1000 * 1000 / 20 };
-
-                nanosleep(&duration, NULL);
-
-                r = rtnl_set_link_name(&event->rtnl, udev_device_get_ifindex(dev), name);
-                if (r >= 0) {
-                        log_debug("renamed network interface %s to %s\n", oldname, name);
-                        break;
-                }
-                if (r != -EEXIST)
-                        break;
-        }
-
-out:
-        if (r < 0)
-                log_error("error changing net interface name '%s' to '%s': %s",
-                          oldname, name, strerror(-r));
-        return r;
+        return 0;
 }
 
 void udev_event_execute_rules(struct udev_event *event,
