@@ -17,6 +17,8 @@
   along with systemd; If not, see <http://www.gnu.org/licenses/>.
 ***/
 
+#include <net/if.h>
+
 #include "sd-netlink.h"
 
 #include "netlink-internal.h"
@@ -49,6 +51,40 @@ int rtnl_set_link_name(sd_netlink **rtnl, int ifindex, const char *name) {
                 return r;
 
         return 0;
+}
+
+int rtnl_set_link_name_wait(sd_netlink **rtnl, int ifindex, const char *oldname, const char *name) {
+        char tmp[IFNAMSIZ];
+        int r;
+
+        r = rtnl_set_link_name(rtnl, ifindex, name);
+        if (r >= 0 || r != -EEXIST)
+                return r;
+
+        log_debug("%s: waiting for name %s to be released", oldname, name);
+
+        /* free our own name, another process may wait for us */
+        snprintf(tmp, IFNAMSIZ, "rename%u", ifindex);
+        r = rtnl_set_link_name(rtnl, ifindex, tmp);
+        if (r < 0)
+                  return r;
+
+        log_debug("%s: while waiting, renamed to %s to release our own name", oldname, tmp);
+
+        /* wait a maximum of 90 seconds for our target to become available */
+        for(int loop = 90 * 20; loop; loop--) {
+                const struct timespec duration = { 0, 1000 * 1000 * 1000 / 20 };
+
+                nanosleep(&duration, NULL);
+
+                r = rtnl_set_link_name(rtnl, ifindex, name);
+                if (r >= 0)
+                        break;
+                if (r != -EEXIST)
+                        break;
+        }
+
+        return r;
 }
 
 int rtnl_set_link_properties(sd_netlink **rtnl, int ifindex, const char *alias,
