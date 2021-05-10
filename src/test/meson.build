@@ -133,6 +133,17 @@ tests += [
 
         [['src/test/test-serialize.c']],
 
+        [['src/test/test-unit-serialize.c'],
+         [libcore,
+          libshared],
+         [threads,
+          librt,
+          libseccomp,
+          libselinux,
+          libmount,
+          libblkid],
+         core_includes],
+
         [['src/test/test-utf8.c']],
 
         [['src/test/test-dev-setup.c']],
@@ -158,7 +169,10 @@ tests += [
 
         [['src/test/test-fstab-util.c']],
 
-        [['src/test/test-random-util.c']],
+        [['src/test/test-random-util.c'],
+         [],
+         [libm],
+         [], '', 'timeout=120'],
 
         [['src/test/test-format-table.c']],
 

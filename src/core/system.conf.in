@@ -71,3 +71,4 @@
 #DefaultLimitNICE=
 #DefaultLimitRTPRIO=
 #DefaultLimitRTTIME=
+#DefaultOOMPolicy=stop

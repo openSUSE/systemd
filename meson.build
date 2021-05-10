@@ -710,7 +710,7 @@ if time_epoch == -1
         if time_epoch == '' and git.found() and run_command('test', '-e', '.git').returncode() == 0
                 # If we're in a git repository, use the creation time of the latest git tag.
                 latest_tag = run_command('git', 'describe', '--abbrev=0', '--tags').stdout().strip()
-                time_epoch = run_command('git', 'log', '-1', '--format=%at', latest_tag).stdout()
+                time_epoch = run_command('git', 'log', '--no-show-signature', '-1', '--format=%at', latest_tag).stdout()
         endif
         if time_epoch == ''
                 NEWS = files('NEWS')
@@ -797,7 +797,7 @@ if not meson.is_cross_build()
                 id = id_result.stdout().to_int()
                 if id != 65534
                         warning('\n' +
-                                'The local group with the configured group name "@0@" of the nobody group does not have UID 65534 (it has @1@).\n'.format(nobody_group, id) +
+                                'The local group with the configured group name "@0@" of the nobody group does not have GID 65534 (it has @1@).\n'.format(nobody_group, id) +
                                 'Your build will result in an group table setup that is incompatible with the local system.')
                 endif
         endif

@@ -2270,12 +2270,11 @@ static void service_enter_restart(Service *s) {
         s->n_restarts ++;
         s->flush_n_restarts = false;
 
-        log_struct(LOG_INFO,
-                   "MESSAGE_ID=" SD_MESSAGE_UNIT_RESTART_SCHEDULED_STR,
-                   LOG_UNIT_ID(UNIT(s)),
-                   LOG_UNIT_INVOCATION_ID(UNIT(s)),
-                   LOG_UNIT_MESSAGE(UNIT(s), "Scheduled restart job, restart counter is at %u.", s->n_restarts),
-                   "N_RESTARTS=%u", s->n_restarts);
+        log_unit_struct(UNIT(s), LOG_INFO,
+                        "MESSAGE_ID=" SD_MESSAGE_UNIT_RESTART_SCHEDULED_STR,
+                        LOG_UNIT_INVOCATION_ID(UNIT(s)),
+                        LOG_UNIT_MESSAGE(UNIT(s), "Scheduled restart job, restart counter is at %u.", s->n_restarts),
+                        "N_RESTARTS=%u", s->n_restarts);
 
         /* Notify clients about changed restart counter */
         unit_add_to_dbus_queue(UNIT(s));
@@ -2718,7 +2717,7 @@ static int service_serialize(Unit *u, FILE *f, FDSet *fds) {
         return 0;
 }
 
-static int service_deserialize_exec_command(
+int service_deserialize_exec_command(
                 Unit *u,
                 const char *key,
                 const char *value) {
@@ -2776,9 +2775,6 @@ static int service_deserialize_exec_command(
                 case STATE_EXEC_COMMAND_PATH:
                         path = TAKE_PTR(arg);
                         state = STATE_EXEC_COMMAND_ARGS;
-
-                        if (!path_is_absolute(path))
-                                return -EINVAL;
                         break;
                 case STATE_EXEC_COMMAND_ARGS:
                         r = strv_extend(&argv, arg);
@@ -2786,13 +2782,14 @@ static int service_deserialize_exec_command(
                                 return -ENOMEM;
                         break;
                 default:
-                        assert_not_reached("Unknown error at deserialization of exec command");
-                        break;
+                        assert_not_reached("Logic error in exec command deserialization");
                 }
         }
 
         if (state != STATE_EXEC_COMMAND_ARGS)
                 return -EINVAL;
+        if (strv_isempty(argv))
+                return -EINVAL; /* At least argv[0] must be always present. */
 
         /* Let's check whether exec command on given offset matches data that we just deserialized */
         for (command = s->exec_command[id], i = 0; command; command = command->command_next, i++) {
@@ -3460,6 +3457,15 @@ static void service_sigchld_event(Unit *u, pid_t pid, int code, int status) {
 
                         case SERVICE_START_POST:
                         case SERVICE_RELOAD:
+                                /* If neither main nor control processes are running then
+                                 * the current state can never exit cleanly, hence immediately
+                                 * terminate the service. */
+                                if (control_pid_good(s) <= 0)
+                                        service_enter_stop(s, f);
+
+                                /* Otherwise need to wait untill the operation is done. */
+                                break;
+
                         case SERVICE_STOP:
                                 /* Need to wait until the operation is
                                  * done */
@@ -4255,7 +4261,7 @@ int service_set_socket_fd(Service *s, int fd, Socket *sock, bool selinux_context
         if (getpeername_pretty(fd, true, &peer) >= 0) {
 
                 if (UNIT(s)->description) {
-                        _cleanup_free_ char *a;
+                        _cleanup_free_ char *a = NULL;
 
                         a = strjoin(UNIT(s)->description, " (", peer, ")");
                         if (!a)

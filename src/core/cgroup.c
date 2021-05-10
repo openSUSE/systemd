@@ -420,7 +420,7 @@ void cgroup_context_dump(Unit *u, FILE* f, const char *prefix) {
                 "%sManagedOOMSwap: %s\n"
                 "%sManagedOOMMemoryPressure: %s\n"
                 "%sManagedOOMMemoryPressureLimit: " PERMYRIAD_AS_PERCENT_FORMAT_STR "\n"
-                "%sManagedOOMPreference: %s%%\n",
+                "%sManagedOOMPreference: %s\n",
                 prefix, yes_no(c->cpu_accounting),
                 prefix, yes_no(c->io_accounting),
                 prefix, yes_no(c->blockio_accounting),
@@ -2786,11 +2786,10 @@ int unit_check_oomd_kill(Unit *u) {
                 return 0;
 
         if (n > 0)
-                log_struct(LOG_NOTICE,
-                           "MESSAGE_ID=" SD_MESSAGE_UNIT_OOMD_KILL_STR,
-                           LOG_UNIT_ID(u),
-                           LOG_UNIT_INVOCATION_ID(u),
-                           LOG_UNIT_MESSAGE(u, "systemd-oomd killed %"PRIu64" process(es) in this unit.", n));
+                log_unit_struct(u, LOG_NOTICE,
+                                "MESSAGE_ID=" SD_MESSAGE_UNIT_OOMD_KILL_STR,
+                                LOG_UNIT_INVOCATION_ID(u),
+                                LOG_UNIT_MESSAGE(u, "systemd-oomd killed %"PRIu64" process(es) in this unit.", n));
 
         return 1;
 }
@@ -2818,11 +2817,10 @@ int unit_check_oom(Unit *u) {
         if (!increased)
                 return 0;
 
-        log_struct(LOG_NOTICE,
-                   "MESSAGE_ID=" SD_MESSAGE_UNIT_OUT_OF_MEMORY_STR,
-                   LOG_UNIT_ID(u),
-                   LOG_UNIT_INVOCATION_ID(u),
-                   LOG_UNIT_MESSAGE(u, "A process of this unit has been killed by the OOM killer."));
+        log_unit_struct(u, LOG_NOTICE,
+                        "MESSAGE_ID=" SD_MESSAGE_UNIT_OUT_OF_MEMORY_STR,
+                        LOG_UNIT_INVOCATION_ID(u),
+                        LOG_UNIT_MESSAGE(u, "A process of this unit has been killed by the OOM killer."));
 
         if (UNIT_VTABLE(u)->notify_cgroup_oom)
                 UNIT_VTABLE(u)->notify_cgroup_oom(u);
