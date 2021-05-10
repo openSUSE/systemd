@@ -178,7 +178,7 @@ static struct udev_device *handle_ata(struct udev_device *parent, char **path)
                 return NULL;
 
         path_prepend(path, "scsi-%u:%u:%u:%u", host, bus, target, lun);
-out:
+
         return hostdev;
 }
 
