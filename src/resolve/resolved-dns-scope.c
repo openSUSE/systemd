@@ -287,17 +287,23 @@ static int dns_scope_emit_one(DnsScope *s, int fd, int family, DnsPacket *p) {
                         return -EBUSY;
 
                 if (family == AF_INET) {
-                        addr.in = MDNS_MULTICAST_IPV4_ADDRESS;
+                        if (in4_addr_is_null(&p->destination.in))
+                                addr.in = MDNS_MULTICAST_IPV4_ADDRESS;
+                        else
+                                addr = p->destination;
                         fd = manager_mdns_ipv4_fd(s->manager);
                 } else if (family == AF_INET6) {
-                        addr.in6 = MDNS_MULTICAST_IPV6_ADDRESS;
+                        if (in6_addr_is_null(&p->destination.in6))
+                                addr.in6 = MDNS_MULTICAST_IPV6_ADDRESS;
+                        else
+                                addr = p->destination;
                         fd = manager_mdns_ipv6_fd(s->manager);
                 } else
                         return -EAFNOSUPPORT;
                 if (fd < 0)
                         return fd;
 
-                r = manager_send(s->manager, fd, s->link->ifindex, family, &addr, MDNS_PORT, NULL, p);
+                r = manager_send(s->manager, fd, s->link->ifindex, family, &addr, p->destination_port ?: MDNS_PORT, NULL, p);
                 if (r < 0)
                         return r;
 
@@ -984,7 +990,7 @@ void dns_scope_process_query(DnsScope *s, DnsStream *stream, DnsPacket *p) {
         }
 
         assert(dns_question_size(p->question) == 1);
-        key = p->question->keys[0];
+        key = dns_question_first_key(p->question);
 
         r = dns_zone_lookup(&s->zone, key, 0, &answer, &soa, &tentative);
         if (r < 0) {
@@ -1441,7 +1447,7 @@ int dns_scope_announce(DnsScope *scope, bool goodbye) {
 
         /* Since all the active services are in the zone make them discoverable now. */
         SET_FOREACH(service_type, types) {
-                _cleanup_(dns_resource_record_unrefp) DnsResourceRecord *rr;
+                _cleanup_(dns_resource_record_unrefp) DnsResourceRecord *rr = NULL;
 
                 rr = dns_resource_record_new_full(DNS_CLASS_IN, DNS_TYPE_PTR,
                                                   "_services._dns-sd._udp.local");

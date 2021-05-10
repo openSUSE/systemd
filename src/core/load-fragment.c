@@ -1695,6 +1695,8 @@ int config_parse_exec_cpu_affinity(
                 void *userdata) {
 
         ExecContext *c = data;
+        const Unit *u = userdata;
+        _cleanup_free_ char *k = NULL;
         int r;
 
         assert(filename);
@@ -1709,7 +1711,15 @@ int config_parse_exec_cpu_affinity(
                 return 0;
         }
 
-        r = parse_cpu_set_extend(rvalue, &c->cpu_set, true, unit, filename, line, lvalue);
+        r = unit_full_printf(u, rvalue, &k);
+        if (r < 0) {
+                log_syntax(unit, LOG_WARNING, filename, line, r,
+                           "Failed to resolve unit specifiers in '%s', ignoring: %m",
+                           rvalue);
+                return 0;
+        }
+
+        r = parse_cpu_set_extend(k, &c->cpu_set, true, unit, filename, line, lvalue);
         if (r >= 0)
                 c->cpu_affinity_from_numa = false;
 
@@ -4592,7 +4602,7 @@ int config_parse_load_credential(
         r = extract_first_word(&p, &word, ":", EXTRACT_DONT_COALESCE_SEPARATORS);
         if (r == -ENOMEM)
                 return log_oom();
-        if (r <= 0) {
+        if (r <= 0 || isempty(p)) {
                 log_syntax(unit, LOG_WARNING, filename, line, r, "Invalid syntax, ignoring: %s", rvalue);
                 return 0;
         }

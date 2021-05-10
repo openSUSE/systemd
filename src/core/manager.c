@@ -247,7 +247,7 @@ static void manager_print_jobs_in_progress(Manager *m) {
 }
 
 static int have_ask_password(void) {
-        _cleanup_closedir_ DIR *dir;
+        _cleanup_closedir_ DIR *dir = NULL;
         struct dirent *de;
 
         dir = opendir("/run/systemd/ask-password");
@@ -1280,7 +1280,6 @@ static unsigned manager_dispatch_stop_when_unneeded_queue(Manager *m) {
 
         while ((u = m->stop_when_unneeded_queue)) {
                 _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
-                assert(m->stop_when_unneeded_queue);
 
                 assert(u->in_stop_when_unneeded_queue);
                 LIST_REMOVE(stop_when_unneeded_queue, m->stop_when_unneeded_queue, u);

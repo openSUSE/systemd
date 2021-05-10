@@ -779,7 +779,7 @@ void link_check_ready(Link *link) {
                                 break;
                         }
 
-                if ((link_dhcp4_enabled(link) || link_dhcp6_enabled(link) || link_ipv4ll_enabled(link)) &&
+                if ((link_dhcp4_enabled(link) || link_dhcp6_with_address_enabled(link) || link_ipv4ll_enabled(link)) &&
                     !link->dhcp_address && set_isempty(link->dhcp6_addresses) && !has_ndisc_address &&
                     !link->ipv4ll_address_configured)
                         /* When DHCP[46] or IPv4LL is enabled, at least one address is acquired by them. */
@@ -1312,8 +1312,9 @@ static int link_configure_addrgen_mode(Link *link) {
                 r = sysctl_read_ip_property(AF_INET6, link->ifname, "stable_secret", NULL);
                 if (r < 0) {
                         /* The file may not exist. And even if it exists, when stable_secret is unset,
-                         * reading the file fails with EIO. */
-                        log_link_debug_errno(link, r, "Failed to read sysctl property stable_secret: %m");
+                         * reading the file fails with ENOMEM when read_full_virtual_file(), which uses
+                         * read() as the backend, and EIO when read_one_line_file() which uses fgetc(). */
+                        log_link_debug_errno(link, r, "Failed to read sysctl property stable_secret, ignoring: %m");
 
                         ipv6ll_mode = IN6_ADDR_GEN_MODE_EUI64;
                 } else
@@ -1360,7 +1361,7 @@ static int link_up_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *link) 
         return 1;
 }
 
-static int link_up(Link *link) {
+int link_up(Link *link) {
         _cleanup_(sd_netlink_message_unrefp) sd_netlink_message *req = NULL;
         int r;
 
@@ -2202,7 +2203,7 @@ static int link_reconfigure_internal(Link *link, sd_netlink_message *m, bool for
                 return r;
 
         if (!IN_SET(link->state, LINK_STATE_UNMANAGED, LINK_STATE_PENDING, LINK_STATE_INITIALIZED)) {
-                log_link_debug(link, "State is %s, dropping config", link_state_to_string(link->state));
+                log_link_debug(link, "State is %s, dropping foreign config", link_state_to_string(link->state));
                 r = link_drop_foreign_config(link);
                 if (r < 0)
                         return r;
@@ -2446,7 +2447,7 @@ static int link_add(Manager *m, sd_netlink_message *message, Link **ret) {
                 sprintf(ifindex_str, "n%d", link->ifindex);
                 r = sd_device_new_from_device_id(&device, ifindex_str);
                 if (r < 0) {
-                        log_link_warning_errno(link, r, "Could not find device, waiting for device initialization: %m");
+                        log_link_debug_errno(link, r, "Could not find device, waiting for device initialization: %m");
                         return 0;
                 }
 
@@ -2638,7 +2639,7 @@ static int link_carrier_lost(Link *link) {
                 return r;
 
         if (!IN_SET(link->state, LINK_STATE_UNMANAGED, LINK_STATE_PENDING, LINK_STATE_INITIALIZED)) {
-                log_link_debug(link, "State is %s, dropping config", link_state_to_string(link->state));
+                log_link_debug(link, "State is %s, dropping foreign config", link_state_to_string(link->state));
                 r = link_drop_foreign_config(link);
                 if (r < 0)
                         return r;

@@ -28,9 +28,9 @@ struct Manager {
         Hashmap *polkit_registry;
         int ethtool_fd;
 
-        bool enumerating:1;
-        bool dirty:1;
-        bool restarting:1;
+        bool enumerating;
+        bool dirty;
+        bool restarting;
         bool manage_foreign_routes;
 
         Set *dirty_links;
@@ -83,8 +83,8 @@ struct Manager {
         usec_t speed_meter_usec_new;
         usec_t speed_meter_usec_old;
 
-        bool dhcp4_prefix_root_cannot_set_table:1;
-        bool bridge_mdb_on_master_not_supported:1;
+        bool dhcp4_prefix_root_cannot_set_table;
+        bool bridge_mdb_on_master_not_supported;
 
         FirewallContext *fw_ctx;
 };
