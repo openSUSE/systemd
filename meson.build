@@ -2260,7 +2260,7 @@ foreach tuple : tests
 
         if want_tests == 'false'
                 message('Not compiling @0@ because tests is set to false'.format(name))
-        elif condition == '' or conf.get(condition) == 1
+        elif condition == '' or conf.has(condition) == true
                 exe = executable(
                         name,
                         sources,
