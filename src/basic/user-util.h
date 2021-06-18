@@ -61,6 +61,8 @@ int take_etc_passwd_lock(const char *root);
 #define UID_NOBODY ((uid_t) 65534U)
 #define GID_NOBODY ((gid_t) 65534U)
 
+#define ETC_PASSWD_LOCK_PATH "/etc/.pwd.lock"
+
 /* The following macros add 1 when converting things, since UID 0 is a
  * valid UID, while the pointer NULL is special */
 #define PTR_TO_UID(p) ((uid_t) (((uintptr_t) (p))-1))
@@ -68,3 +70,17 @@ int take_etc_passwd_lock(const char *root);
 
 #define PTR_TO_GID(p) ((gid_t) (((uintptr_t) (p))-1))
 #define GID_TO_PTR(u) ((void*) (((uintptr_t) (u))+1))
+
+bool valid_user_group_name(const char *u);
+bool valid_user_group_name_or_id(const char *u);
+bool valid_gecos(const char *d);
+bool valid_home(const char *p);
+
+static inline bool valid_shell(const char *p) {
+        /* We have the same requirements, so just piggy-back on the home check.
+         *
+         * Let's ignore /etc/shells because this is only applicable to real and
+         * not system users. It is also incompatible with the idea of empty /etc.
+         */
+        return valid_home(p);
+}
