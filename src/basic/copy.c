@@ -244,7 +244,6 @@ int copy_bytes_full(
                                         break;
 
                                 try_sendfile = try_splice = false; /* same logic as above for copy_file_range() */
-                                break;
                         } else
                                 /* Success! */
                                 goto next;
@@ -1243,7 +1242,7 @@ int copy_access(int fdf, int fdt) {
         return 0;
 }
 
-int copy_rights(int fdf, int fdt) {
+int copy_rights_with_fallback(int fdf, int fdt, const char *patht) {
         struct stat st;
 
         assert(fdf >= 0);
@@ -1254,7 +1253,7 @@ int copy_rights(int fdf, int fdt) {
         if (fstat(fdf, &st) < 0)
                 return -errno;
 
-        return fchmod_and_chown(fdt, st.st_mode & 07777, st.st_uid, st.st_gid);
+        return fchmod_and_chown_with_fallback(fdt, patht, st.st_mode & 07777, st.st_uid, st.st_gid);
 }
 
 int copy_xattr(int fdf, int fdt) {

@@ -179,7 +179,7 @@ static void swap_done(Unit *u) {
 
         swap_unwatch_control_pid(s);
 
-        s->timer_event_source = sd_event_source_unref(s->timer_event_source);
+        s->timer_event_source = sd_event_source_disable_unref(s->timer_event_source);
 }
 
 static int swap_arm_timer(Swap *s, usec_t usec) {
@@ -554,7 +554,7 @@ static void swap_set_state(Swap *s, SwapState state) {
         s->state = state;
 
         if (!SWAP_STATE_WITH_PROCESS(state)) {
-                s->timer_event_source = sd_event_source_unref(s->timer_event_source);
+                s->timer_event_source = sd_event_source_disable_unref(s->timer_event_source);
                 swap_unwatch_control_pid(s);
                 s->control_command = NULL;
                 s->control_command_id = _SWAP_EXEC_COMMAND_INVALID;
@@ -715,7 +715,7 @@ static int swap_spawn(Swap *s, ExecCommand *c, pid_t *_pid) {
         return 0;
 
 fail:
-        s->timer_event_source = sd_event_source_unref(s->timer_event_source);
+        s->timer_event_source = sd_event_source_disable_unref(s->timer_event_source);
 
         return r;
 }
@@ -1373,7 +1373,7 @@ static int swap_following_set(Unit *u, Set **_set) {
 static void swap_shutdown(Manager *m) {
         assert(m);
 
-        m->swap_event_source = sd_event_source_unref(m->swap_event_source);
+        m->swap_event_source = sd_event_source_disable_unref(m->swap_event_source);
         m->proc_swaps = safe_fclose(m->proc_swaps);
         m->swaps_by_devnode = hashmap_free(m->swaps_by_devnode);
 }
@@ -1431,13 +1431,14 @@ int swap_process_device_new(Manager *m, sd_device *dev) {
         assert(m);
         assert(dev);
 
-        r = sd_device_get_devname(dev, &dn);
-        if (r < 0)
+        if (sd_device_get_devname(dev, &dn) < 0)
                 return 0;
 
         r = unit_name_from_path(dn, ".swap", &e);
-        if (r < 0)
-                return r;
+        if (r < 0) {
+                log_debug_errno(r, "Cannot convert device name '%s' to unit name, ignoring: %m", dn);
+                return 0;
+        }
 
         u = manager_get_unit(m, e);
         if (u)
@@ -1448,6 +1449,9 @@ int swap_process_device_new(Manager *m, sd_device *dev) {
                 int q;
 
                 q = unit_name_from_path(devlink, ".swap", &n);
+                if (IN_SET(q, -EINVAL, -ENAMETOOLONG)) /* If name too long or otherwise not convertible to
+                                                        * unit name, we can't manage it */
+                        continue;
                 if (q < 0)
                         return q;
 
@@ -1577,7 +1581,7 @@ static int swap_clean(Unit *u, ExecCleanMask mask) {
 fail:
         log_unit_warning_errno(u, r, "Failed to initiate cleaning: %m");
         s->clean_result = SWAP_FAILURE_RESOURCES;
-        s->timer_event_source = sd_event_source_unref(s->timer_event_source);
+        s->timer_event_source = sd_event_source_disable_unref(s->timer_event_source);
         return r;
 }
 

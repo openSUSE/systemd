@@ -115,7 +115,7 @@ prefixdir = get_option('prefix')
 if not prefixdir.startswith('/')
         error('Prefix is not absolute: "@0@"'.format(prefixdir))
 endif
-if prefixdir != rootprefixdir and not prefixdir.startswith(rootprefixdir.strip('/') + '/')
+if prefixdir != rootprefixdir and rootprefixdir != '/' and not prefixdir.strip('/').startswith(rootprefixdir.strip('/') + '/')
         error('Prefix is not below root prefix (now rootprefix=@0@ prefix=@1@)'.format(
                 rootprefixdir, prefixdir))
 endif
@@ -3470,6 +3470,7 @@ run_target(
 
 ############################################################
 
+subdir('modprobe.d')
 subdir('sysctl.d')
 subdir('sysusers.d')
 subdir('tmpfiles.d')
@@ -3490,9 +3491,6 @@ if install_sysconfdir
         install_data('xorg/50-systemd-user.sh',
                      install_dir : xinitrcdir)
 endif
-install_data('README',
-             'modprobe.d/systemd.conf',
-             install_dir : modprobedir)
 install_data('LICENSE.GPL2',
              'LICENSE.LGPL2.1',
              'NEWS',

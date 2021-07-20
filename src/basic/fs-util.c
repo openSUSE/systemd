@@ -227,7 +227,7 @@ int chmod_and_chown(const char *path, mode_t mode, uid_t uid, gid_t gid) {
         return fchmod_and_chown(fd, mode, uid, gid);
 }
 
-int fchmod_and_chown(int fd, mode_t mode, uid_t uid, gid_t gid) {
+int fchmod_and_chown_with_fallback(int fd, const char *path, mode_t mode, uid_t uid, gid_t gid) {
         bool do_chown, do_chmod;
         struct stat st;
         int r;
@@ -238,7 +238,11 @@ int fchmod_and_chown(int fd, mode_t mode, uid_t uid, gid_t gid) {
          * unaffected if the uid/gid is changed, i.e. it undoes implicit suid/sgid dropping the kernel does
          * on chown().
          *
-         * This call is happy with O_PATH fds. */
+         * This call is happy with O_PATH fds.
+         *
+         * If path is given, allow a fallback path which does not use /proc/self/fd/. On any normal system
+         * /proc will be mounted, but in certain improperly assembled environments it might not be. This is
+         * less secure (potential TOCTOU), so should only be used after consideration. */
 
         if (fstat(fd, &st) < 0)
                 return -errno;
@@ -263,8 +267,14 @@ int fchmod_and_chown(int fd, mode_t mode, uid_t uid, gid_t gid) {
 
                 if (((minimal ^ st.st_mode) & 07777) != 0) {
                         r = fchmod_opath(fd, minimal & 07777);
-                        if (r < 0)
-                                return r;
+                        if (r < 0) {
+                                if (!path || r != -ENOSYS)
+                                        return r;
+
+                                /* Fallback path which doesn't use /proc/self/fd/. */
+                                if (chmod(path, minimal & 07777) < 0)
+                                        return -errno;
+                        }
                 }
         }
 
@@ -274,8 +284,14 @@ int fchmod_and_chown(int fd, mode_t mode, uid_t uid, gid_t gid) {
 
         if (do_chmod) {
                 r = fchmod_opath(fd, mode & 07777);
-                if (r < 0)
-                        return r;
+                if (r < 0) {
+                        if (!path || r != -ENOSYS)
+                                return r;
+
+                        /* Fallback path which doesn't use /proc/self/fd/. */
+                        if (chmod(path, mode & 07777) < 0)
+                                return -errno;
+                }
         }
 
         return do_chown || do_chmod;
@@ -729,7 +745,8 @@ static bool unsafe_transition(const struct stat *a, const struct stat *b) {
 }
 
 static int log_unsafe_transition(int a, int b, const char *path, unsigned flags) {
-        _cleanup_free_ char *n1 = NULL, *n2 = NULL;
+        _cleanup_free_ char *n1 = NULL, *n2 = NULL, *user_a = NULL, *user_b = NULL;
+        struct stat st;
 
         if (!FLAGS_SET(flags, CHASE_WARN))
                 return -ENOLINK;
@@ -737,9 +754,14 @@ static int log_unsafe_transition(int a, int b, const char *path, unsigned flags)
         (void) fd_get_path(a, &n1);
         (void) fd_get_path(b, &n2);
 
+        if (fstat(a, &st) == 0)
+                user_a = uid_to_name(st.st_uid);
+        if (fstat(b, &st) == 0)
+                user_b = uid_to_name(st.st_uid);
+
         return log_warning_errno(SYNTHETIC_ERRNO(ENOLINK),
-                                 "Detected unsafe path transition %s %s %s during canonicalization of %s.",
-                                 strna(n1), special_glyph(SPECIAL_GLYPH_ARROW), strna(n2), path);
+                                 "Detected unsafe path transition %s (owned by %s) %s %s (owned by %s) during canonicalization of %s.",
+                                 strna(n1), strna(user_a), special_glyph(SPECIAL_GLYPH_ARROW), strna(n2), strna(user_b), path);
 }
 
 static int log_autofs_mount_point(int fd, const char *path, unsigned flags) {
