@@ -2012,6 +2012,12 @@ static int udev_rule_apply_token_to_event(
                         l = strpcpyl(&p, l, val, " ", NULL);
 
                 (void) udev_event_apply_format(event, token->value, p, l, false);
+                if (event->esc == ESCAPE_REPLACE) {
+                        count = udev_replace_chars(p, NULL);
+                        if (count > 0)
+                                log_rule_debug(dev, rules, "Replaced %zu slash(es) from result of ENV{%s}%s=\"%s\"",
+                                               count, name, token->op == OP_ADD ? "+" : "", token->value);
+                }
 
                 r = device_add_property(dev, name, value_new);
                 if (r < 0)
@@ -2085,7 +2091,8 @@ static int udev_rule_apply_token_to_event(
                 else
                         count = 0;
                 if (count > 0)
-                        log_rule_debug(dev, rules, "Replaced %zu character(s) from result of LINK", count);
+                        log_rule_debug(dev, rules, "Replaced %zu character(s) from result of SYMLINK=\"%s\"",
+                                       count, token->value);
 
                 p = skip_leading_chars(buf, NULL);
                 while (!isempty(p)) {

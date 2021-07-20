@@ -85,6 +85,11 @@ DEFINE_PRIVATE_STRING_TABLE_LOOKUP_TO_STRING(event_source_type, int);
                SOURCE_DEFER,                    \
                SOURCE_INOTIFY)
 
+/* This is used to assert that we didn't pass an unexpected source type to event_source_time_prioq_put().
+ * Time sources and ratelimited sources can be passed, so effectively this is the same as the
+ * EVENT_SOURCE_CAN_RATE_LIMIT() macro. */
+#define EVENT_SOURCE_USES_TIME_PRIOQ(t) EVENT_SOURCE_CAN_RATE_LIMIT(t)
+
 struct sd_event {
         unsigned n_ref;
 
@@ -238,25 +243,6 @@ static usec_t time_event_source_next(const sd_event_source *s) {
         return USEC_INFINITY;
 }
 
-static int earliest_time_prioq_compare(const void *a, const void *b) {
-        const sd_event_source *x = a, *y = b;
-
-        /* Enabled ones first */
-        if (x->enabled != SD_EVENT_OFF && y->enabled == SD_EVENT_OFF)
-                return -1;
-        if (x->enabled == SD_EVENT_OFF && y->enabled != SD_EVENT_OFF)
-                return 1;
-
-        /* Move the pending ones to the end */
-        if (!x->pending && y->pending)
-                return -1;
-        if (x->pending && !y->pending)
-                return 1;
-
-        /* Order by time */
-        return CMP(time_event_source_next(x), time_event_source_next(y));
-}
-
 static usec_t time_event_source_latest(const sd_event_source *s) {
         assert(s);
 
@@ -275,7 +261,15 @@ static usec_t time_event_source_latest(const sd_event_source *s) {
         return USEC_INFINITY;
 }
 
-static int latest_time_prioq_compare(const void *a, const void *b) {
+static bool event_source_timer_candidate(const sd_event_source *s) {
+        assert(s);
+
+        /* Returns true for event sources that either are not pending yet (i.e. where it's worth to mark them pending)
+         * or which are currently ratelimited (i.e. where it's worth leaving the ratelimited state) */
+        return !s->pending || s->ratelimited;
+}
+
+static int time_prioq_compare(const void *a, const void *b, usec_t (*time_func)(const sd_event_source *s)) {
         const sd_event_source *x = a, *y = b;
 
         /* Enabled ones first */
@@ -284,14 +278,22 @@ static int latest_time_prioq_compare(const void *a, const void *b) {
         if (x->enabled == SD_EVENT_OFF && y->enabled != SD_EVENT_OFF)
                 return 1;
 
-        /* Move the pending ones to the end */
-        if (!x->pending && y->pending)
+        /* Order "non-pending OR ratelimited" before "pending AND not-ratelimited" */
+        if (event_source_timer_candidate(x) && !event_source_timer_candidate(y))
                 return -1;
-        if (x->pending && !y->pending)
+        if (!event_source_timer_candidate(x) && event_source_timer_candidate(y))
                 return 1;
 
         /* Order by time */
-        return CMP(time_event_source_latest(x), time_event_source_latest(y));
+        return CMP(time_func(x), time_func(y));
+}
+
+static int earliest_time_prioq_compare(const void *a, const void *b) {
+        return time_prioq_compare(a, b, time_event_source_next);
+}
+
+static int latest_time_prioq_compare(const void *a, const void *b) {
+        return time_prioq_compare(a, b, time_event_source_latest);
 }
 
 static int exit_prioq_compare(const void *a, const void *b) {
@@ -1204,6 +1206,7 @@ static int event_source_time_prioq_put(
 
         assert(s);
         assert(d);
+        assert(EVENT_SOURCE_USES_TIME_PRIOQ(s->type));
 
         r = prioq_put(d->earliest, s, &s->earliest_index);
         if (r < 0)
@@ -2991,6 +2994,7 @@ static int event_arm_timer(
                 d->needs_rearm = false;
 
         a = prioq_peek(d->earliest);
+        assert(!a || EVENT_SOURCE_USES_TIME_PRIOQ(a->type));
         if (!a || a->enabled == SD_EVENT_OFF || time_event_source_next(a) == USEC_INFINITY) {
 
                 if (d->fd < 0)
@@ -3008,7 +3012,8 @@ static int event_arm_timer(
         }
 
         b = prioq_peek(d->latest);
-        assert_se(b && b->enabled != SD_EVENT_OFF);
+        assert(!b || EVENT_SOURCE_USES_TIME_PRIOQ(b->type));
+        assert(b && b->enabled != SD_EVENT_OFF);
 
         t = sleep_between(e, time_event_source_next(a), time_event_source_latest(b));
         if (d->next == t)
@@ -3088,6 +3093,8 @@ static int process_timer(
 
         for (;;) {
                 s = prioq_peek(d->earliest);
+                assert(!s || EVENT_SOURCE_USES_TIME_PRIOQ(s->type));
+
                 if (!s || time_event_source_next(s) > n)
                         break;
 
@@ -3649,6 +3656,8 @@ static int dispatch_exit(sd_event *e) {
         assert(e);
 
         p = prioq_peek(e->exit);
+        assert(!p || p->type == SOURCE_EXIT);
+
         if (!p || event_source_is_offline(p)) {
                 e->state = SD_EVENT_FINISHED;
                 return 0;

@@ -1280,16 +1280,17 @@ static int unit_add_mount_dependencies(Unit *u) {
                         Unit *m;
 
                         r = unit_name_from_path(prefix, ".mount", &p);
+                        if (IN_SET(r, -EINVAL, -ENAMETOOLONG))
+                                continue; /* If the path cannot be converted to a mount unit name, then it's
+                                           * not managable as a unit by systemd, and hence we don't need a
+                                           * dependency on it. Let's thus silently ignore the issue. */
                         if (r < 0)
                                 return r;
 
                         m = manager_get_unit(u->manager, p);
                         if (!m) {
-                                /* Make sure to load the mount unit if
-                                 * it exists. If so the dependencies
-                                 * on this unit will be added later
-                                 * during the loading of the mount
-                                 * unit. */
+                                /* Make sure to load the mount unit if it exists. If so the dependencies on
+                                 * this unit will be added later during the loading of the mount unit. */
                                 (void) manager_load_unit_prepare(u->manager, p, NULL, NULL, &m);
                                 continue;
                         }
@@ -2686,7 +2687,7 @@ void unit_dequeue_rewatch_pids(Unit *u) {
         if (r < 0)
                 log_warning_errno(r, "Failed to disable event source for tidying watched PIDs, ignoring: %m");
 
-        u->rewatch_pids_event_source = sd_event_source_unref(u->rewatch_pids_event_source);
+        u->rewatch_pids_event_source = sd_event_source_disable_unref(u->rewatch_pids_event_source);
 }
 
 bool unit_job_is_applicable(Unit *u, JobType j) {
@@ -5312,7 +5313,11 @@ int unit_pid_attachable(Unit *u, pid_t pid, sd_bus_error *error) {
 void unit_log_success(Unit *u) {
         assert(u);
 
-        log_unit_struct(u, LOG_INFO,
+        /* Let's show message "Deactivated successfully" in debug mode (when manager is user) rather than in info mode.
+         * This message has low information value for regular users and it might be a bit overwhelming on a system with
+         * a lot of devices. */
+        log_unit_struct(u,
+                        MANAGER_IS_USER(u->manager) ? LOG_DEBUG : LOG_INFO,
                         "MESSAGE_ID=" SD_MESSAGE_UNIT_SUCCESS_STR,
                         LOG_UNIT_INVOCATION_ID(u),
                         LOG_UNIT_MESSAGE(u, "Deactivated successfully."));
@@ -5366,12 +5371,13 @@ void unit_log_process_exit(
 
         log_unit_struct(u, level,
                         "MESSAGE_ID=" SD_MESSAGE_UNIT_PROCESS_EXIT_STR,
-                        LOG_UNIT_MESSAGE(u, "%s exited, code=%s, status=%i/%s",
+                        LOG_UNIT_MESSAGE(u, "%s exited, code=%s, status=%i/%s%s",
                                          kind,
                                          sigchld_code_to_string(code), status,
                                          strna(code == CLD_EXITED
                                                ? exit_status_to_string(status, EXIT_STATUS_FULL)
-                                               : signal_to_string(status))),
+                                               : signal_to_string(status)),
+                                         success ? " (success)" : ""),
                         "EXIT_CODE=%s", sigchld_code_to_string(code),
                         "EXIT_STATUS=%i", status,
                         "COMMAND=%s", strna(command),

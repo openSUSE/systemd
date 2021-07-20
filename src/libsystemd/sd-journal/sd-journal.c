@@ -2835,24 +2835,32 @@ void journal_print_header(sd_journal *j) {
         }
 }
 
-_public_ int sd_journal_get_usage(sd_journal *j, uint64_t *bytes) {
+_public_ int sd_journal_get_usage(sd_journal *j, uint64_t *ret) {
         JournalFile *f;
         uint64_t sum = 0;
 
         assert_return(j, -EINVAL);
         assert_return(!journal_pid_changed(j), -ECHILD);
-        assert_return(bytes, -EINVAL);
+        assert_return(ret, -EINVAL);
 
         ORDERED_HASHMAP_FOREACH(f, j->files) {
                 struct stat st;
+                uint64_t b;
 
                 if (fstat(f->fd, &st) < 0)
                         return -errno;
 
-                sum += (uint64_t) st.st_blocks * 512ULL;
+                b = (uint64_t) st.st_blocks;
+                if (b > UINT64_MAX / 512)
+                        return -EOVERFLOW;
+                b *= 512;
+
+                if (sum > UINT64_MAX - b)
+                        return -EOVERFLOW;
+                sum += b;
         }
 
-        *bytes = sum;
+        *ret = sum;
         return 0;
 }
 
@@ -2976,7 +2984,13 @@ _public_ int sd_journal_enumerate_unique(sd_journal *j, const void **data, size_
                         if (JOURNAL_HEADER_CONTAINS(of->header, n_fields) && le64toh(of->header->n_fields) <= 0)
                                 continue;
 
-                        r = journal_file_find_data_object_with_hash(of, odata, ol, le64toh(o->data.hash), NULL, NULL);
+                        /* We can reuse the hash from our current file only on old-style journal files
+                         * without keyed hashes. On new-style files we have to calculate the hash anew, to
+                         * take the per-file hash seed into consideration. */
+                        if (!JOURNAL_HEADER_KEYED_HASH(j->unique_file->header) && !JOURNAL_HEADER_KEYED_HASH(of->header))
+                                r = journal_file_find_data_object_with_hash(of, odata, ol, le64toh(o->data.hash), NULL, NULL);
+                        else
+                                r = journal_file_find_data_object(of, odata, ol, NULL, NULL);
                         if (r < 0)
                                 return r;
                         if (r > 0) {
