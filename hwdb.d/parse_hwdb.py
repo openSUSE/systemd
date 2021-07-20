@@ -67,6 +67,7 @@ UDEV_TAG = Word(string.ascii_uppercase, alphanums + '_')
 # Those patterns are used in type-specific matches
 TYPES = {'mouse':    ('usb', 'bluetooth', 'ps2', '*'),
          'evdev':    ('name', 'atkbd', 'input'),
+         'fb':       ('pci'),
          'id-input': ('modalias'),
          'touchpad': ('i8042', 'rmi', 'bluetooth', 'usb'),
          'joystick': ('i8042', 'rmi', 'bluetooth', 'usb'),
@@ -153,6 +154,7 @@ def property_grammar():
              ('ACCEL_MOUNT_MATRIX', mount_matrix),
              ('ACCEL_LOCATION', Or(('display', 'base'))),
              ('PROXIMITY_NEAR_LEVEL', INTEGER),
+             ('ID_TAG_MASTER_OF_SEAT', Literal('1')),
             )
     fixed_props = [Literal(name)('NAME') - Suppress('=') - val('VALUE')
                    for name, val in props]
