@@ -55,6 +55,7 @@
 #include "list.h"
 #include "locale-util.h"
 #include "log.h"
+#include "login-util.h"
 #include "logs-show.h"
 #include "macro.h"
 #include "main-func.h"
@@ -117,7 +118,7 @@ static bool arg_no_wall = false;
 static bool arg_no_reload = false;
 static bool arg_value = false;
 static bool arg_show_types = false;
-static bool arg_ignore_inhibitors = false;
+static int arg_check_inhibitors = -1;
 static bool arg_dry_run = false;
 static bool arg_quiet = false;
 static bool arg_full = false;
@@ -3191,6 +3192,8 @@ static int logind_reboot(enum action a) {
         };
 
         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+        const char *method_with_flags;
+        uint64_t flags = 0;
         sd_bus *bus;
         int r;
 
@@ -3208,6 +3211,20 @@ static int logind_reboot(enum action a) {
 
         if (arg_dry_run)
                 return 0;
+
+        SET_FLAG(flags, SD_LOGIND_ROOT_CHECK_INHIBITORS, arg_check_inhibitors > 0);
+
+        method_with_flags = strjoina(actions[a].method, "WithFlags");
+
+        r = bus_call_method(bus, bus_login_mgr, method_with_flags, &error, NULL, "t", flags);
+        if (r >= 0)
+                return 0;
+        if (!sd_bus_error_has_name(&error, SD_BUS_ERROR_UNKNOWN_METHOD))
+                return log_error_errno(r, "Failed to %s via logind: %s", actions[a].description, bus_error_message(&error, r));
+
+        /* Fallback to original methods in case there is older version of systemd-logind */
+        log_debug("Method %s not available: %s. Falling back to %s", method_with_flags, bus_error_message(&error, r), actions[a].method);
+        sd_bus_error_free(&error);
 
         r = bus_call_method(bus, bus_login_mgr, actions[a].method, &error, NULL, "b", arg_ask_password);
         if (r < 0)
@@ -3230,17 +3247,19 @@ static int logind_check_inhibitors(enum action a) {
         char **s;
         int r;
 
-        if (arg_ignore_inhibitors || arg_force > 0)
+        if (arg_check_inhibitors == 0 || arg_force > 0)
                 return 0;
 
         if (arg_when > 0)
                 return 0;
 
-        if (geteuid() == 0)
-                return 0;
+        if (arg_check_inhibitors < 0) {
+                if (geteuid() == 0)
+                        return 0;
 
-        if (!on_tty())
-                return 0;
+                if (!on_tty())
+                        return 0;
+        }
 
         if (arg_transport != BUS_TRANSPORT_LOCAL)
                 return 0;
@@ -7829,7 +7848,10 @@ static int systemctl_help(void) {
                "  -T --show-transaction  When enqueuing a unit job, show full transaction\n"
                "     --show-types        When showing sockets, explicitly show their type\n"
                "     --value             When showing properties, only print the value\n"
-               "  -i --ignore-inhibitors When shutting down or sleeping, ignore inhibitors\n"
+               "     --check-inhibitors=MODE\n"
+               "                         Specify if checking inhibitors before shutting down,\n"
+               "                         sleeping or hibernating\n"
+               "  -i                     Shortcut for --check-inhibitors=no\n"
                "     --kill-who=WHO      Whom to send signal to\n"
                "  -s --signal=SIGNAL     Which signal to send\n"
                "     --what=RESOURCES    Which types of resources to remove\n"
@@ -8082,6 +8104,7 @@ static int systemctl_parse_argv(int argc, char *argv[]) {
                 ARG_REVERSE,
                 ARG_AFTER,
                 ARG_BEFORE,
+                ARG_CHECK_INHIBITORS,
                 ARG_DRY_RUN,
                 ARG_SHOW_TYPES,
                 ARG_IRREVERSIBLE,
@@ -8132,7 +8155,8 @@ static int systemctl_parse_argv(int argc, char *argv[]) {
                 { "fail",                no_argument,       NULL, ARG_FAIL                }, /* compatibility only */
                 { "irreversible",        no_argument,       NULL, ARG_IRREVERSIBLE        }, /* compatibility only */
                 { "ignore-dependencies", no_argument,       NULL, ARG_IGNORE_DEPENDENCIES }, /* compatibility only */
-                { "ignore-inhibitors",   no_argument,       NULL, 'i'                     },
+                { "ignore-inhibitors",   no_argument,       NULL, 'i'                     }, /* compatibility only */
+                { "check-inhibitors",    required_argument, NULL, ARG_CHECK_INHIBITORS    },
                 { "value",               no_argument,       NULL, ARG_VALUE               },
                 { "user",                no_argument,       NULL, ARG_USER                },
                 { "system",              no_argument,       NULL, ARG_SYSTEM              },
@@ -8434,7 +8458,18 @@ static int systemctl_parse_argv(int argc, char *argv[]) {
                         break;
 
                 case 'i':
-                        arg_ignore_inhibitors = true;
+                        arg_check_inhibitors = 0;
+                        break;
+
+                case ARG_CHECK_INHIBITORS:
+                        if (streq(optarg, "auto"))
+                                arg_check_inhibitors = -1;
+                        else {
+                                r = parse_boolean(optarg);
+                                if (r < 0)
+                                        return log_error_errno(r, "Failed to parse --check-inhibitors= argument: %s", optarg);
+                                arg_check_inhibitors = r;
+                        }
                         break;
 
                 case ARG_PLAIN:
