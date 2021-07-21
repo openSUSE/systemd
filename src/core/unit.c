@@ -1099,13 +1099,18 @@ int unit_add_exec_dependencies(Unit *u, ExecContext *c) {
         }
 
         if (c->private_tmp) {
-                const char *p;
 
-                FOREACH_STRING(p, "/tmp", "/var/tmp") {
-                        r = unit_require_mounts_for(u, p, UNIT_DEPENDENCY_FILE);
-                        if (r < 0)
-                                return r;
-                }
+                /* FIXME: for now we make a special case for /tmp and add a weak dependency on
+                 * tmp.mount so /tmp being masked is supported. However there's no reason to treat
+                 * /tmp specifically and masking other mount units should be handled more
+                 * gracefully too, see PR#16894. */
+                r = unit_add_two_dependencies_by_name(u, UNIT_AFTER, UNIT_WANTS, "tmp.mount", true, UNIT_DEPENDENCY_FILE);
+                if (r < 0)
+                        return r;
+
+                r = unit_require_mounts_for(u, "/var/tmp", UNIT_DEPENDENCY_FILE);
+                if (r < 0)
+                        return r;
 
                 r = unit_add_dependency_by_name(u, UNIT_AFTER, SPECIAL_TMPFILES_SETUP_SERVICE, true, UNIT_DEPENDENCY_FILE);
                 if (r < 0)
@@ -1555,16 +1560,17 @@ static int unit_add_mount_dependencies(Unit *u) {
                         Unit *m;
 
                         r = unit_name_from_path(prefix, ".mount", &p);
+                        if (IN_SET(r, -EINVAL, -ENAMETOOLONG))
+                                continue; /* If the path cannot be converted to a mount unit name, then it's
+                                           * not managable as a unit by systemd, and hence we don't need a
+                                           * dependency on it. Let's thus silently ignore the issue. */
                         if (r < 0)
                                 return r;
 
                         m = manager_get_unit(u->manager, p);
                         if (!m) {
-                                /* Make sure to load the mount unit if
-                                 * it exists. If so the dependencies
-                                 * on this unit will be added later
-                                 * during the loading of the mount
-                                 * unit. */
+                                /* Make sure to load the mount unit if it exists. If so the dependencies on
+                                 * this unit will be added later during the loading of the mount unit. */
                                 (void) manager_load_unit_prepare(u->manager, p, NULL, NULL, &m);
                                 continue;
                         }
@@ -2918,7 +2924,7 @@ void unit_dequeue_rewatch_pids(Unit *u) {
         if (r < 0)
                 log_warning_errno(r, "Failed to disable event source for tidying watched PIDs, ignoring: %m");
 
-        u->rewatch_pids_event_source = sd_event_source_unref(u->rewatch_pids_event_source);
+        u->rewatch_pids_event_source = sd_event_source_disable_unref(u->rewatch_pids_event_source);
 }
 
 bool unit_job_is_applicable(Unit *u, JobType j) {
@@ -4000,8 +4006,10 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
 
         /* Let's make sure that everything that is deserialized also gets any potential new cgroup settings applied
          * after we are done. For that we invalidate anything already realized, so that we can realize it again. */
-        unit_invalidate_cgroup(u, _CGROUP_MASK_ALL);
-        unit_invalidate_cgroup_bpf(u);
+        if (u->cgroup_realized) {
+                unit_invalidate_cgroup(u, _CGROUP_MASK_ALL);
+                unit_invalidate_cgroup_bpf(u);
+        }
 
         return 0;
 }

@@ -4121,7 +4121,7 @@ static void print_status_info(
         printf("\n");
 
         if (i->following)
-                printf("   Follow: unit currently follows state of %s\n", i->following);
+                printf("    Follow: unit currently follows state of %s\n", i->following);
 
         if (STRPTR_IN_SET(i->load_state, "error", "not-found", "bad-setting")) {
                 on = ansi_highlight_red();
@@ -7657,6 +7657,8 @@ static int edit(int argc, char *argv[], void *userdata) {
         r = expand_names(bus, strv_skip(argv, 1), NULL, &names, NULL);
         if (r < 0)
                 return log_error_errno(r, "Failed to expand names: %m");
+        if (strv_isempty(names))
+                return log_error_errno(SYNTHETIC_ERRNO(ENOENT), "No units matched the specified patterns.");
 
         STRV_FOREACH(tmp, names) {
                 r = unit_is_masked(bus, &lp, *tmp);
@@ -7869,7 +7871,7 @@ static int systemctl_help(void) {
                "     --no-legend         Do not print a legend (column headers and hints)\n"
                "     --no-pager          Do not pipe output into a pager\n"
                "     --no-ask-password   Do not ask for system passwords\n"
-               "     --global            Enable/disable/mask unit files globally\n"
+               "     --global            Enable/disable/mask default user unit files globally\n"
                "     --runtime           Enable/disable/mask unit files temporarily until next\n"
                "                         reboot\n"
                "  -f --force             When enabling unit files, override existing symlinks\n"
