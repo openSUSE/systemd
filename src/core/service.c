@@ -2803,9 +2803,6 @@ static int service_deserialize_exec_command(
                 case STATE_EXEC_COMMAND_PATH:
                         path = TAKE_PTR(arg);
                         state = STATE_EXEC_COMMAND_ARGS;
-
-                        if (!path_is_absolute(path))
-                                return -EINVAL;
                         break;
                 case STATE_EXEC_COMMAND_ARGS:
                         r = strv_extend(&argv, arg);
@@ -2813,13 +2810,14 @@ static int service_deserialize_exec_command(
                                 return -ENOMEM;
                         break;
                 default:
-                        assert_not_reached("Unknown error at deserialization of exec command");
-                        break;
+                        assert_not_reached("Logic error in exec command deserialization");
                 }
         }
 
         if (state != STATE_EXEC_COMMAND_ARGS)
                 return -EINVAL;
+        if (strv_isempty(argv))
+                return -EINVAL; /* At least argv[0] must be always present. */
 
         /* Let's check whether exec command on given offset matches data that we just deserialized */
         for (command = s->exec_command[id], i = 0; command; command = command->command_next, i++) {
