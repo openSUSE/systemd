@@ -1847,8 +1847,9 @@ static int link_configure_addrgen_mode(Link *link) {
                 r = sysctl_read_ip_property(AF_INET6, link->ifname, "stable_secret", NULL);
                 if (r < 0) {
                         /* The file may not exist. And even if it exists, when stable_secret is unset,
-                         * reading the file fails with EIO. */
-                        log_link_debug_errno(link, r, "Failed to read sysctl property stable_secret: %m");
+                         * reading the file fails with ENOMEM when read_full_virtual_file(), which uses
+                         * read() as the backend, and EIO when read_one_line_file() which uses fgetc(). */
+                        log_link_debug_errno(link, r, "Failed to read sysctl property stable_secret, ignoring: %m");
 
                         ipv6ll_mode = IN6_ADDR_GEN_MODE_EUI64;
                 } else
@@ -1895,7 +1896,7 @@ static int link_up_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *link) 
         return 1;
 }
 
-static int link_up(Link *link) {
+int link_up(Link *link) {
         _cleanup_(sd_netlink_message_unrefp) sd_netlink_message *req = NULL;
         int r;
 
@@ -3843,7 +3844,7 @@ int link_add(Manager *m, sd_netlink_message *message, Link **ret) {
                 sprintf(ifindex_str, "n%d", link->ifindex);
                 r = sd_device_new_from_device_id(&device, ifindex_str);
                 if (r < 0) {
-                        log_link_warning_errno(link, r, "Could not find device, waiting for device initialization: %m");
+                        log_link_debug_errno(link, r, "Could not find device, waiting for device initialization: %m");
                         return 0;
                 }
 

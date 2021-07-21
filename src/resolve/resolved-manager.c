@@ -1068,17 +1068,26 @@ uint32_t manager_find_mtu(Manager *m) {
         Link *l;
         Iterator i;
 
-        /* If we don't know on which link a DNS packet would be
-         * delivered, let's find the largest MTU that works on all
-         * interfaces we know of */
+        /* If we don't know on which link a DNS packet would be delivered, let's find the largest MTU that
+         * works on all interfaces we know of that have an IP address asociated */
 
         HASHMAP_FOREACH(l, m->links, i) {
-                if (l->mtu <= 0)
+                /* Let's filter out links without IP addresses (e.g. AF_CAN links and suchlike) */
+                if (!l->addresses)
+                        continue;
+
+                /* Safety check: MTU shorter than what we need for the absolutely shortest DNS request? Then
+                 * let's ignore this link. */
+                if (l->mtu < MIN(UDP4_PACKET_HEADER_SIZE + DNS_PACKET_HEADER_SIZE,
+                                 UDP6_PACKET_HEADER_SIZE + DNS_PACKET_HEADER_SIZE))
                         continue;
 
                 if (mtu <= 0 || l->mtu < mtu)
                         mtu = l->mtu;
         }
+
+        if (mtu == 0) /* found nothing? then let's assume the typical Ethernet MTU for lack of anything more precise */
+                return 1500;
 
         return mtu;
 }
@@ -1107,15 +1116,16 @@ void manager_refresh_rrs(Manager *m) {
         m->mdns_host_ipv4_key = dns_resource_key_unref(m->mdns_host_ipv4_key);
         m->mdns_host_ipv6_key = dns_resource_key_unref(m->mdns_host_ipv6_key);
 
+        HASHMAP_FOREACH(l, m->links, i)
+                link_add_rrs(l, true);
+
         if (m->mdns_support == RESOLVE_SUPPORT_YES)
                 HASHMAP_FOREACH(s, m->dnssd_services, i)
                         if (dnssd_update_rrs(s) < 0)
                                 log_warning("Failed to refresh DNS-SD service '%s'", s->name);
 
-        HASHMAP_FOREACH(l, m->links, i) {
-                link_add_rrs(l, true);
+        HASHMAP_FOREACH(l, m->links, i)
                 link_add_rrs(l, false);
-        }
 }
 
 static int manager_next_random_name(const char *old, char **ret_new) {
