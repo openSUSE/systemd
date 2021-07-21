@@ -231,7 +231,7 @@ static void mount_done(Unit *u) {
 
         mount_unwatch_control_pid(m);
 
-        m->timer_event_source = sd_event_source_unref(m->timer_event_source);
+        m->timer_event_source = sd_event_source_disable_unref(m->timer_event_source);
 }
 
 static MountParameters* get_mount_parameters_fragment(Mount *m) {
@@ -704,7 +704,7 @@ static void mount_set_state(Mount *m, MountState state) {
         m->state = state;
 
         if (!MOUNT_STATE_WITH_PROCESS(state)) {
-                m->timer_event_source = sd_event_source_unref(m->timer_event_source);
+                m->timer_event_source = sd_event_source_disable_unref(m->timer_event_source);
                 mount_unwatch_control_pid(m);
                 m->control_command = NULL;
                 m->control_command_id = _MOUNT_EXEC_COMMAND_INVALID;
@@ -1695,11 +1695,18 @@ static int mount_setup_unit(
                         .burst = 1,
                 };
 
+                if (r == -ENAMETOOLONG)
+                        return log_struct_errno(
+                                        ratelimit_below(&rate_limit) ? LOG_WARNING : LOG_DEBUG, r,
+                                        "MESSAGE_ID=" SD_MESSAGE_MOUNT_POINT_PATH_NOT_SUITABLE_STR,
+                                        "MOUNT_POINT=%s", where,
+                                        LOG_MESSAGE("Mount point path '%s' too long to fit into unit name, ignoring mount point.", where));
+
                 return log_struct_errno(
                                 ratelimit_below(&rate_limit) ? LOG_WARNING : LOG_DEBUG, r,
                                 "MESSAGE_ID=" SD_MESSAGE_MOUNT_POINT_PATH_NOT_SUITABLE_STR,
                                 "MOUNT_POINT=%s", where,
-                                LOG_MESSAGE("Failed to generate valid unit name from path '%s', ignoring mount point: %m", where));
+                                LOG_MESSAGE("Failed to generate valid unit name from mount point path '%s', ignoring mount point: %m", where));
         }
 
         u = manager_get_unit(m, e);
@@ -1762,7 +1769,7 @@ static int mount_load_proc_self_mountinfo(Manager *m, bool set_flags) {
 static void mount_shutdown(Manager *m) {
         assert(m);
 
-        m->mount_event_source = sd_event_source_unref(m->mount_event_source);
+        m->mount_event_source = sd_event_source_disable_unref(m->mount_event_source);
 
         mnt_unref_monitor(m->mount_monitor);
         m->mount_monitor = NULL;
@@ -2097,7 +2104,7 @@ static int mount_clean(Unit *u, ExecCleanMask mask) {
 fail:
         log_unit_warning_errno(u, r, "Failed to initiate cleaning: %m");
         m->clean_result = MOUNT_FAILURE_RESOURCES;
-        m->timer_event_source = sd_event_source_unref(m->timer_event_source);
+        m->timer_event_source = sd_event_source_disable_unref(m->timer_event_source);
         return r;
 }
 
