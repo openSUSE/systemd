@@ -780,14 +780,15 @@ static void event_source_time_prioq_reshuffle(sd_event_source *s) {
         assert(s);
 
         /* Called whenever the event source's timer ordering properties changed, i.e. time, accuracy,
-         * pending, enable state. Makes sure the two prioq's are ordered properly again. */
+         * pending, enable state, and ratelimiting state. Makes sure the two prioq's are ordered
+         * properly again. */
 
         if (s->ratelimited)
                 d = &s->event->monotonic;
-        else {
-                assert(EVENT_SOURCE_IS_TIME(s->type));
+        else if (EVENT_SOURCE_IS_TIME(s->type))
                 assert_se(d = event_get_clock_data(s->event, s->type));
-        }
+        else
+                return; /* no-op for an event source which is neither a timer nor ratelimited. */
 
         prioq_reshuffle(d->earliest, s, &s->earliest_index);
         prioq_reshuffle(d->latest, s, &s->latest_index);
@@ -2379,14 +2380,6 @@ static int event_source_offline(
                 source_io_unregister(s);
                 break;
 
-        case SOURCE_TIME_REALTIME:
-        case SOURCE_TIME_BOOTTIME:
-        case SOURCE_TIME_MONOTONIC:
-        case SOURCE_TIME_REALTIME_ALARM:
-        case SOURCE_TIME_BOOTTIME_ALARM:
-                event_source_time_prioq_reshuffle(s);
-                break;
-
         case SOURCE_SIGNAL:
                 event_gc_signal_data(s->event, &s->priority, s->signal.sig);
                 break;
@@ -2407,6 +2400,11 @@ static int event_source_offline(
                 prioq_reshuffle(s->event->exit, s, &s->exit.prioq_index);
                 break;
 
+        case SOURCE_TIME_REALTIME:
+        case SOURCE_TIME_BOOTTIME:
+        case SOURCE_TIME_MONOTONIC:
+        case SOURCE_TIME_REALTIME_ALARM:
+        case SOURCE_TIME_BOOTTIME_ALARM:
         case SOURCE_DEFER:
         case SOURCE_POST:
         case SOURCE_INOTIFY:
@@ -2415,6 +2413,9 @@ static int event_source_offline(
         default:
                 assert_not_reached("Wut? I shouldn't exist.");
         }
+
+        /* Always reshuffle time prioq, as the ratelimited flag may be changed. */
+        event_source_time_prioq_reshuffle(s);
 
         return 1;
 }
@@ -2505,22 +2506,11 @@ static int event_source_online(
         s->ratelimited = ratelimited;
 
         /* Non-failing operations below */
-        switch (s->type) {
-        case SOURCE_TIME_REALTIME:
-        case SOURCE_TIME_BOOTTIME:
-        case SOURCE_TIME_MONOTONIC:
-        case SOURCE_TIME_REALTIME_ALARM:
-        case SOURCE_TIME_BOOTTIME_ALARM:
-                event_source_time_prioq_reshuffle(s);
-                break;
-
-        case SOURCE_EXIT:
+        if (s->type == SOURCE_EXIT)
                 prioq_reshuffle(s->event->exit, s, &s->exit.prioq_index);
-                break;
 
-        default:
-                break;
-        }
+        /* Always reshuffle time prioq, as the ratelimited flag may be changed. */
+        event_source_time_prioq_reshuffle(s);
 
         return 1;
 }
@@ -2990,8 +2980,8 @@ static int event_arm_timer(
 
         if (!d->needs_rearm)
                 return 0;
-        else
-                d->needs_rearm = false;
+
+        d->needs_rearm = false;
 
         a = prioq_peek(d->earliest);
         assert(!a || EVENT_SOURCE_USES_TIME_PRIOQ(a->type));
@@ -3694,8 +3684,8 @@ static int arm_watchdog(sd_event *e) {
         assert(e->watchdog_fd >= 0);
 
         t = sleep_between(e,
-                          e->watchdog_last + (e->watchdog_period / 2),
-                          e->watchdog_last + (e->watchdog_period * 3 / 4));
+                          usec_add(e->watchdog_last, (e->watchdog_period / 2)),
+                          usec_add(e->watchdog_last, (e->watchdog_period * 3 / 4)));
 
         timespec_store(&its.it_value, t);
 
