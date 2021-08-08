@@ -11,7 +11,10 @@ TEST_NO_NSPAWN=1
 test_append_files() {
     (
         local workspace="${1:?}"
-        dracut_install busybox
+
+        # On openSUSE the static linked version of busybox is named "busybox-static".
+        busybox="$(type -P busybox-static || type -P busybox)"
+        inst_simple "$busybox" "$(dirname $busybox)/busybox"
 
         "$TEST_BASE_DIR/create-busybox-container" "$workspace/testsuite-13.nc-container"
         initdir="$workspace/testsuite-13.nc-container" dracut_install nc ip md5sum
