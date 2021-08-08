@@ -11,6 +11,7 @@ TEST_NO_NSPAWN=1
 test_append_files() {
     (
         local workspace="${1:?}"
+        dracut_install busybox
 
         "$TEST_BASE_DIR/create-busybox-container" "$workspace/testsuite-13.nc-container"
         initdir="$workspace/testsuite-13.nc-container" dracut_install nc ip md5sum
