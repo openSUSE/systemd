@@ -305,7 +305,7 @@ static int image_make(
                 }
 
                 /* Get directory creation time (not available everywhere, but that's OK */
-                (void) fd_getcrtime(dfd, &crtime);
+                (void) fd_getcrtime(fd, &crtime);
 
                 /* If the IMMUTABLE bit is set, we consider the directory read-only. Since the ioctl is not
                  * supported everywhere we ignore failures. */
@@ -1208,6 +1208,7 @@ int image_read_metadata(Image *i) {
                                 DISSECT_IMAGE_GENERIC_ROOT |
                                 DISSECT_IMAGE_REQUIRE_ROOT |
                                 DISSECT_IMAGE_RELAX_VAR_CHECK |
+                                DISSECT_IMAGE_READ_ONLY |
                                 DISSECT_IMAGE_USR_NO_ROOT,
                                 &m);
                 if (r < 0)

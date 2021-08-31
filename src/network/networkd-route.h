@@ -66,6 +66,7 @@ typedef struct Route {
 
 void route_hash_func(const Route *route, struct siphash *state);
 int route_compare_func(const Route *a, const Route *b);
+bool route_equal(const Route *r1, const Route *r2);
 extern const struct hash_ops route_hash_ops;
 
 int route_new(Route **ret);
@@ -77,8 +78,8 @@ int route_configure_handler_internal(sd_netlink *rtnl, sd_netlink_message *m, Li
 int route_remove(const Route *route, Manager *manager, Link *link);
 
 int link_has_route(Link *link, const Route *route);
-bool manager_address_is_reachable(Manager *manager, int family, const union in_addr_union *address);
 int manager_find_uplink(Manager *m, int family, Link *exclude, Link **ret);
+bool gateway_is_ready(Link *link, int onlink, int family, const union in_addr_union *gw);
 
 int link_drop_routes(Link *link);
 int link_drop_foreign_routes(Link *link);

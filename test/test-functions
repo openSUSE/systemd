@@ -226,7 +226,7 @@ is_built_with_asan() {
 
     # Borrowed from https://github.com/google/oss-fuzz/blob/cd9acd02f9d3f6e80011cc1e9549be526ce5f270/infra/base-images/base-runner/bad_build_check#L182
     local _asan_calls
-    _asan_calls="$(objdump -dC "$SYSTEMD_JOURNALD" | grep -E "callq?\s+[0-9a-f]+\s+<__asan" -c)"
+    _asan_calls="$(objdump -dC "$SYSTEMD_JOURNALD" | grep -E "(callq?|brasl?)\s+[^ <]+\s+<__asan" -c)"
     if ((_asan_calls < 1000)); then
         return 1
     else
@@ -345,12 +345,14 @@ run_qemu() {
             [ "$ARCH" ] || ARCH=$(uname -m)
             case $ARCH in
                 ppc64*)
-                KERNEL_BIN="/boot/vmlinux-$KERNEL_VER"
-                CONSOLE=hvc0
-                ;;
+                    # Ubuntu ppc64* calls the kernel binary as vmlinux-*, RHEL/CentOS
+                    # uses the "standard" vmlinuz- prefix
+                    [[ -e "/boot/vmlinux-$KERNEL_VER" ]] && KERNEL_BIN="/boot/vmlinux-$KERNEL_VER" || KERNEL_BIN="/boot/vmlinuz-$KERNEL_VER"
+                    CONSOLE=hvc0
+                    ;;
                 *)
-                KERNEL_BIN="/boot/vmlinuz-$KERNEL_VER"
-                ;;
+                    KERNEL_BIN="/boot/vmlinuz-$KERNEL_VER"
+                    ;;
             esac
         fi
     fi
