@@ -1666,6 +1666,7 @@ subdir('src/libsystemd')
 subdir('src/shared')
 subdir('src/udev')
 subdir('src/libudev')
+subdir('src/udev/compat')
 
 libsystemd = shared_library(
         'systemd',
