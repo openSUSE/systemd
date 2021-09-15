@@ -538,8 +538,7 @@ static int manager_setup_signals(Manager *m) {
                         SIGRTMIN+22, /* systemd: set log level to LOG_DEBUG */
                         SIGRTMIN+23, /* systemd: set log level to LOG_INFO */
                         SIGRTMIN+24, /* systemd: Immediate exit (--user only) */
-
-                        /* .. one free signal here ... */
+                        SIGRTMIN+25, /* systemd: reexecute manager */
 
                         /* Apparently Linux on hppa had fewer RT signals until v3.18,
                          * SIGRTMAX was SIGRTMIN+25, and then SIGRTMIN was lowered,
@@ -1330,6 +1329,10 @@ static void manager_clear_jobs_and_units(Manager *m) {
         assert(!m->cleanup_queue);
         assert(!m->gc_unit_queue);
         assert(!m->gc_job_queue);
+        assert(!m->cgroup_realize_queue);
+        assert(!m->cgroup_empty_queue);
+        assert(!m->cgroup_oom_queue);
+        assert(!m->target_deps_queue);
         assert(!m->stop_when_unneeded_queue);
 
         assert(hashmap_isempty(m->jobs));
@@ -2810,6 +2813,10 @@ static int manager_dispatch_signal_fd(sd_event_source *source, int fd, uint32_t 
                         /* This is a nop on init */
                         break;
 
+                case 25:
+                        m->objective = MANAGER_REEXECUTE;
+                        break;
+
                 case 26:
                 case 29: /* compatibility: used to be mapped to LOG_TARGET_SYSLOG_OR_KMSG */
                         manager_restore_original_log_target(m);
@@ -2942,8 +2949,10 @@ int manager_loop(Manager *m) {
                 usec_t wait_usec, watchdog_usec;
 
                 watchdog_usec = manager_get_watchdog(m, WATCHDOG_RUNTIME);
-                if (timestamp_is_set(watchdog_usec))
-                        watchdog_ping();
+                if (m->runtime_watchdog_running)
+                        (void) watchdog_ping();
+                else if (timestamp_is_set(watchdog_usec))
+                        manager_retry_runtime_watchdog(m);
 
                 if (!ratelimit_below(&rl)) {
                         /* Yay, something is going seriously wrong, pause a little */
@@ -3416,14 +3425,18 @@ void manager_set_watchdog(Manager *m, WatchdogType t, usec_t timeout) {
 
         if (t == WATCHDOG_RUNTIME)
                 if (!timestamp_is_set(m->watchdog_overridden[WATCHDOG_RUNTIME])) {
-                        if (timestamp_is_set(timeout))
+                        if (timestamp_is_set(timeout)) {
                                 r = watchdog_set_timeout(&timeout);
-                        else
+
+                                if (r >= 0)
+                                        m->runtime_watchdog_running = true;
+                        } else {
                                 watchdog_close(true);
+                                m->runtime_watchdog_running = false;
+                        }
                 }
 
-        if (r >= 0)
-                m->watchdog[t] = timeout;
+        m->watchdog[t] = timeout;
 }
 
 int manager_override_watchdog(Manager *m, WatchdogType t, usec_t timeout) {
@@ -3441,16 +3454,34 @@ int manager_override_watchdog(Manager *m, WatchdogType t, usec_t timeout) {
                 usec_t *p;
 
                 p = timestamp_is_set(timeout) ? &timeout : &m->watchdog[t];
-                if (timestamp_is_set(*p))
+                if (timestamp_is_set(*p)) {
                         r = watchdog_set_timeout(p);
-                else
+
+                        if (r >= 0)
+                                m->runtime_watchdog_running = true;
+                } else {
                         watchdog_close(true);
+                        m->runtime_watchdog_running = false;
+                }
         }
 
-        if (r >= 0)
-                m->watchdog_overridden[t] = timeout;
+        m->watchdog_overridden[t] = timeout;
 
         return 0;
+}
+
+void manager_retry_runtime_watchdog(Manager *m) {
+        int r = 0;
+
+        assert(m);
+
+        if (timestamp_is_set(m->watchdog_overridden[WATCHDOG_RUNTIME]))
+                r = watchdog_set_timeout(&m->watchdog_overridden[WATCHDOG_RUNTIME]);
+        else
+                r = watchdog_set_timeout(&m->watchdog[WATCHDOG_RUNTIME]);
+
+        if (r >= 0)
+                m->runtime_watchdog_running = true;
 }
 
 static void manager_deserialize_uid_refs_one_internal(
