@@ -215,3 +215,7 @@ tests += [
         [['src/udev/fido_id/test-fido-id-desc.c',
           'src/udev/fido_id/fido_id_desc.c']],
 ]
+
+install_data('rule_generator/rule_generator.functions',
+             'rule_generator/write_net_rules',
+             install_dir : udevlibexecdir)

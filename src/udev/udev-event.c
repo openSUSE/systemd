@@ -875,7 +875,7 @@ static int rename_netif(UdevEvent *event) {
         if (r < 0)
                 return log_device_debug_errno(event->dev_db_clone, r, "Failed to update database under /run/udev/data/: %m");
 
-        r = rtnl_set_link_name(&event->rtnl, ifindex, event->name);
+        r = rtnl_set_link_name_wait(&event->rtnl, ifindex, oldname, event->name);
         if (r < 0)
                 return log_device_error_errno(dev, r, "Failed to rename network interface %i from '%s' to '%s': %m",
                                               ifindex, oldname, event->name);

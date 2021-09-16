@@ -204,7 +204,7 @@
         <term><varname>net.ifnames=</varname></term>
         <listitem>
           <para>Network interfaces are renamed to give them predictable names
-          when possible. It is enabled by default; specifying 0 disables it.</para>
+          when possible. It is disabled by default; specifying 1 enables it.</para>
         </listitem>
       </varlistentry>
       <varlistentry>

@@ -24,6 +24,7 @@ rules = files('''
         70-mouse.rules
         70-touchpad.rules
         75-net-description.rules
+        75-persistent-net-generator.rules
         75-probe_mtd.rules
         78-sound-card.rules
         80-net-setup-link.rules
