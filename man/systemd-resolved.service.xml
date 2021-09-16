@@ -144,7 +144,7 @@
       turn. Additionally, lookup of single-label names via unicast DNS may be enabled with the
       <varname>ResolveUnicastSingleLabel=yes</varname> setting. The details of which servers are queried and
       how the final reply is chosen are described below. Note that this means that address queries for
-      single-label names are never sent out to remote DNS servers by default, and resoulution is only
+      single-label names are never sent out to remote DNS servers by default, and resolution is only
       possible if search domains are defined.</para></listitem>
 
       <listitem><para>Multi-label names with the domain suffix <literal>.local</literal> are resolved using
@@ -275,7 +275,7 @@ search foobar.com barbar.com
       fragility in both directions: a valid global name could be obscured by a local name, and resolution of
       a relative local name could suddenly break when a new top-level domain is created, or when a new
       subdomain of a top-level domain in registered. Resolving any given name as either relative or absolute
-      avoids this ambiguity.)</para></footnote></para></listitem>
+      avoids this ambiguity.</para></footnote></para></listitem>
 
       <listitem><para>This resolver has a notion of the special <literal>.local</literal> domain used for
       MulticastDNS, and will not route queries with that suffix to unicast DNS servers unless explicitly

@@ -35,6 +35,7 @@ QEMU_MEM="${QEMU_MEM:-512M}"
 # To force creating a new image from scratch (eg: to encrypt it), also define
 # TEST_FORCE_NEWIMAGE=1 in the test setup script.
 IMAGE_NAME=${IMAGE_NAME:-default}
+STRIP_BINARIES="${STRIP_BINARIES:-yes}"
 TEST_REQUIRE_INSTALL_TESTS="${TEST_REQUIRE_INSTALL_TESTS:-1}"
 TEST_PARALLELIZE="${TEST_PARALLELIZE:-0}"
 LOOPDEV=
@@ -82,13 +83,11 @@ TOOLS_DIR="$SOURCE_DIR/tools"
 export TEST_BASE_DIR TEST_UNITS_DIR SOURCE_DIR TOOLS_DIR
 
 # note that find-build-dir.sh will return $BUILD_DIR if provided, else it will try to find it
-if ! BUILD_DIR="$("$TOOLS_DIR"/find-build-dir.sh)"; then
-    if get_bool "${NO_BUILD:=}"; then
-        BUILD_DIR="$SOURCE_DIR"
-    else
-        echo "ERROR: no build found, please set BUILD_DIR or use NO_BUILD" >&2
-        exit 1
-    fi
+if get_bool "${NO_BUILD:=}"; then
+    BUILD_DIR="$SOURCE_DIR"
+elif ! BUILD_DIR="$("$TOOLS_DIR"/find-build-dir.sh)"; then
+    echo "ERROR: no build found, please set BUILD_DIR or use NO_BUILD" >&2
+    exit 1
 fi
 
 PATH_TO_INIT="$ROOTLIBDIR/systemd"
@@ -125,7 +124,6 @@ BASICTOOLS=(
     base64
     basename
     bash
-    busybox
     capsh
     cat
     chmod
@@ -228,7 +226,7 @@ is_built_with_asan() {
 
     # Borrowed from https://github.com/google/oss-fuzz/blob/cd9acd02f9d3f6e80011cc1e9549be526ce5f270/infra/base-images/base-runner/bad_build_check#L182
     local _asan_calls
-    _asan_calls="$(objdump -dC "$SYSTEMD_JOURNALD" | grep -E "callq?\s+[0-9a-f]+\s+<__asan" -c)"
+    _asan_calls="$(objdump -dC "$SYSTEMD_JOURNALD" | grep -E "(callq?|brasl?)\s+[^ <]+\s+<__asan" -c)"
     if ((_asan_calls < 1000)); then
         return 1
     else
@@ -347,12 +345,14 @@ run_qemu() {
             [ "$ARCH" ] || ARCH=$(uname -m)
             case $ARCH in
                 ppc64*)
-                KERNEL_BIN="/boot/vmlinux-$KERNEL_VER"
-                CONSOLE=hvc0
-                ;;
+                    # Ubuntu ppc64* calls the kernel binary as vmlinux-*, RHEL/CentOS
+                    # uses the "standard" vmlinuz- prefix
+                    [[ -e "/boot/vmlinux-$KERNEL_VER" ]] && KERNEL_BIN="/boot/vmlinux-$KERNEL_VER" || KERNEL_BIN="/boot/vmlinuz-$KERNEL_VER"
+                    CONSOLE=hvc0
+                    ;;
                 *)
-                KERNEL_BIN="/boot/vmlinuz-$KERNEL_VER"
-                ;;
+                    KERNEL_BIN="/boot/vmlinuz-$KERNEL_VER"
+                    ;;
             esac
         fi
     fi
@@ -665,6 +665,7 @@ setup_basic_environment() {
     install_fs_tools
     install_modules
     install_plymouth
+    install_haveged
     install_debug_tools
     install_ld_so_conf
     install_testuser
@@ -934,11 +935,52 @@ install_debian_systemd() {
     done < <(grep -E '^Package:' "${SOURCE_DIR}/debian/control" | cut -d ':' -f 2)
 }
 
+install_suse_systemd() {
+    local testsdir=/usr/lib/systemd/tests
+    local pkgs
+
+    dinfo "Install SUSE systemd"
+
+    pkgs=(
+        systemd
+        systemd-container
+        systemd-coredump
+        systemd-experimental
+        systemd-journal-remote
+        systemd-portable
+        udev
+    )
+
+    for p in "${pkgs[@]}"; do
+        rpm -q "$p" &>/dev/null || continue
+
+        ddebug "Install files from package $p"
+        while read -r f; do
+            [ -e "$f" ] || continue
+            [ -d "$f" ] && continue
+            inst "$f"
+        done < <(rpm -ql "$p")
+    done
+
+    # we only need testsdata dir as well as the unit tests (for
+    # TEST-02-UNITTESTS) in the image.
+    dinfo "Install unit tests and testdata directory"
+
+    mkdir -p "$initdir/$testsdir"
+    cp "$testsdir"/test-* "$initdir/$testsdir/"
+    cp -a "$testsdir/testdata" "$initdir/$testsdir/"
+
+    # On openSUSE, these dirs are not created at package install for now on.
+    mkdir -p "$initdir/var/log/journal/remote"
+}
+
 install_distro_systemd() {
     dinfo "Install distro systemd"
 
     if get_bool "$LOOKS_LIKE_DEBIAN"; then
         install_debian_systemd
+    elif get_bool "$LOOKS_LIKE_SUSE"; then
+        install_suse_systemd
     else
         dfatal "NO_BUILD not supported for this distro"
         exit 1
@@ -955,8 +997,6 @@ install_systemd() {
 
     # remove unneeded documentation
     rm -fr "$initdir"/usr/share/{man,doc}
-
-    get_bool "$LOOKS_LIKE_SUSE" && setup_suse
 
     # enable debug logging in PID1
     echo LogLevel=debug >>"$initdir/etc/systemd/system.conf"
@@ -1388,6 +1428,16 @@ install_plymouth() {
     # fi
 }
 
+install_haveged() {
+    # If haveged is installed and probably included in initrd, it needs to be
+    # installed in the image too.
+    if [ -x /usr/sbin/haveged ]; then
+        dinfo "Install haveged files"
+        inst /usr/sbin/haveged
+        inst /usr/lib/systemd/system/haveged.service
+    fi
+}
+
 install_ld_so_conf() {
     dinfo "Install /etc/ld.so.conf*"
     cp -a /etc/ld.so.conf* "${initdir:?}/etc"
@@ -1549,7 +1599,7 @@ install_pam() {
         paths+=(/lib*/security)
     fi
 
-    for d in /etc/pam.d /etc/security /usr/lib/pam.d; do
+    for d in /etc/pam.d /etc/security /usr/{etc,lib}/pam.d; do
         [ -d "$d" ] && paths+=("$d")
     done
 
@@ -1563,6 +1613,13 @@ install_pam() {
 
     # set empty root password for easy debugging
     sed -i 's/^root:x:/root::/' "${initdir:?}/etc/passwd"
+
+    # And make sure pam_unix will accept it by making sure that
+    # the PAM module has the nullok option.
+    for d in /etc/pam.d /usr/{etc,lib}/pam.d; do
+        [ -d "$initdir/$d" ] || continue
+        sed -i '/^auth.*pam_unix.so/s/$/ nullok/' "$initdir/$d"/*
+    done
 }
 
 install_keymaps() {
@@ -2397,12 +2454,6 @@ instmods() {
     done
 
     return 0
-}
-
-setup_suse() {
-    ln -fs ../usr/bin/systemctl "${initdir:?}/bin/"
-    ln -fs ../usr/lib/systemd "$initdir/lib/"
-    inst_simple "/usr/lib/systemd/system/haveged.service"
 }
 
 _umount_dir() {

@@ -165,7 +165,7 @@ Address *address_free(Address *address) {
                 set_remove(address->link->dhcp6_pd_addresses, address);
                 set_remove(address->link->dhcp6_pd_addresses_old, address);
                 SET_FOREACH(n, address->link->ndisc_addresses)
-                        if (n->address == address)
+                        if (address_equal(n->address, address))
                                 free(set_remove(address->link->ndisc_addresses, n));
 
                 if (address->family == AF_INET6 &&
@@ -1272,16 +1272,16 @@ int request_process_address(Request *req) {
         if (r <= 0)
                 return r;
 
-        r = address_get(link, req->address, &a);
-        if (r < 0)
-                return r;
-
-        r = address_configure(a, link, req->netlink_handler);
+        r = address_configure(req->address, link, req->netlink_handler);
         if (r < 0)
                 return r;
 
         /* To prevent a double decrement on failure in after_configure(). */
         req->message_counter = NULL;
+
+        r = address_get(link, req->address, &a);
+        if (r < 0)
+                return r;
 
         if (req->after_configure) {
                 r = req->after_configure(req, a);
