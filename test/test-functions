@@ -189,6 +189,7 @@ BASICTOOLS=(
     umount
     uname
     unshare
+    wc
     xargs
     xzcat
 )
