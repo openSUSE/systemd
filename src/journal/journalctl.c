@@ -279,7 +279,7 @@ static int parse_boot_descriptor(const char *x, sd_id128_t *boot_id, int *offset
         } else if (strlen(x) >= 32) {
                 char *t;
 
-                t = strndupa(x, 32);
+                t = strndupa_safe(x, 32);
                 r = sd_id128_from_string(t, &id);
                 if (r >= 0)
                         x += 32;

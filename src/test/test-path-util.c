@@ -57,7 +57,7 @@ static void test_path(void) {
 static void test_path_simplify_one(const char *in, const char *out) {
         char *p;
 
-        p = strdupa(in);
+        p = strdupa_safe(in);
         path_simplify(p);
         log_debug("/* test_path_simplify(%s) → %s (expected: %s) */", in, p, out);
         assert_se(streq(p, out));
