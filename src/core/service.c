@@ -548,6 +548,22 @@ static int service_verify(Service *s) {
         assert(s);
         assert(UNIT(s)->load_state == UNIT_LOADED);
 
+        for (ServiceExecCommand c = 0; c < _SERVICE_EXEC_COMMAND_MAX; c++) {
+                ExecCommand *command;
+
+                LIST_FOREACH(command, command, s->exec_command[c]) {
+                        if (!path_is_absolute(command->path) && !filename_is_valid(command->path))
+                                return log_unit_error_errno(UNIT(s), SYNTHETIC_ERRNO(ENOEXEC),
+                                                            "Service %s= binary path \"%s\" is neither a valid executable name nor an absolute path. Refusing.",
+                                                            command->path,
+                                                            service_exec_command_to_string(c));
+                        if (strv_isempty(command->argv))
+                                return log_unit_error_errno(UNIT(s), SYNTHETIC_ERRNO(ENOEXEC),
+                                                            "Service has an empty argv in %s=. Refusing.",
+                                                            service_exec_command_to_string(c));
+                }
+        }
+
         if (!s->exec_command[SERVICE_EXEC_START] && !s->exec_command[SERVICE_EXEC_STOP] &&
             UNIT(s)->success_action == EMERGENCY_ACTION_NONE)
                 /* FailureAction= only makes sense if one of the start or stop commands is specified.
@@ -2439,13 +2455,6 @@ static int service_start(Unit *u) {
                 return -EAGAIN;
 
         assert(IN_SET(s->state, SERVICE_DEAD, SERVICE_FAILED));
-
-        /* Make sure we don't enter a busy loop of some kind. */
-        r = unit_test_start_limit(u);
-        if (r < 0) {
-                service_enter_dead(s, SERVICE_FAILURE_START_LIMIT_HIT, false);
-                return r;
-        }
 
         r = unit_acquire_invocation_id(u);
         if (r < 0)
@@ -4442,6 +4451,22 @@ static const char *service_finished_job(Unit *u, JobType t, JobResult result) {
         return NULL;
 }
 
+static int service_test_start_limit(Unit *u) {
+        Service *s = SERVICE(u);
+        int r;
+
+        assert(s);
+
+        /* Make sure we don't enter a busy loop of some kind. */
+        r = unit_test_start_limit(u);
+        if (r < 0) {
+                service_enter_dead(s, SERVICE_FAILURE_START_LIMIT_HIT, false);
+                return r;
+        }
+
+        return 0;
+}
+
 static const char* const service_restart_table[_SERVICE_RESTART_MAX] = {
         [SERVICE_RESTART_NO] = "no",
         [SERVICE_RESTART_ON_SUCCESS] = "on-success",
@@ -4604,4 +4629,6 @@ const UnitVTable service_vtable = {
                 },
                 .finished_job = service_finished_job,
         },
+
+        .test_start_limit = service_test_start_limit,
 };

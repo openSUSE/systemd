@@ -148,8 +148,9 @@ int icmp6_send_router_solicitation(int s, const struct ether_addr *ether_addr) {
 int icmp6_receive(int fd, void *buffer, size_t size, struct in6_addr *ret_dst,
                   triple_timestamp *ret_timestamp) {
 
+        /* This needs to be initialized with zero. See #20741. */
         CMSG_BUFFER_TYPE(CMSG_SPACE(sizeof(int)) + /* ttl */
-                         CMSG_SPACE(sizeof(struct timeval))) control;
+                         CMSG_SPACE_TIMEVAL) control = {};
         struct iovec iov = {};
         union sockaddr_union sa = {};
         struct msghdr msg = {
@@ -186,7 +187,6 @@ int icmp6_receive(int fd, void *buffer, size_t size, struct in6_addr *ret_dst,
 
         /* namelen == 0 only happens when running the test-suite over a socketpair */
 
-        assert(!(msg.msg_flags & MSG_CTRUNC));
         assert(!(msg.msg_flags & MSG_TRUNC));
 
         CMSG_FOREACH(cmsg, &msg) {

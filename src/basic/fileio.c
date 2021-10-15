@@ -30,14 +30,16 @@
 /* The maximum size of the file we'll read in one go in read_full_file() (64M). */
 #define READ_FULL_BYTES_MAX (64U*1024U*1024U - 1U)
 
-/* The maximum size of virtual files we'll read in one go in read_virtual_file() (4M). Note that this limit
- * is different (and much lower) than the READ_FULL_BYTES_MAX limit. This reflects the fact that we use
- * different strategies for reading virtual and regular files: virtual files are generally size constrained:
- * there we allocate the full buffer size in advance. Regular files OTOH can be much larger, and here we grow
- * the allocations exponentially in a loop. In glibc large allocations are immediately backed by mmap()
- * making them relatively slow (measurably so). Thus, when allocating the full buffer in advance the large
- * limit is a problem. When allocating piecemeal it's not. Hence pick two distinct limits. */
-#define READ_VIRTUAL_BYTES_MAX (4U*1024U*1024U - 1U)
+/* The maximum size of virtual files (i.e. procfs, sysfs, and other virtual "API" files) we'll read in one go
+ * in read_virtual_file(). Note that this limit is different (and much lower) than the READ_FULL_BYTES_MAX
+ * limit. This reflects the fact that we use different strategies for reading virtual and regular files:
+ * virtual files we generally have to read in a single read() syscall since the kernel doesn't support
+ * continuation read()s for them. Thankfully they are somewhat size constrained. Thus we can allocate the
+ * full potential buffer in advance. Regular files OTOH can be much larger, and there we grow the allocations
+ * exponentially in a loop. We use a size limit of 4M-2 because 4M-1 is the maximum buffer that /proc/sys/
+ * allows us to read() (larger reads will fail with ENOMEM), and we want to read one extra byte so that we
+ * can detect EOFs. */
+#define READ_VIRTUAL_BYTES_MAX (4U*1024U*1024U - 2U)
 
 int fopen_unlocked(const char *path, const char *options, FILE **ret) {
         assert(ret);
@@ -393,7 +395,7 @@ int read_virtual_file(const char *filename, size_t max_size, char **ret_contents
          * contents* may be returned. (Though the read is still done using one syscall.) Returns 0 on
          * partial success, 1 if untruncated contents were read. */
 
-        fd = open(filename, O_RDONLY|O_CLOEXEC);
+        fd = open(filename, O_RDONLY|O_NOCTTY|O_CLOEXEC);
         if (fd < 0)
                 return -errno;
 
@@ -431,6 +433,11 @@ int read_virtual_file(const char *filename, size_t max_size, char **ret_contents
                         }
 
                         n_retries--;
+                } else if (n_retries > 1) {
+                        /* Files in /proc are generally smaller than the page size so let's start with a page size
+                         * buffer from malloc and only use the max buffer on the final try. */
+                        size = MIN3(page_size() - 1, READ_VIRTUAL_BYTES_MAX, max_size);
+                        n_retries = 1;
                 } else {
                         size = MIN(READ_VIRTUAL_BYTES_MAX, max_size);
                         n_retries = 0;
@@ -463,9 +470,14 @@ int read_virtual_file(const char *filename, size_t max_size, char **ret_contents
                 if (n <= size)
                         break;
 
-                /* If a maximum size is specified and we already read as much, no need to try again */
-                if (max_size != SIZE_MAX && n >= max_size) {
-                        n = max_size;
+                /* If a maximum size is specified and we already read more we know the file is larger, and
+                 * can handle this as truncation case. Note that if the size of what we read equals the
+                 * maximum size then this doesn't mean truncation, the file might or might not end on that
+                 * byte. We need to rerun the loop in that case, with a larger buffer size, so that we read
+                 * at least one more byte to be able to distinguish EOF from truncation. */
+                if (max_size != SIZE_MAX && n > max_size) {
+                        n = size; /* Make sure we never use more than what we sized the buffer for (so that
+                                   * we have one free byte in it for the trailing NUL we add below).*/
                         truncated = true;
                         break;
                 }

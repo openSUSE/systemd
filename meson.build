@@ -35,7 +35,7 @@ conf.set10('BUILD_MODE_DEVELOPER', get_option('mode') == 'developer',
 
 want_ossfuzz = get_option('oss-fuzz')
 want_libfuzzer = get_option('llvm-fuzz')
-if want_ossfuzz + want_libfuzzer > 1
+if want_ossfuzz and want_libfuzzer
         error('only one of oss-fuzz or llvm-fuzz can be specified')
 endif
 
@@ -2518,14 +2518,16 @@ if conf.get('ENABLE_LOCALED') == 1
         if conf.get('HAVE_XKBCOMMON') == 1
                 # logind will load libxkbcommon.so dynamically on its own
                 deps = [libdl]
+                extra_includes = [libxkbcommon.get_pkgconfig_variable('includedir')]
         else
                 deps = []
+                extra_includes = []
         endif
 
         executable(
                 'systemd-localed',
                 systemd_localed_sources,
-                include_directories : includes,
+                include_directories : includes + extra_includes,
                 link_with : [libshared],
                 dependencies : deps,
                 install_rpath : rootlibexecdir,

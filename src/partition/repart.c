@@ -206,7 +206,12 @@ static const char *encrypt_mode_table[_ENCRYPT_MODE_MAX] = {
         [ENCRYPT_KEY_FILE_TPM2] = "key-file+tpm2",
 };
 
+#if HAVE_LIBCRYPTSETUP
 DEFINE_PRIVATE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(encrypt_mode, EncryptMode, ENCRYPT_KEY_FILE);
+#else
+DEFINE_PRIVATE_STRING_TABLE_LOOKUP_FROM_STRING_WITH_BOOLEAN(encrypt_mode, EncryptMode, ENCRYPT_KEY_FILE);
+#endif
+
 
 static uint64_t round_down_size(uint64_t v, uint64_t p) {
         return (v / p) * p;
@@ -2779,7 +2784,7 @@ static int context_copy_blocks(Context *context) {
                         return log_error_errno(r, "Failed to copy in data from '%s': %m", p->copy_blocks_path);
 
                 if (fsync(target_fd) < 0)
-                        return log_error_errno(r, "Failed to synchronize copied data blocks: %m");
+                        return log_error_errno(errno, "Failed to synchronize copied data blocks: %m");
 
                 if (p->encrypt != ENCRYPT_OFF) {
                         encrypted_dev_fd = safe_close(encrypted_dev_fd);
@@ -3055,7 +3060,7 @@ static int context_mkfs(Context *context) {
 
                 if (p->encrypt != ENCRYPT_OFF) {
                         if (fsync(encrypted_dev_fd) < 0)
-                                return log_error_errno(r, "Failed to synchronize LUKS volume: %m");
+                                return log_error_errno(errno, "Failed to synchronize LUKS volume: %m");
                         encrypted_dev_fd = safe_close(encrypted_dev_fd);
 
                         r = deactivate_luks(cd, encrypted);
