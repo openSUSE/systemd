@@ -1981,18 +1981,16 @@ void unit_trigger_notify(Unit *u) {
 }
 
 void unit_notify(Unit *u, UnitActiveState os, UnitActiveState ns, bool reload_success) {
-        Manager *m;
         bool unexpected;
+        Manager *m;
 
         assert(u);
         assert(os < _UNIT_ACTIVE_STATE_MAX);
         assert(ns < _UNIT_ACTIVE_STATE_MAX);
 
-        /* Note that this is called for all low-level state changes,
-         * even if they might map to the same high-level
-         * UnitActiveState! That means that ns == os is an expected
-         * behavior here. For example: if a mount point is remounted
-         * this function will be called too! */
+        /* Note that this is called for all low-level state changes, even if they might map to the same high-level
+         * UnitActiveState! That means that ns == os is an expected behavior here. For example: if a mount point is
+         * remounted this function will be called too! */
 
         m = u->manager;
 
@@ -2133,12 +2131,6 @@ void unit_notify(Unit *u, UnitActiveState os, UnitActiveState ns, bool reload_su
         /* Some names are special */
         if (UNIT_IS_ACTIVE_OR_RELOADING(ns)) {
 
-                if (unit_has_name(u, SPECIAL_DBUS_SERVICE))
-                        /* The bus might have just become available,
-                         * hence try to connect to it, if we aren't
-                         * yet connected. */
-                        bus_init(m, true);
-
                 if (u->type == UNIT_SERVICE &&
                     !UNIT_IS_ACTIVE_OR_RELOADING(os) &&
                     !MANAGER_IS_RELOADING(m)) {
@@ -2177,17 +2169,15 @@ void unit_notify(Unit *u, UnitActiveState os, UnitActiveState ns, bool reload_su
         }
 
         manager_recheck_journal(m);
+        manager_recheck_dbus(m);
         unit_trigger_notify(u);
 
         if (!MANAGER_IS_RELOADING(u->manager)) {
-                /* Maybe we finished startup and are now ready for
-                 * being stopped because unneeded? */
+                /* Maybe we finished startup and are now ready for being stopped because unneeded? */
                 unit_check_unneeded(u);
 
-                /* Maybe we finished startup, but something we needed
-                 * has vanished? Let's die then. (This happens when
-                 * something BindsTo= to a Type=oneshot unit, as these
-                 * units go directly from starting to inactive,
+                /* Maybe we finished startup, but something we needed has vanished? Let's die then. (This happens when
+                 * something BindsTo= to a Type=oneshot unit, as these units go directly from starting to inactive,
                  * without ever entering started.) */
                 unit_check_binds_to(u);
         }

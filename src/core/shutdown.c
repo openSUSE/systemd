@@ -305,22 +305,25 @@ static void bump_sysctl_printk_log_level(int min_level) {
 
 int main(int argc, char *argv[]) {
         bool need_umount, need_swapoff, need_loop_detach, need_dm_detach;
-        bool in_container, use_watchdog = false;
+        bool in_container, use_watchdog = false, can_initrd;
         _cleanup_free_ char *cgroup = NULL;
         char *arguments[3];
         unsigned retries;
-        int cmd, r;
+        int cmd, r, umount_log_level = LOG_INFO;
         static const char* const dirs[] = {SYSTEM_SHUTDOWN_PATH, NULL};
 
+        /* The log target defaults to console, but the original systemd process will pass its log target in through a
+         * command line argument, which will override this default. Also, ensure we'll never log to the journal or
+         * syslog, as these logging daemons are either already dead or will die very soon. */
+
+        log_set_target(LOG_TARGET_CONSOLE);
+        log_set_prohibit_ipc(true);
         log_parse_environment();
+
         r = parse_argv(argc, argv);
         if (r < 0)
                 goto error;
 
-        /* journald will die if not gone yet. The log target defaults
-         * to console, but may have been changed by command line options. */
-
-        log_close_console(); /* force reopen of /dev/console */
         log_open();
 
         umask(0022);
@@ -342,8 +345,8 @@ int main(int argc, char *argv[]) {
         else if (streq(arg_verb, "exit"))
                 cmd = 0; /* ignored, just checking that arg_verb is valid */
         else {
-                r = -EINVAL;
                 log_error("Unknown action '%s'.", arg_verb);
+                r = -EINVAL;
                 goto error;
         }
 
@@ -365,7 +368,7 @@ int main(int argc, char *argv[]) {
                 bump_sysctl_printk_log_level(LOG_WARNING);
 
         /* Lock us into memory */
-        mlockall(MCL_CURRENT|MCL_FUTURE);
+        (void) mlockall(MCL_CURRENT|MCL_FUTURE);
 
         /* Synchronize everything that is not written to disk yet at this point already. This is a good idea so that
          * slow IO is processed here already and the final process killing spree is not impacted by processes
@@ -384,6 +387,7 @@ int main(int argc, char *argv[]) {
         need_swapoff = !in_container;
         need_loop_detach = !in_container;
         need_dm_detach = !in_container;
+        can_initrd = !in_container && !in_initrd() && access("/run/initramfs/shutdown", X_OK) == 0;
 
         /* Unmount all mountpoints, swaps, and loopback devices */
         for (retries = 0; retries < FINALIZE_ATTEMPTS; retries++) {
@@ -401,7 +405,7 @@ int main(int argc, char *argv[]) {
 
                 if (need_umount) {
                         log_info("Unmounting file systems.");
-                        r = umount_all(&changed);
+                        r = umount_all(&changed, umount_log_level);
                         if (r == 0) {
                                 need_umount = false;
                                 log_info("All filesystems unmounted.");
@@ -425,7 +429,7 @@ int main(int argc, char *argv[]) {
 
                 if (need_loop_detach) {
                         log_info("Detaching loop devices.");
-                        r = loopback_detach_all(&changed);
+                        r = loopback_detach_all(&changed, umount_log_level);
                         if (r == 0) {
                                 need_loop_detach = false;
                                 log_info("All loop devices detached.");
@@ -437,7 +441,7 @@ int main(int argc, char *argv[]) {
 
                 if (need_dm_detach) {
                         log_info("Detaching DM devices.");
-                        r = dm_detach_all(&changed);
+                        r = dm_detach_all(&changed, umount_log_level);
                         if (r == 0) {
                                 need_dm_detach = false;
                                 log_info("All DM devices detached.");
@@ -452,6 +456,16 @@ int main(int argc, char *argv[]) {
                                 log_info("All filesystems, swaps, loop devices, DM devices detached.");
                         /* Yay, done */
                         goto initrd_jump;
+                }
+
+                if (!changed && umount_log_level == LOG_INFO && !can_initrd) {
+                        /* There are things we cannot get rid of. Loop one more time
+                         * with LOG_ERR to inform the user. Note that we don't need
+                         * to do this if there is a initrd to switch to, because that
+                         * one is likely to get rid of the remounting mounts. If not,
+                         * it will log about them. */
+                        umount_log_level = LOG_ERR;
+                        continue;
                 }
 
                 /* If in this iteration we didn't manage to
@@ -482,8 +496,7 @@ int main(int argc, char *argv[]) {
         arguments[2] = NULL;
         execute_directories(dirs, DEFAULT_TIMEOUT_USEC, NULL, NULL, arguments);
 
-        if (!in_container && !in_initrd() &&
-            access("/run/initramfs/shutdown", X_OK) == 0) {
+        if (can_initrd) {
                 r = switch_root_initramfs();
                 if (r >= 0) {
                         argv[0] = (char*) "/shutdown";

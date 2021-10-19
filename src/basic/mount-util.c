@@ -25,8 +25,12 @@
 #include <sys/statvfs.h>
 #include <unistd.h>
 
+/* Include later */
+#include <libmount.h>
+
 #include "alloc-util.h"
 #include "escape.h"
+#include "extract-word.h"
 #include "fd-util.h"
 #include "fileio.h"
 #include "fs-util.h"
@@ -151,6 +155,19 @@ static int fd_fdinfo_mnt_id(int fd, const char *filename, int flags, int *mnt_id
         return safe_atoi(p, mnt_id);
 }
 
+static bool is_name_to_handle_at_fatal_error(int err) {
+        /* name_to_handle_at() can return "acceptable" errors that are due to the context. For
+         * example the kernel does not support name_to_handle_at() at all (ENOSYS), or the syscall
+         * was blocked (EACCES/EPERM; maybe through seccomp, because we are running inside of a
+         * container), or the mount point is not triggered yet (EOVERFLOW, think nfs4), or some
+         * general name_to_handle_at() flakiness (EINVAL). However other errors are not supposed to
+         * happen and therefore are considered fatal ones. */
+
+        assert(err < 0);
+
+        return !IN_SET(err, -EOPNOTSUPP, -ENOSYS, -EACCES, -EPERM, -EOVERFLOW, -EINVAL);
+}
+
 int fd_is_mount_point(int fd, const char *filename, int flags) {
         _cleanup_free_ struct file_handle *h = NULL, *h_parent = NULL;
         int mount_id = -1, mount_id_parent = -1;
@@ -185,42 +202,40 @@ int fd_is_mount_point(int fd, const char *filename, int flags) {
          * real mounts of their own. */
 
         r = name_to_handle_at_loop(fd, filename, &h, &mount_id, flags);
-        if (IN_SET(r, -ENOSYS, -EACCES, -EPERM, -EOVERFLOW, -EINVAL))
-                /* This kernel does not support name_to_handle_at() at all (ENOSYS), or the syscall was blocked
-                 * (EACCES/EPERM; maybe through seccomp, because we are running inside of a container?), or the mount
-                 * point is not triggered yet (EOVERFLOW, think nfs4), or some general name_to_handle_at() flakiness
-                 * (EINVAL): fall back to simpler logic. */
-                goto fallback_fdinfo;
-        else if (r == -EOPNOTSUPP)
-                /* This kernel or file system does not support name_to_handle_at(), hence let's see if the upper fs
-                 * supports it (in which case it is a mount point), otherwise fallback to the traditional stat()
-                 * logic */
+        if (r < 0) {
+                if (is_name_to_handle_at_fatal_error(r))
+                        return r;
+                if (r != -EOPNOTSUPP)
+                        goto fallback_fdinfo;
+
+                /* This kernel or file system does not support name_to_handle_at(), hence let's see
+                 * if the upper fs supports it (in which case it is a mount point), otherwise fall
+                 * back to the traditional stat() logic */
                 nosupp = true;
-        else if (r < 0)
-                return r;
+        }
 
         r = name_to_handle_at_loop(fd, "", &h_parent, &mount_id_parent, AT_EMPTY_PATH);
-        if (r == -EOPNOTSUPP) {
-                if (nosupp)
-                        /* Neither parent nor child do name_to_handle_at()?  We have no choice but to fall back. */
+        if (r < 0) {
+                if (is_name_to_handle_at_fatal_error(r))
+                        return r;
+                if (r != -EOPNOTSUPP)
                         goto fallback_fdinfo;
-                else
-                        /* The parent can't do name_to_handle_at() but the directory we are interested in can?  If so,
-                         * it must be a mount point. */
-                        return 1;
-        } else if (r < 0)
-                return r;
+                if (nosupp)
+                        /* Both the parent and the directory can't do name_to_handle_at() */
+                        goto fallback_fdinfo;
 
-        /* The parent can do name_to_handle_at() but the
-         * directory we are interested in can't? If so, it
-         * must be a mount point. */
+                /* The parent can't do name_to_handle_at() but the directory we are
+                 * interested in can?  If so, it must be a mount point. */
+                return 1;
+        }
+
+        /* The parent can do name_to_handle_at() but the directory we are interested in can't? If
+         * so, it must be a mount point. */
         if (nosupp)
                 return 1;
 
-        /* If the file handle for the directory we are
-         * interested in and its parent are identical, we
-         * assume this is the root directory, which is a mount
-         * point. */
+        /* If the file handle for the directory we are interested in and its parent are identical,
+         * we assume this is the root directory, which is a mount point. */
 
         if (h->handle_bytes == h_parent->handle_bytes &&
             h->handle_type == h_parent->handle_type &&
@@ -311,10 +326,10 @@ int path_get_mnt_id(const char *path, int *ret) {
         int r;
 
         r = name_to_handle_at_loop(AT_FDCWD, path, NULL, ret, 0);
-        if (IN_SET(r, -EOPNOTSUPP, -ENOSYS, -EACCES, -EPERM, -EOVERFLOW, -EINVAL)) /* kernel/fs don't support this, or seccomp blocks access, or untriggered mount, or name_to_handle_at() is flaky */
-                return fd_fdinfo_mnt_id(AT_FDCWD, path, 0, ret);
+        if (r == 0 || is_name_to_handle_at_fatal_error(r))
+                return r;
 
-        return r;
+        return fd_fdinfo_mnt_id(AT_FDCWD, path, 0, ret);
 }
 
 int umount_recursive(const char *prefix, int flags) {
@@ -655,6 +670,19 @@ bool fstype_is_api_vfs(const char *fstype) {
         return nulstr_contains(table, fstype);
 }
 
+bool fstype_is_ro(const char *fstype) {
+
+        /* All Linux file systems that are necessarily read-only */
+
+        static const char table[] =
+                "DM_verity_hash\0"
+                "iso9660\0"
+                "squashfs\0"
+                ;
+
+        return nulstr_contains(table, fstype);
+}
+
 int repeat_unmount(const char *path, int flags) {
         bool done = false;
 
@@ -838,5 +866,75 @@ int mount_propagation_flags_from_string(const char *name, unsigned long *ret) {
                 *ret = MS_PRIVATE;
         else
                 return -EINVAL;
+        return 0;
+}
+
+int mount_option_mangle(
+                const char *options,
+                unsigned long mount_flags,
+                unsigned long *ret_mount_flags,
+                char **ret_remaining_options) {
+
+        const struct libmnt_optmap *map;
+        _cleanup_free_ char *ret = NULL;
+        const char *p;
+        int r;
+
+        /* This extracts mount flags from the mount options, and store
+         * non-mount-flag options to '*ret_remaining_options'.
+         * E.g.,
+         * "rw,nosuid,nodev,relatime,size=1630748k,mode=700,uid=1000,gid=1000"
+         * is split to MS_NOSUID|MS_NODEV|MS_RELATIME and
+         * "size=1630748k,mode=700,uid=1000,gid=1000".
+         * See more examples in test-mount-utils.c.
+         *
+         * Note that if 'options' does not contain any non-mount-flag options,
+         * then '*ret_remaining_options' is set to NULL instread of empty string.
+         * Note that this does not check validity of options stored in
+         * '*ret_remaining_options'.
+         * Note that if 'options' is NULL, then this just copies 'mount_flags'
+         * to '*ret_mount_flags'. */
+
+        assert(ret_mount_flags);
+        assert(ret_remaining_options);
+
+        map = mnt_get_builtin_optmap(MNT_LINUX_MAP);
+        if (!map)
+                return -EINVAL;
+
+        p = options;
+        for (;;) {
+                _cleanup_free_ char *word = NULL;
+                const struct libmnt_optmap *ent;
+
+                r = extract_first_word(&p, &word, ",", EXTRACT_QUOTES);
+                if (r < 0)
+                        return r;
+                if (r == 0)
+                        break;
+
+                for (ent = map; ent->name; ent++) {
+                        /* All entries in MNT_LINUX_MAP do not take any argument.
+                         * Thus, ent->name does not contain "=" or "[=]". */
+                        if (!streq(word, ent->name))
+                                continue;
+
+                        if (!(ent->mask & MNT_INVERT))
+                                mount_flags |= ent->id;
+                        else if (mount_flags & ent->id)
+                                mount_flags ^= ent->id;
+
+                        break;
+                }
+
+                /* If 'word' is not a mount flag, then store it in '*ret_remaining_options'. */
+                if (!ent->name && !strextend(&ret, ret ? "," : "", word, NULL))
+                        return -ENOMEM;
+        }
+
+        *ret_mount_flags = mount_flags;
+        *ret_remaining_options = ret;
+        ret = NULL;
+
         return 0;
 }

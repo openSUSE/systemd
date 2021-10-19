@@ -278,6 +278,7 @@ libbasic = static_library(
         dependencies : [threads,
                         libcap,
                         libblkid,
+                        libmount,
                         libselinux,
                        ],
         install : false)

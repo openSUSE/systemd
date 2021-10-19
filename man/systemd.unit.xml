@@ -899,6 +899,7 @@
         virtualization solution, or one of
         <varname>qemu</varname>,
         <varname>kvm</varname>,
+        <literal>amazon</literal>,
         <varname>zvm</varname>,
         <varname>vmware</varname>,
         <varname>microsoft</varname>,

@@ -136,9 +136,10 @@ static int signal_disconnected(sd_bus_message *message, void *userdata, sd_bus_e
         assert_se(bus = sd_bus_message_get_bus(message));
 
         if (bus == m->api_bus)
-                destroy_bus(m, &m->api_bus);
+                bus_done_api(m);
         if (bus == m->system_bus)
-                destroy_bus(m, &m->system_bus);
+                bus_done_system(m);
+
         if (set_remove(m->private_buses, bus)) {
                 log_debug("Got disconnect on private connection.");
                 destroy_bus(m, &bus);
@@ -841,7 +842,7 @@ static int bus_setup_api(Manager *m, sd_bus *bus) {
         return 0;
 }
 
-static int bus_init_api(Manager *m) {
+int bus_init_api(Manager *m) {
         _cleanup_(sd_bus_unrefp) sd_bus *bus = NULL;
         int r;
 
@@ -909,7 +910,7 @@ static int bus_setup_system(Manager *m, sd_bus *bus) {
         return 0;
 }
 
-static int bus_init_system(Manager *m) {
+int bus_init_system(Manager *m) {
         _cleanup_(sd_bus_unrefp) sd_bus *bus = NULL;
         int r;
 
@@ -950,7 +951,7 @@ static int bus_init_system(Manager *m) {
         return 0;
 }
 
-static int bus_init_private(Manager *m) {
+int bus_init_private(Manager *m) {
         _cleanup_close_ int fd = -1;
         union sockaddr_union sa = {
                 .un.sun_family = AF_UNIX
@@ -1019,26 +1020,6 @@ static int bus_init_private(Manager *m) {
         return 0;
 }
 
-int bus_init(Manager *m, bool try_bus_connect) {
-        int r;
-
-        if (try_bus_connect) {
-                r = bus_init_system(m);
-                if (r < 0)
-                        return r;
-
-                r = bus_init_api(m);
-                if (r < 0)
-                        return r;
-        }
-
-        r = bus_init_private(m);
-        if (r < 0)
-                return r;
-
-        return 0;
-}
-
 static void destroy_bus(Manager *m, sd_bus **bus) {
         Iterator i;
         Unit *u;
@@ -1083,28 +1064,44 @@ static void destroy_bus(Manager *m, sd_bus **bus) {
         *bus = sd_bus_unref(*bus);
 }
 
-void bus_done(Manager *m) {
-        sd_bus *b;
-
+void bus_done_api(Manager *m) {
         assert(m);
 
         if (m->api_bus)
                 destroy_bus(m, &m->api_bus);
+}
+
+void bus_done_system(Manager *m) {
+        assert(m);
+
         if (m->system_bus)
                 destroy_bus(m, &m->system_bus);
+}
+
+void bus_done_private(Manager *m) {
+        sd_bus *b;
+
+        assert(m);
+
         while ((b = set_steal_first(m->private_buses)))
                 destroy_bus(m, &b);
 
         m->private_buses = set_free(m->private_buses);
 
-        m->subscribed = sd_bus_track_unref(m->subscribed);
-        m->deserialized_subscribed = strv_free(m->deserialized_subscribed);
-
-        if (m->private_listen_event_source)
-                m->private_listen_event_source = sd_event_source_unref(m->private_listen_event_source);
-
+        m->private_listen_event_source = sd_event_source_unref(m->private_listen_event_source);
         m->private_listen_fd = safe_close(m->private_listen_fd);
+}
 
+void bus_done(Manager *m) {
+        assert(m);
+
+        bus_done_api(m);
+        bus_done_system(m);
+        bus_done_private(m);
+
+        assert(!m->subscribed);
+
+        m->deserialized_subscribed = strv_free(m->deserialized_subscribed);
         bus_verify_polkit_async_registry_free(m->polkit_registry);
 }
 
