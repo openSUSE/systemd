@@ -62,7 +62,7 @@ _public_ int sd_bus_message_dump(sd_bus_message *m, FILE *f, uint64_t flags) {
                 if (ts == 0)
                         ts = now(CLOCK_REALTIME);
 
-                p = format_timestamp_utc(buf, sizeof(buf), ts);
+                p = format_timestamp_us_utc(buf, sizeof(buf), ts);
 
                 fprintf(f,
                         "%s%s%s Type=%s%s%s  Endian=%c  Flags=%u  Version=%u",
