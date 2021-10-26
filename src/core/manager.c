@@ -458,8 +458,7 @@ static int manager_setup_signals(Manager *m) {
                         SIGRTMIN+22, /* systemd: set log level to LOG_DEBUG */
                         SIGRTMIN+23, /* systemd: set log level to LOG_INFO */
                         SIGRTMIN+24, /* systemd: Immediate exit (--user only) */
-
-                        /* .. one free signal here ... */
+                        SIGRTMIN+25, /* systemd: reexecute manager */
 
 #if !defined(__hppa64__) && !defined(__hppa__)
                         /* Apparently Linux on hppa has fewer RT
@@ -2068,6 +2067,10 @@ static int manager_dispatch_signal_fd(sd_event_source *source, int fd, uint32_t 
                                 }
 
                                 /* This is a nop on init */
+                                break;
+
+                        case 25:
+                                m->exit_code = MANAGER_REEXECUTE;
                                 break;
 
                         case 26:

@@ -358,12 +358,13 @@ int unit_name_unescape(const char *f, char **ret) {
 }
 
 int unit_name_path_escape(const char *f, char **ret) {
-        char *p, *s;
+        _cleanup_free_ char *p = NULL;
+        char *s;
 
         assert(f);
         assert(ret);
 
-        p = strdupa(f);
+        p = strdup(f);
         if (!p)
                 return -ENOMEM;
 
@@ -382,11 +383,8 @@ int unit_name_path_escape(const char *f, char **ret) {
                 if (e)
                         *e = 0;
 
-                /* Truncate leading slashes */
-                if (p[0] == '/')
-                        p++;
-
-                s = unit_name_escape(p);
+                /* Skip leading slashes */
+                s = unit_name_escape(p[0] == '/' ? p + 1 : p);
         }
         if (!s)
                 return -ENOMEM;
