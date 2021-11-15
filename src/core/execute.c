@@ -4059,13 +4059,17 @@ static int exec_child(
                 }
         }
 
-        if (context->utmp_id)
+        if (context->utmp_id) {
+                const char *line = context->tty_path ?
+                        (path_startswith(context->tty_path, "/dev/") ?: context->tty_path) :
+                        NULL;
                 utmp_put_init_process(context->utmp_id, getpid_cached(), getsid(0),
-                                      context->tty_path,
+                                      line,
                                       context->utmp_mode == EXEC_UTMP_INIT  ? INIT_PROCESS :
                                       context->utmp_mode == EXEC_UTMP_LOGIN ? LOGIN_PROCESS :
                                       USER_PROCESS,
                                       username);
+        }
 
         if (uid_is_valid(uid)) {
                 r = chown_terminal(STDIN_FILENO, uid);
@@ -4357,7 +4361,7 @@ static int exec_child(
 
                 if (fd >= 0) {
                         r = mac_selinux_get_child_mls_label(fd, executable, context->selinux_context, &mac_selinux_context_net);
-                        if (r < 0) {
+                        if (r < 0 && !context->selinux_context_ignore) {
                                 *exit_status = EXIT_SELINUX_CONTEXT;
                                 return log_unit_error_errno(unit, r, "Failed to determine SELinux context: %m");
                         }
@@ -4404,7 +4408,7 @@ static int exec_child(
                  * process. This is the latest place before dropping capabilities. Other MAC context are set later. */
                 if (use_smack) {
                         r = setup_smack(context, executable_fd);
-                        if (r < 0) {
+                        if (r < 0 && !context->smack_process_label_ignore) {
                                 *exit_status = EXIT_SMACK_PROCESS_LABEL;
                                 return log_unit_error_errno(unit, r, "Failed to set SMACK process label: %m");
                         }
@@ -4491,7 +4495,7 @@ static int exec_child(
 
                         if (exec_context) {
                                 r = setexeccon(exec_context);
-                                if (r < 0) {
+                                if (r < 0 && !context->selinux_context_ignore) {
                                         *exit_status = EXIT_SELINUX_CONTEXT;
                                         return log_unit_error_errno(unit, r, "Failed to change SELinux context to %s: %m", exec_context);
                                 }
