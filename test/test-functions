@@ -172,7 +172,6 @@ BASICTOOLS=(
     sfdisk
     sh
     sleep
-    socat
     stat
     su
     sulogin
