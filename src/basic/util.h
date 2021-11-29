@@ -142,6 +142,13 @@ static inline int errno_or_else(int fallback) {
         return -abs(fallback);
 }
 
+/* For send()/recv() or read()/write(). */
+static inline bool ERRNO_IS_TRANSIENT(int r) {
+        return IN_SET(abs(r),
+                      EAGAIN,
+                      EINTR);
+}
+
 static inline unsigned u64log2(uint64_t n) {
 #if __SIZEOF_LONG_LONG__ == 8
         return (n > 1) ? (unsigned) __builtin_clzll(n) ^ 63U : 0;
