@@ -168,7 +168,7 @@ static int bus_socket_write_auth(sd_bus *b) {
         }
 
         if (k < 0)
-                return errno == EAGAIN ? 0 : -errno;
+                return ERRNO_IS_TRANSIENT(errno) ? 0 : -errno;
 
         iovec_advance(b->auth_iovec, &b->auth_index, (size_t) k);
         return 1;
@@ -555,8 +555,11 @@ static int bus_socket_read_auth(sd_bus *b) {
                 } else
                         handle_cmsg = true;
         }
-        if (k < 0)
-                return errno == EAGAIN ? 0 : -errno;
+        if (k < 0) {
+                if (ERRNO_IS_TRANSIENT(errno))
+                        return 0;
+                return -errno;
+        }
         if (k == 0)
                 return -ECONNRESET;
 
@@ -820,7 +823,7 @@ int bus_socket_write_message(sd_bus *bus, sd_bus_message *m, size_t *idx) {
         }
 
         if (k < 0)
-                return errno == EAGAIN ? 0 : -errno;
+                return ERRNO_IS_TRANSIENT(errno) ? 0 : -errno;
 
         *idx += (size_t) k;
         return 1;
@@ -973,8 +976,11 @@ int bus_socket_read_message(sd_bus *bus) {
                 } else
                         handle_cmsg = true;
         }
-        if (k < 0)
-                return errno == EAGAIN ? 0 : -errno;
+        if (k < 0) {
+                if (ERRNO_IS_TRANSIENT(errno))
+                        return 0;
+                return -errno;
+        }
         if (k == 0)
                 return -ECONNRESET;
 
