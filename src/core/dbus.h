@@ -23,9 +23,7 @@
 
 int bus_send_queued_message(Manager *m);
 
-int bus_init_private(Manager *m);
-int bus_init_api(Manager *m);
-int bus_init_system(Manager *m);
+int bus_init(Manager *m, bool try_bus_connect);
 
 void bus_done_private(Manager *m);
 void bus_done_api(Manager *m);
