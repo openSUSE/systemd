@@ -23,7 +23,7 @@ static int nftw_cb(
         char *e;
         int r;
 
-        if (tflag != FTW_F)
+        if (!IN_SET(tflag, FTW_F, FTW_SL))
                 return 0;
 
         if (!endswith(fpath, ".map") &&
