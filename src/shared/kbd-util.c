@@ -27,7 +27,7 @@ static int nftw_cb(
         /* If keymap_name is non-null, return true if keymap keymap_name is found.
          * Otherwise, add all keymaps to keymaps. */
 
-        if (tflag != FTW_F)
+        if (!IN_SET(tflag, FTW_F, FTW_SL))
                 return 0;
 
         fpath = basename(fpath);
