@@ -1851,6 +1851,13 @@ int unit_start(Unit *u) {
 
         assert(u);
 
+        /* Check start rate limiting early so that failure conditions don't cause us to enter a busy loop. */
+        if (UNIT_VTABLE(u)->test_start_limit) {
+                int r = UNIT_VTABLE(u)->test_start_limit(u);
+                if (r < 0)
+                        return r;
+        }
+
         /* If this is already started, then this will succeed. Note that this will even succeed if this unit
          * is not startable by the user. This is relied on to detect when we need to wait for units and when
          * waiting is finished. */
@@ -2118,7 +2125,7 @@ bool unit_is_bound_by_inactive(Unit *u, Unit **ret_culprit) {
                         continue;
 
                 if (UNIT_IS_INACTIVE_OR_FAILED(unit_active_state(other))) {
-                        if (*ret_culprit)
+                        if (ret_culprit)
                                 *ret_culprit = other;
 
                         return true;
@@ -2296,8 +2303,8 @@ static int unit_log_resources(Unit *u) {
                 message_parts[n_message_parts++] = t;
 
                 log_level = raise_level(log_level,
-                                        nsec > NOTICEWORTHY_CPU_NSEC,
-                                        nsec > MENTIONWORTHY_CPU_NSEC);
+                                        nsec > MENTIONWORTHY_CPU_NSEC,
+                                        nsec > NOTICEWORTHY_CPU_NSEC);
         }
 
         for (CGroupIOAccountingMetric k = 0; k < _CGROUP_IO_ACCOUNTING_METRIC_MAX; k++) {
