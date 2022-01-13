@@ -215,7 +215,7 @@ static bool path_spec_check_good(PathSpec *s, bool initial, bool from_trigger_no
                 int k;
 
                 k = dir_is_empty(s->path);
-                good = !(k == -ENOENT || k > 0);
+                good = !(IN_SET(k, -ENOENT, -ENOTDIR) || k > 0);
                 break;
         }
 
@@ -265,6 +265,9 @@ static void path_init(Unit *u) {
         assert(u->load_state == UNIT_STUB);
 
         p->directory_mode = 0755;
+
+        p->trigger_limit.interval = 2 * USEC_PER_SEC;
+        p->trigger_limit.burst = 200;
 }
 
 void path_free_specs(Path *p) {
@@ -494,6 +497,12 @@ static void path_enter_running(Path *p) {
         if (unit_stop_pending(UNIT(p)))
                 return;
 
+        if (!ratelimit_below(&p->trigger_limit)) {
+                log_unit_warning(UNIT(p), "Trigger limit hit, refusing further activation.");
+                path_enter_dead(p, PATH_FAILURE_TRIGGER_LIMIT_HIT);
+                return;
+        }
+
         trigger = UNIT_TRIGGER(UNIT(p));
         if (!trigger) {
                 log_unit_error(UNIT(p), "Unit to trigger vanished.");
@@ -589,12 +598,6 @@ static int path_start(Unit *u) {
         r = unit_test_trigger_loaded(u);
         if (r < 0)
                 return r;
-
-        r = unit_test_start_limit(u);
-        if (r < 0) {
-                path_enter_dead(p, PATH_FAILURE_START_LIMIT_HIT);
-                return r;
-        }
 
         r = unit_acquire_invocation_id(u);
         if (r < 0)
@@ -811,6 +814,21 @@ static void path_reset_failed(Unit *u) {
         p->result = PATH_SUCCESS;
 }
 
+static int path_test_start_limit(Unit *u) {
+        Path *p = PATH(u);
+        int r;
+
+        assert(p);
+
+        r = unit_test_start_limit(u);
+        if (r < 0) {
+                path_enter_dead(p, PATH_FAILURE_START_LIMIT_HIT);
+                return r;
+        }
+
+        return 0;
+}
+
 static const char* const path_type_table[_PATH_TYPE_MAX] = {
         [PATH_EXISTS] = "PathExists",
         [PATH_EXISTS_GLOB] = "PathExistsGlob",
@@ -826,6 +844,7 @@ static const char* const path_result_table[_PATH_RESULT_MAX] = {
         [PATH_FAILURE_RESOURCES] = "resources",
         [PATH_FAILURE_START_LIMIT_HIT] = "start-limit-hit",
         [PATH_FAILURE_UNIT_START_LIMIT_HIT] = "unit-start-limit-hit",
+        [PATH_FAILURE_TRIGGER_LIMIT_HIT]    = "trigger-limit-hit",
 };
 
 DEFINE_STRING_TABLE_LOOKUP(path_result, PathResult);
@@ -865,4 +884,6 @@ const UnitVTable path_vtable = {
         .reset_failed = path_reset_failed,
 
         .bus_set_property = bus_path_set_property,
+
+        .test_start_limit = path_test_start_limit,
 };

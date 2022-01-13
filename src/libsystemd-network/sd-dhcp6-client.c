@@ -1265,7 +1265,7 @@ static int client_parse_message(
                         break;
 
                 case SD_DHCP6_OPTION_SNTP_SERVERS:
-                        r = dhcp6_lease_set_sntp(lease, optval, optlen);
+                        r = dhcp6_lease_add_sntp(lease, optval, optlen);
                         if (r < 0)
                                 return r;
 
@@ -1424,10 +1424,10 @@ static int client_receive_message(
         len = recv(fd, message, buflen, 0);
         if (len < 0) {
                 /* see comment above for why we shouldn't error out on ENETDOWN. */
-                if (IN_SET(errno, EAGAIN, EINTR, ENETDOWN))
+                if (IN_SET(len, -EAGAIN, -EINTR, -ENETDOWN))
                         return 0;
 
-                return log_dhcp6_client_errno(client, errno, "Could not receive message from UDP socket: %m");
+                return log_dhcp6_client_errno(client, len, "Could not receive message from UDP socket: %m");
 
         }
         if ((size_t) len < sizeof(DHCP6Message)) {
