@@ -3399,6 +3399,17 @@ public_programs += executable(
         install_dir : rootbindir)
 
 executable(
+        'path_id_compat',
+        'src/udev/compat/path_id_compat.c',
+        include_directories : libudev_includes,
+        c_args : ['-DLOG_REALM=LOG_REALM_UDEV'],
+        link_with : udev_link_with,
+        link_whole : libudev_basic,
+        install_rpath : udev_rpath,
+        install : true,
+        install_dir : udevlibexecdir)
+
+executable(
         'systemd-shutdown',
         systemd_shutdown_sources,
         include_directories : includes,
