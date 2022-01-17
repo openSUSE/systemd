@@ -588,9 +588,6 @@ static int service_verify(Service *s) {
         if (s->type == SERVICE_ONESHOT && !exit_status_set_is_empty(&s->restart_force_status))
                 return log_unit_error_errno(UNIT(s), SYNTHETIC_ERRNO(ENOEXEC), "Service has RestartForceStatus= set, which isn't allowed for Type=oneshot services. Refusing.");
 
-        if (s->type == SERVICE_ONESHOT && s->exit_type == SERVICE_EXIT_CGROUP)
-                return log_unit_error_errno(UNIT(s), SYNTHETIC_ERRNO(ENOEXEC), "Service has ExitType=cgroup set, which isn't allowed for Type=oneshot services. Refusing.");
-
         if (s->type == SERVICE_DBUS && !s->bus_name)
                 return log_unit_error_errno(UNIT(s), SYNTHETIC_ERRNO(ENOEXEC), "Service is of type D-Bus but no D-Bus service name has been specified. Refusing.");
 
@@ -2459,6 +2456,13 @@ static int service_start(Unit *u) {
 
         assert(IN_SET(s->state, SERVICE_DEAD, SERVICE_FAILED));
 
+        /* Make sure we don't enter a busy loop of some kind. */
+        r = unit_test_start_limit(u);
+        if (r < 0) {
+                service_enter_dead(s, SERVICE_FAILURE_START_LIMIT_HIT, false);
+                return r;
+        }
+
         r = unit_acquire_invocation_id(u);
         if (r < 0)
                 return r;
@@ -3276,9 +3280,6 @@ static void service_notify_cgroup_empty_event(Unit *u) {
                         break;
                 }
 
-                if (s->exit_type == SERVICE_EXIT_CGROUP && main_pid_good(s) <= 0)
-                        service_enter_start_post(s);
-
                 _fallthrough_;
         case SERVICE_START_POST:
                 if (s->pid_file_pathspec &&
@@ -3467,82 +3468,79 @@ static void service_sigchld_event(Unit *u, pid_t pid, int code, int status) {
                         service_run_next_main(s);
 
                 } else {
+
+                        /* The service exited, so the service is officially gone. */
                         s->main_command = NULL;
 
-                        /* Services with ExitType=cgroup do not act on main PID exiting,
-                         * unless the cgroup is already empty */
-                        if (s->exit_type == SERVICE_EXIT_MAIN || cgroup_good(s) <= 0) {
-                                /* The service exited, so the service is officially gone. */
-                                switch (s->state) {
+                        switch (s->state) {
 
-                                case SERVICE_START_POST:
-                                case SERVICE_RELOAD:
-                                        /* If neither main nor control processes are running then
-                                         * the current state can never exit cleanly, hence immediately
-                                         * terminate the service. */
-                                        if (control_pid_good(s) <= 0)
-                                                service_enter_stop(s, f);
+                        case SERVICE_START_POST:
+                        case SERVICE_RELOAD:
+                                /* If neither main nor control processes are running then
+                                 * the current state can never exit cleanly, hence immediately
+                                 * terminate the service. */
+                                if (control_pid_good(s) <= 0)
+                                        service_enter_stop(s, f);
 
-                                        /* Otherwise need to wait until the operation is done. */
+                                /* Otherwise need to wait until the operation is done. */
+                                break;
+
+                        case SERVICE_STOP:
+                                /* Need to wait until the operation is done. */
+                                break;
+
+                        case SERVICE_START:
+                                if (s->type == SERVICE_ONESHOT) {
+                                        /* This was our main goal, so let's go on */
+                                        if (f == SERVICE_SUCCESS)
+                                                service_enter_start_post(s);
+                                        else
+                                                service_enter_signal(s, SERVICE_STOP_SIGTERM, f);
                                         break;
-
-                                case SERVICE_STOP:
-                                        /* Need to wait until the operation is done. */
+                                } else if (s->type == SERVICE_NOTIFY) {
+                                        /* Only enter running through a notification, so that the
+                                         * SERVICE_START state signifies that no ready notification
+                                         * has been received */
+                                        if (f != SERVICE_SUCCESS)
+                                                service_enter_signal(s, SERVICE_STOP_SIGTERM, f);
+                                        else if (!s->remain_after_exit || s->notify_access == NOTIFY_MAIN)
+                                                /* The service has never been and will never be active */
+                                                service_enter_signal(s, SERVICE_STOP_SIGTERM, SERVICE_FAILURE_PROTOCOL);
                                         break;
-
-                                case SERVICE_START:
-                                        if (s->type == SERVICE_ONESHOT) {
-                                                /* This was our main goal, so let's go on */
-                                                if (f == SERVICE_SUCCESS)
-                                                        service_enter_start_post(s);
-                                                else
-                                                        service_enter_signal(s, SERVICE_STOP_SIGTERM, f);
-                                                break;
-                                        } else if (s->type == SERVICE_NOTIFY) {
-                                                /* Only enter running through a notification, so that the
-                                                 * SERVICE_START state signifies that no ready notification
-                                                 * has been received */
-                                                if (f != SERVICE_SUCCESS)
-                                                        service_enter_signal(s, SERVICE_STOP_SIGTERM, f);
-                                                else if (!s->remain_after_exit || s->notify_access == NOTIFY_MAIN)
-                                                        /* The service has never been and will never be active */
-                                                        service_enter_signal(s, SERVICE_STOP_SIGTERM, SERVICE_FAILURE_PROTOCOL);
-                                                break;
-                                        }
-
-                                        _fallthrough_;
-                                case SERVICE_RUNNING:
-                                        service_enter_running(s, f);
-                                        break;
-
-                                case SERVICE_STOP_WATCHDOG:
-                                case SERVICE_STOP_SIGTERM:
-                                case SERVICE_STOP_SIGKILL:
-
-                                        if (control_pid_good(s) <= 0)
-                                                service_enter_stop_post(s, f);
-
-                                        /* If there is still a control process, wait for that first */
-                                        break;
-
-                                case SERVICE_STOP_POST:
-
-                                        if (control_pid_good(s) <= 0)
-                                                service_enter_signal(s, SERVICE_FINAL_SIGTERM, f);
-
-                                        break;
-
-                                case SERVICE_FINAL_WATCHDOG:
-                                case SERVICE_FINAL_SIGTERM:
-                                case SERVICE_FINAL_SIGKILL:
-
-                                        if (control_pid_good(s) <= 0)
-                                                service_enter_dead(s, f, true);
-                                        break;
-
-                                default:
-                                        assert_not_reached("Process died at the wrong time");
                                 }
+
+                                _fallthrough_;
+                        case SERVICE_RUNNING:
+                                service_enter_running(s, f);
+                                break;
+
+                        case SERVICE_STOP_WATCHDOG:
+                        case SERVICE_STOP_SIGTERM:
+                        case SERVICE_STOP_SIGKILL:
+
+                                if (control_pid_good(s) <= 0)
+                                        service_enter_stop_post(s, f);
+
+                                /* If there is still a control process, wait for that first */
+                                break;
+
+                        case SERVICE_STOP_POST:
+
+                                if (control_pid_good(s) <= 0)
+                                        service_enter_signal(s, SERVICE_FINAL_SIGTERM, f);
+
+                                break;
+
+                        case SERVICE_FINAL_WATCHDOG:
+                        case SERVICE_FINAL_SIGTERM:
+                        case SERVICE_FINAL_SIGKILL:
+
+                                if (control_pid_good(s) <= 0)
+                                        service_enter_dead(s, f, true);
+                                break;
+
+                        default:
+                                assert_not_reached("Uh, main process died at wrong time.");
                         }
                 }
 
@@ -4460,22 +4458,6 @@ static const char *service_finished_job(Unit *u, JobType t, JobResult result) {
         return NULL;
 }
 
-static int service_test_start_limit(Unit *u) {
-        Service *s = SERVICE(u);
-        int r;
-
-        assert(s);
-
-        /* Make sure we don't enter a busy loop of some kind. */
-        r = unit_test_start_limit(u);
-        if (r < 0) {
-                service_enter_dead(s, SERVICE_FAILURE_START_LIMIT_HIT, false);
-                return r;
-        }
-
-        return 0;
-}
-
 static const char* const service_restart_table[_SERVICE_RESTART_MAX] = {
         [SERVICE_RESTART_NO] = "no",
         [SERVICE_RESTART_ON_SUCCESS] = "on-success",
@@ -4499,13 +4481,6 @@ static const char* const service_type_table[_SERVICE_TYPE_MAX] = {
 };
 
 DEFINE_STRING_TABLE_LOOKUP(service_type, ServiceType);
-
-static const char* const service_exit_type_table[_SERVICE_EXIT_TYPE_MAX] = {
-        [SERVICE_EXIT_MAIN] = "main",
-        [SERVICE_EXIT_CGROUP] = "cgroup",
-};
-
-DEFINE_STRING_TABLE_LOOKUP(service_exit_type, ServiceExitType);
 
 static const char* const service_exec_command_table[_SERVICE_EXEC_COMMAND_MAX] = {
         [SERVICE_EXEC_CONDITION] = "ExecCondition",
@@ -4645,6 +4620,4 @@ const UnitVTable service_vtable = {
                 },
                 .finished_job = service_finished_job,
         },
-
-        .test_start_limit = service_test_start_limit,
 };
