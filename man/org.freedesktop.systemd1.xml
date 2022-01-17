@@ -1393,7 +1393,7 @@ node /org/freedesktop/systemd1 {
       <varname>properties</varname> contains properties of the unit, specified like in
       <function>SetUnitProperties()</function>. <varname>aux</varname> is currently unused and should be
       passed as an empty array. See the
-      <ulink url="http://www.freedesktop.org/wiki/Software/systemd/ControlGroupInterface/">New Control Group
+      <ulink url="https://www.freedesktop.org/wiki/Software/systemd/ControlGroupInterface/">New Control Group
       Interface</ulink> for more information how to make use of this functionality for resource control
       purposes.</para>
     </refsect2>
@@ -2298,8 +2298,6 @@ node /org/freedesktop/systemd1/unit/avahi_2ddaemon_2eservice {
       @org.freedesktop.DBus.Property.EmitsChangedSignal("const")
       readonly s Type = '...';
       @org.freedesktop.DBus.Property.EmitsChangedSignal("const")
-      readonly s ExitType = '...';
-      @org.freedesktop.DBus.Property.EmitsChangedSignal("const")
       readonly s Restart = '...';
       @org.freedesktop.DBus.Property.EmitsChangedSignal("const")
       readonly s PIDFile = '...';
@@ -2866,8 +2864,6 @@ node /org/freedesktop/systemd1/unit/avahi_2ddaemon_2eservice {
 
     <!--property Type is not documented!-->
 
-    <!--property ExitType is not documented!-->
-
     <!--property Restart is not documented!-->
 
     <!--property PIDFile is not documented!-->
@@ -3385,8 +3381,6 @@ node /org/freedesktop/systemd1/unit/avahi_2ddaemon_2eservice {
     <variablelist class="dbus-method" generated="True" extra-ref="AttachProcesses()"/>
 
     <variablelist class="dbus-property" generated="True" extra-ref="Type"/>
-
-    <variablelist class="dbus-property" generated="True" extra-ref="ExitType"/>
 
     <variablelist class="dbus-property" generated="True" extra-ref="Restart"/>
 
