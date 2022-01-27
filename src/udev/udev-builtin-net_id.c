@@ -223,7 +223,7 @@ static int dev_pci_onboard(sd_device *dev, struct netnames *names) {
                 names->pci_onboard[0] = '\0';
         log_device_debug(dev, "Onboard index identifier: index=%lu phys_port=%s dev_port=%lu → %s",
                          idx, strempty(port_name), dev_port,
-                         empty_to_na(names->pci_slot));
+                         empty_to_na(names->pci_onboard));
 
         if (sd_device_get_sysattr_value(names->pcidev, "label", &names->pci_onboard_label) >= 0)
                 log_device_debug(dev, "Onboard label from PCI device: %s", names->pci_onboard_label);
