@@ -564,6 +564,10 @@ tests += [
          [],
          'HAVE_LIBIPTC'],
 
+        [['src/test/test-net-naming-scheme.c'],
+         [],
+         []],
+
         [['src/test/test-netlink-manual.c'],
          [],
          [libkmod],
