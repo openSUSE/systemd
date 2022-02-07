@@ -53,6 +53,15 @@
 #include "user-util.h"
 #include "utmp-wtmp.h"
 
+/* As a random fun fact sysvinit had a 252 (256-(strlen(" \r\n")+1))
+ * character limit for the wall message.
+ * https://git.savannah.nongnu.org/cgit/sysvinit.git/tree/src/shutdown.c#n72
+ * There is no real technical need for that but doesn't make sense
+ * to store arbitrary amounts either. As we are not stingy here, we
+ * allow 4k.
+ */
+#define WALL_MESSAGE_MAX 4096
+
 int manager_get_session_from_creds(Manager *m, sd_bus_message *message, const char *name, sd_bus_error *error, Session **ret) {
         _cleanup_bus_creds_unref_ sd_bus_creds *creds = NULL;
         Session *session;
@@ -2364,6 +2373,11 @@ static int method_set_wall_message(
         r = sd_bus_message_read(message, "sb", &wall_message, &enable_wall_messages);
         if (r < 0)
                 return r;
+
+        if (strlen(wall_message) > WALL_MESSAGE_MAX)
+                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS,
+                        "Wall message too long, maximum permitted length is %u characters.",
+                        WALL_MESSAGE_MAX);
 
         r = bus_verify_polkit_async(message,
                                     CAP_SYS_ADMIN,
