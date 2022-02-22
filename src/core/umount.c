@@ -61,6 +61,8 @@ static void mount_point_free(MountPoint **head, MountPoint *m) {
         LIST_REMOVE(mount_point, *head, m);
 
         free(m->path);
+        free(m->options);
+        free(m->type);
         free(m);
 }
 
@@ -319,7 +321,7 @@ static int dm_list_get(MountPoint **head) {
                 if (!node)
                         return -ENOMEM;
 
-                m = new(MountPoint, 1);
+                m = new0(MountPoint, 1);
                 if (!m) {
                         free(node);
                         return -ENOMEM;
@@ -336,6 +338,8 @@ static int dm_list_get(MountPoint **head) {
 static int delete_loopback(const char *device) {
         _cleanup_close_ int fd = -1;
         int r;
+
+        assert(device);
 
         fd = open(device, O_RDONLY|O_CLOEXEC);
         if (fd < 0)
@@ -381,11 +385,14 @@ static bool nonunmountable_path(const char *path) {
                 || path_startswith(path, "/run/initramfs");
 }
 
-static int remount_with_timeout(MountPoint *m, char *options, int *n_failed) {
+static int remount_with_timeout(MountPoint *m, char *options) {
         pid_t pid;
         int r;
 
         BLOCK_SIGNALS(SIGCHLD);
+
+        assert(m);
+        assert(options);
 
         /* Due to the possiblity of a remount operation hanging, we
          * fork a child process and set a timeout. If the timeout
@@ -418,11 +425,13 @@ static int remount_with_timeout(MountPoint *m, char *options, int *n_failed) {
         return r;
 }
 
-static int umount_with_timeout(MountPoint *m, bool *changed) {
+static int umount_with_timeout(MountPoint *m) {
         pid_t pid;
         int r;
 
         BLOCK_SIGNALS(SIGCHLD);
+
+        assert(m);
 
         /* Due to the possiblity of a umount operation hanging, we
          * fork a child process and set a timeout. If the timeout
@@ -469,6 +478,7 @@ static int mount_points_list_umount(MountPoint **head, bool *changed) {
         int n_failed = 0;
 
         assert(head);
+        assert(changed);
 
         LIST_FOREACH(mount_point, m, *head) {
                 bool mount_is_readonly;
@@ -515,7 +525,7 @@ static int mount_points_list_umount(MountPoint **head, bool *changed) {
                          * Since the remount can hang in the instance of
                          * remote filesystems, we remount asynchronously
                          * and skip the subsequent umount if it fails. */
-                        if (remount_with_timeout(m, options, &n_failed) < 0) {
+                        if (remount_with_timeout(m, options) < 0) {
                                 /* Remount failed, but try unmounting anyway,
                                  * unless this is a mount point we want to skip. */
                                 if (nonunmountable_path(m->path)) {
@@ -532,12 +542,10 @@ static int mount_points_list_umount(MountPoint **head, bool *changed) {
                         continue;
 
                 /* Trying to umount */
-                if (umount_with_timeout(m, changed) < 0)
+                if (umount_with_timeout(m) < 0)
                         n_failed++;
-                else {
-                        if (changed)
-                                *changed = true;
-                }
+                else
+                        *changed = true;
         }
 
         return n_failed;
@@ -548,18 +556,18 @@ static int swap_points_list_off(MountPoint **head, bool *changed) {
         int n_failed = 0;
 
         assert(head);
+        assert(changed);
 
         LIST_FOREACH_SAFE(mount_point, m, n, *head) {
                 log_info("Deactivating swap %s.", m->path);
-                if (swapoff(m->path) == 0) {
-                        if (changed)
-                                *changed = true;
-
-                        mount_point_free(head, m);
-                } else {
+                if (swapoff(m->path) < 0) {
                         log_warning_errno(errno, "Could not deactivate swap %s: %m", m->path);
                         n_failed++;
+                        continue;
                 }
+
+                *changed = true;
+                mount_point_free(head, m);
         }
 
         return n_failed;
@@ -571,6 +579,7 @@ static int loopback_points_list_detach(MountPoint **head, bool *changed) {
         struct stat root_st;
 
         assert(head);
+        assert(changed);
 
         k = lstat("/", &root_st);
 
@@ -588,15 +597,15 @@ static int loopback_points_list_detach(MountPoint **head, bool *changed) {
 
                 log_info("Detaching loopback %s.", m->path);
                 r = delete_loopback(m->path);
-                if (r >= 0) {
-                        if (r > 0 && changed)
-                                *changed = true;
-
-                        mount_point_free(head, m);
-                } else {
-                        log_warning_errno(errno, "Could not detach loopback %s: %m", m->path);
+                if (r < 0) {
+                        log_warning_errno(r, "Could not detach loopback %s: %m", m->path);
                         n_failed++;
+                        continue;
                 }
+                if (r > 0)
+                        *changed = true;
+
+                mount_point_free(head, m);
         }
 
         return n_failed;
@@ -608,6 +617,7 @@ static int dm_points_list_detach(MountPoint **head, bool *changed) {
         dev_t rootdev;
 
         assert(head);
+        assert(changed);
 
         r = get_block_device("/", &rootdev);
         if (r <= 0)
@@ -615,31 +625,31 @@ static int dm_points_list_detach(MountPoint **head, bool *changed) {
 
         LIST_FOREACH_SAFE(mount_point, m, n, *head) {
 
-                if (major(rootdev) != 0)
-                        if (rootdev == m->devnum) {
-                                n_failed ++;
-                                continue;
-                        }
-
-                log_info("Detaching DM %u:%u.", major(m->devnum), minor(m->devnum));
-                r = delete_dm(m->devnum);
-                if (r >= 0) {
-                        if (changed)
-                                *changed = true;
-
-                        mount_point_free(head, m);
-                } else {
-                        log_warning_errno(errno, "Could not detach DM %s: %m", m->path);
-                        n_failed++;
+                if (major(rootdev) != 0 && rootdev == m->devnum) {
+                        n_failed ++;
+                        continue;
                 }
+
+                log_info("Detaching DM %s (%u:%u).", m->path, major(m->devnum), minor(m->devnum));
+                r = delete_dm(m->devnum);
+                if (r < 0) {
+                        log_warning_errno(r, "Could not detach DM %s: %m", m->path);
+                        n_failed++;
+                        continue;
+                }
+
+                *changed = true;
+                mount_point_free(head, m);
         }
 
         return n_failed;
 }
 
 static int umount_all_once(bool *changed) {
-        int r;
         LIST_HEAD(MountPoint, mp_list_head);
+        int r;
+
+        assert(changed);
 
         LIST_HEAD_INIT(mp_list_head);
         r = mount_points_list_get(&mp_list_head);
@@ -657,6 +667,8 @@ static int umount_all_once(bool *changed) {
 int umount_all(bool *changed) {
         bool umount_changed;
         int r;
+
+        assert(changed);
 
         /* Retry umount, until nothing can be umounted anymore. Mounts are
          * processed in order, newest first. The retries are needed when
@@ -676,6 +688,8 @@ int swapoff_all(bool *changed) {
         int r;
         LIST_HEAD(MountPoint, swap_list_head);
 
+        assert(changed);
+
         LIST_HEAD_INIT(swap_list_head);
 
         r = swap_list_get(&swap_list_head);
@@ -694,6 +708,8 @@ int loopback_detach_all(bool *changed) {
         int r;
         LIST_HEAD(MountPoint, loopback_list_head);
 
+        assert(changed);
+
         LIST_HEAD_INIT(loopback_list_head);
 
         r = loopback_list_get(&loopback_list_head);
@@ -711,6 +727,8 @@ int loopback_detach_all(bool *changed) {
 int dm_detach_all(bool *changed) {
         int r;
         LIST_HEAD(MountPoint, dm_list_head);
+
+        assert(changed);
 
         LIST_HEAD_INIT(dm_list_head);
 
