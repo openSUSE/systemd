@@ -256,8 +256,8 @@ static void cleanup_dir(DIR *dir, mode_t mask, int depth) {
  * Returns true if the directory is empty after cleanup.
  */
 static bool cleanup_dir_after_db_cleanup(DIR *dir, DIR *datadir) {
-        struct dirent *dent;
         unsigned int kept = 0;
+        struct dirent *dent;
 
         assert(dir && datadir);
 
