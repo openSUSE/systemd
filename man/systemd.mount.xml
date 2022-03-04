@@ -319,13 +319,14 @@
         <term><option>noauto</option></term>
         <term><option>auto</option></term>
 
-        <listitem><para>With <option>noauto</option>, this mount will
-        not be added as a dependency for
-        <filename>local-fs.target</filename> or
-        <filename>remote-fs.target</filename>. This means that it will
-        not be mounted automatically during boot, unless it is pulled
-        in by some other unit. The <option>auto</option> option has the
-        opposite meaning and is the default.</para>
+        <listitem><para>With <option>noauto</option>, the mount unit will not be added as a dependency for
+        <filename>local-fs.target</filename> or <filename>remote-fs.target</filename>. This means that it
+        will not be mounted automatically during boot, unless it is pulled in by some other unit. The
+        <option>auto</option> option has the opposite meaning and is the default.</para>
+
+        <para>Note that if <option>x-systemd.automount</option> (see above) is used, neither
+        <option>auto</option> nor <option>noauto</option> have any effect. The matching automount unit will
+        be added as a dependency to the appropriate target.</para>
         </listitem>
       </varlistentry>
 
