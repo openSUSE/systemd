@@ -28,7 +28,7 @@ static bool arg_user = false;
 static int help(void) {
 
         printf("%s [OPTIONS...]\n\n"
-               "STDIO or socket-activatable proxy to a given DBus endpoint.\n\n"
+               "Forward messages between two D-Bus busses via a pipe or socket.\n\n"
                "  -h --help              Show this help\n"
                "     --version           Show package version\n"
                "  -p --bus-path=PATH     Path to the bus address (default: %s)\n"
@@ -125,7 +125,7 @@ static int run(int argc, char *argv[]) {
                 in_fd = SD_LISTEN_FDS_START;
                 out_fd = SD_LISTEN_FDS_START;
         } else
-                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Illegal number of file descriptors passed.");
+                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "More than one file descriptor was passed.");
 
         is_unix =
                 sd_is_socket(in_fd, AF_UNIX, 0, 0) > 0 &&

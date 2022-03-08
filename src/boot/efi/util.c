@@ -174,7 +174,7 @@ EFI_STATUS efivar_get(const EFI_GUID *vendor, const CHAR16 *name, CHAR16 **value
                 return EFI_SUCCESS;
 
         /* Return buffer directly if it happens to be NUL terminated already */
-        if (size >= sizeof(CHAR16) && buf[size/sizeof(CHAR16)] == 0) {
+        if (size >= sizeof(CHAR16) && buf[size / sizeof(CHAR16) - 1] == 0) {
                 *value = TAKE_PTR(buf);
                 return EFI_SUCCESS;
         }
@@ -183,7 +183,7 @@ EFI_STATUS efivar_get(const EFI_GUID *vendor, const CHAR16 *name, CHAR16 **value
         val = xallocate_pool(size + sizeof(CHAR16));
 
         CopyMem(val, buf, size);
-        val[size / sizeof(CHAR16)] = 0; /* NUL terminate */
+        val[size / sizeof(CHAR16) - 1] = 0; /* NUL terminate */
 
         *value = val;
         return EFI_SUCCESS;
@@ -596,7 +596,12 @@ EFI_STATUS readdir_harder(
          * the specified buffer needs to be freed by caller, after final use. */
 
         if (!*buffer) {
-                sz = offsetof(EFI_FILE_INFO, FileName) /* + 256 */;
+                /* Some broken firmware violates the EFI spec by still advancing the readdir
+                 * position when returning EFI_BUFFER_TOO_SMALL, effectively skipping over any files when
+                 * the buffer was too small. Therefore, start with a buffer that should handle FAT32 max
+                 * file name length.
+                 * As a side effect, most readdir_harder() calls will now be slightly faster. */
+                sz = sizeof(EFI_FILE_INFO) + 256 * sizeof(CHAR16);
                 *buffer = xallocate_pool(sz);
                 *buffer_size = sz;
         } else

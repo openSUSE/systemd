@@ -686,6 +686,7 @@ int config_parse_wireguard_allowed_ips(
 
         for (const char *p = rvalue;;) {
                 _cleanup_free_ char *word = NULL;
+                union in_addr_union masked;
 
                 r = extract_first_word(&p, &word, "," WHITESPACE, 0);
                 if (r == 0)
@@ -705,13 +706,23 @@ int config_parse_wireguard_allowed_ips(
                         continue;
                 }
 
+                masked = addr;
+                assert_se(in_addr_mask(family, &masked, prefixlen) >= 0);
+                if (!in_addr_equal(family, &masked, &addr)) {
+                        _cleanup_free_ char *buf = NULL;
+
+                        (void) in_addr_prefix_to_string(family, &masked, prefixlen, &buf);
+                        log_syntax(unit, LOG_WARNING, filename, line, 0,
+                                   "Specified address '%s' is not properly masked, assuming '%s'.", word, strna(buf));
+                }
+
                 ipmask = new(WireguardIPmask, 1);
                 if (!ipmask)
                         return log_oom();
 
                 *ipmask = (WireguardIPmask) {
                         .family = family,
-                        .ip = addr,
+                        .ip = masked,
                         .cidr = prefixlen,
                 };
 
@@ -884,13 +895,8 @@ int config_parse_wireguard_route_table(
         assert(data);
         assert(userdata);
 
-        if (isempty(rvalue)) {
-                *table = RT_TABLE_MAIN;
-                return 0;
-        }
-
-        if (streq(rvalue, "off")) {
-                *table = 0;
+        if (isempty(rvalue) || parse_boolean(rvalue) == 0) {
+                *table = 0; /* Disabled. */
                 return 0;
         }
 
@@ -941,7 +947,7 @@ int config_parse_wireguard_peer_route_table(
                 return 0;
         }
 
-        if (streq(rvalue, "off")) {
+        if (parse_boolean(rvalue) == 0) {
                 peer->route_table = 0; /* Disabled. */
                 peer->route_table_set = true;
                 TAKE_PTR(peer);
@@ -1050,7 +1056,6 @@ static void wireguard_init(NetDev *netdev) {
         assert(w);
 
         w->flags = WGDEVICE_F_REPLACE_PEERS;
-        w->route_table = RT_TABLE_MAIN;
 }
 
 static void wireguard_done(NetDev *netdev) {

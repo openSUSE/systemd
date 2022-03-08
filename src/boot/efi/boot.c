@@ -1572,7 +1572,7 @@ static void config_load_entries(
                 _cleanup_freepool_ CHAR8 *content = NULL;
 
                 err = readdir_harder(entries_dir, &f, &f_size);
-                if (f_size == 0 || EFI_ERROR(err))
+                if (EFI_ERROR(err) || !f)
                         break;
 
                 if (f->FileName[0] == '.')
@@ -1638,9 +1638,9 @@ static INTN config_entry_find(Config *config, const CHAR16 *needle) {
         if (!needle)
                 return -1;
 
-        for (UINTN i = 0; i < config->entry_count; i++)
+        for (INTN i = config->entry_count - 1; i >= 0; i--)
                 if (MetaiMatch(config->entries[i]->id, (CHAR16*) needle))
-                        return (INTN) i;
+                        return i;
 
         return -1;
 }
@@ -2007,7 +2007,7 @@ static void config_entry_add_linux(
                 CHAR8 *key, *value;
 
                 err = readdir_harder(linux_dir, &f, &f_size);
-                if (f_size == 0 || EFI_ERROR(err))
+                if (EFI_ERROR(err) || !f)
                         break;
 
                 if (f->FileName[0] == '.')
@@ -2341,7 +2341,7 @@ static void config_load_all_entries(
 }
 
 EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
-        _cleanup_freepool_ EFI_LOADED_IMAGE *loaded_image = NULL;
+        EFI_LOADED_IMAGE *loaded_image;
         _cleanup_(FileHandleClosep) EFI_FILE *root_dir = NULL;
         _cleanup_(config_free) Config config = {};
         CHAR16 *loaded_image_path;

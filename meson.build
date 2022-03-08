@@ -997,11 +997,11 @@ else
         # Support 'versioned' clang/llvm-strip binaries, as seen on Debian/Ubuntu
         # (like clang-10/llvm-strip-10)
         clang_bin = cc.get_id() == 'clang' ? cc.cmd_array()[0] : 'clang'
-        if clang_bin.contains('afl-clang') or clang_bin.contains('hfuzz-clang')
+        if meson.is_cross_build() or clang_bin.contains('afl-clang') or clang_bin.contains('hfuzz-clang')
                 clang_bin = 'clang'
         endif
         clang = find_program(clang_bin, required : bpf_framework_required)
-        if clang.found()
+        if not meson.is_cross_build() and clang.found()
                 llvm_strip_bin = run_command(clang, '--print-prog-name', 'llvm-strip',
                                              check : true).stdout().strip()
         else
@@ -1182,12 +1182,15 @@ if want_libcryptsetup != 'false' and not skip_deps
                                    required : want_libcryptsetup == 'true' or want_libcryptsetup_plugins == 'true')
         have = libcryptsetup.found()
 
-        conf.set10('HAVE_CRYPT_SET_METADATA_SIZE',
-                   have and cc.has_function('crypt_set_metadata_size', dependencies : libcryptsetup))
-        conf.set10('HAVE_CRYPT_ACTIVATE_BY_SIGNED_KEY',
-                   have and cc.has_function('crypt_activate_by_signed_key', dependencies : libcryptsetup))
-        conf.set10('HAVE_CRYPT_TOKEN_MAX',
-                   have and cc.has_function('crypt_token_max', dependencies : libcryptsetup))
+        foreach ident : ['crypt_set_metadata_size',
+                         'crypt_activate_by_signed_key',
+                         'crypt_token_max']
+                have_ident = have and cc.has_function(
+                        ident,
+                        prefix : '#include <libcryptsetup.h>',
+                        dependencies : libcryptsetup)
+                conf.set10('HAVE_' + ident.to_upper(), have_ident)
+        endforeach
 else
         have = false
         libcryptsetup = []
@@ -1195,8 +1198,14 @@ endif
 conf.set10('HAVE_LIBCRYPTSETUP', have)
 
 if want_libcryptsetup_plugins != 'false' and not skip_deps
-        have = (cc.has_function('crypt_activate_by_token_pin', dependencies : libcryptsetup) and
-                cc.has_function('crypt_token_external_path', dependencies : libcryptsetup))
+        have = (cc.has_function(
+                        'crypt_activate_by_token_pin',
+                        prefix : '#include <libcryptsetup.h>',
+                        dependencies : libcryptsetup) and
+                cc.has_function(
+                        'crypt_token_external_path',
+                        prefix : '#include <libcryptsetup.h>',
+                        dependencies : libcryptsetup))
 else
         have = false
 endif
@@ -1474,7 +1483,7 @@ conf.set10('PREFER_OPENSSL',
            opt == 'openssl' or (opt == 'auto' and conf.get('HAVE_OPENSSL') == 1 and conf.get('HAVE_GCRYPT') == 0))
 conf.set10('HAVE_OPENSSL_OR_GCRYPT',
            conf.get('HAVE_OPENSSL') == 1 or conf.get('HAVE_GCRYPT') == 1)
-lib_openssl_or_gcrypt = conf.get('PREFER_OPENSSL') == 1 ? libopenssl : libgcrypt
+lib_openssl_or_gcrypt = conf.get('PREFER_OPENSSL') == 1 ? [libopenssl] : [libgcrypt, libgpg_error]
 
 dns_over_tls = get_option('dns-over-tls')
 if dns_over_tls != 'false'
@@ -2114,7 +2123,7 @@ executable(
         install : true,
         install_dir : systemgeneratordir)
 
-executable(
+exe = executable(
         'systemd-fstab-generator',
         'src/fstab-generator/fstab-generator.c',
         include_directories : includes,
@@ -2122,6 +2131,13 @@ executable(
         install_rpath : rootlibexecdir,
         install : true,
         install_dir : systemgeneratordir)
+
+if want_tests != 'false'
+        test('test-fstab-generator',
+             test_fstab_generator_sh,
+             # https://github.com/mesonbuild/meson/issues/2681
+             args : exe.full_path())
+endif
 
 if conf.get('ENABLE_ENVIRONMENT_D') == 1
         executable(
@@ -2200,7 +2216,6 @@ if conf.get('ENABLE_RESOLVE') == 1
                              libsystemd_resolve_core],
                 dependencies : [threads,
                                 lib_openssl_or_gcrypt,
-                                libgpg_error,
                                 libm,
                                 libidn],
                 install_rpath : rootlibexecdir,

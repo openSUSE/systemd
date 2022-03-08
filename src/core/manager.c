@@ -933,7 +933,7 @@ int manager_new(UnitFileScope scope, ManagerTestRunFlags test_run_flags, Manager
                 if (MANAGER_IS_SYSTEM(m) && lsm_bpf_supported()) {
                         r = lsm_bpf_setup(m);
                         if (r < 0)
-                                return r;
+                                log_warning_errno(r, "Failed to setup LSM BPF, ignoring: %m");
                 }
 #endif
         }
@@ -1728,9 +1728,10 @@ static void manager_ready(Manager *m) {
         manager_catchup(m);
 
         /* Create a file which will indicate when the manager started loading units the last time. */
-        (void) touch_file("/run/systemd/systemd-units-load", false,
-                m->timestamps[MANAGER_TIMESTAMP_UNITS_LOAD].realtime ?: now(CLOCK_REALTIME),
-                UID_INVALID, GID_INVALID, 0444);
+        if (MANAGER_IS_SYSTEM(m))
+                (void) touch_file("/run/systemd/systemd-units-load", false,
+                        m->timestamps[MANAGER_TIMESTAMP_UNITS_LOAD].realtime ?: now(CLOCK_REALTIME),
+                        UID_INVALID, GID_INVALID, 0444);
 
         m->honor_device_enumeration = true;
 }
@@ -3556,13 +3557,13 @@ void manager_check_finished(Manager *m) {
 
         manager_send_ready(m);
 
+        /* Notify Type=idle units that we are done now */
+        manager_close_idle_pipe(m);
+
         if (MANAGER_IS_FINISHED(m))
                 return;
 
         manager_flip_auto_status(m, false, "boot finished");
-
-        /* Notify Type=idle units that we are done now */
-        manager_close_idle_pipe(m);
 
         /* Turn off confirm spawn now */
         m->confirm_spawn = NULL;
