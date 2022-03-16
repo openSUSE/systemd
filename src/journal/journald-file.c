@@ -5,6 +5,7 @@
 
 #include "chattr-util.h"
 #include "copy.h"
+#include "errno-util.h"
 #include "fd-util.h"
 #include "format-util.h"
 #include "journal-authenticate.h"
@@ -23,7 +24,7 @@ static int journald_file_truncate(JournalFile *f) {
         int r;
 
         /* truncate excess from the end of archives */
-        r = journal_file_tail_end(f, &p);
+        r = journal_file_tail_end_by_pread(f, &p);
         if (r < 0)
                 return log_debug_errno(r, "Failed to determine end of tail object: %m");
 
@@ -31,9 +32,9 @@ static int journald_file_truncate(JournalFile *f) {
         f->header->arena_size = htole64(p - le64toh(f->header->header_size));
 
         if (ftruncate(f->fd, p) < 0)
-                log_debug_errno(errno, "Failed to truncate %s: %m", f->path);
+                return log_debug_errno(errno, "Failed to truncate %s: %m", f->path);
 
-        return 0;
+        return journal_file_fstat(f);
 }
 
 static int journald_file_entry_array_punch_hole(JournalFile *f, uint64_t p, uint64_t n_entries) {
@@ -45,7 +46,7 @@ static int journald_file_entry_array_punch_hole(JournalFile *f, uint64_t p, uint
                 return 0;
 
         for (uint64_t q = p; q != 0; q = le64toh(o.entry_array.next_entry_array_offset)) {
-                r = journal_file_read_object(f, OBJECT_ENTRY_ARRAY, q, &o);
+                r = journal_file_read_object_header(f, OBJECT_ENTRY_ARRAY, q, &o);
                 if (r < 0)
                         return r;
 
@@ -72,8 +73,33 @@ static int journald_file_entry_array_punch_hole(JournalFile *f, uint64_t p, uint
         if (sz < MINIMUM_HOLE_SIZE)
                 return 0;
 
-        if (fallocate(f->fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, offset, sz) < 0)
+        if (p == le64toh(f->header->tail_object_offset) && !f->seal) {
+                ssize_t n;
+
+                o.object.size = htole64(offset - p);
+
+                n = pwrite(f->fd, &o, sizeof(EntryArrayObject), p);
+                if (n < 0)
+                        return log_debug_errno(errno, "Failed to modify entry array object size: %m");
+                if ((size_t) n != sizeof(EntryArrayObject))
+                        return log_debug_errno(SYNTHETIC_ERRNO(EIO), "Short pwrite() while modifying entry array object size.");
+
+                f->header->arena_size = htole64(ALIGN64(offset) - le64toh(f->header->header_size));
+
+                if (ftruncate(f->fd, ALIGN64(offset)) < 0)
+                        return log_debug_errno(errno, "Failed to truncate %s: %m", f->path);
+
+                return 0;
+        }
+
+        if (fallocate(f->fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, offset, sz) < 0) {
+                if (ERRNO_IS_NOT_SUPPORTED(errno)) {
+                        log_debug("Hole punching not supported by backing file system, skipping.");
+                        return -EOPNOTSUPP; /* Make recognizable */
+                }
+
                 return log_debug_errno(errno, "Failed to punch hole in entry array of %s: %m", f->path);
+        }
 
         return 0;
 }
@@ -93,9 +119,10 @@ static int journald_file_punch_holes(JournalFile *f) {
         sz = le64toh(f->header->data_hash_table_size);
 
         for (uint64_t i = p; i < p + sz && n > 0; i += n) {
-                n = pread(f->fd, items, MIN(sizeof(items), p + sz - i), i);
+                size_t m = MIN(sizeof(items), p + sz - i);
+                n = pread(f->fd, items, m, i);
                 if (n < 0)
-                        return n;
+                        return log_debug_errno(errno, "Failed to read hash table items: %m");
 
                 /* Let's ignore any partial hash items by rounding down to the nearest multiple of HashItem. */
                 n -= n % sizeof(HashItem);
@@ -106,7 +133,7 @@ static int journald_file_punch_holes(JournalFile *f) {
                         for (uint64_t q = le64toh(items[j].head_hash_offset); q != 0;
                              q = le64toh(o.data.next_hash_offset)) {
 
-                                r = journal_file_read_object(f, OBJECT_DATA, q, &o);
+                                r = journal_file_read_object_header(f, OBJECT_DATA, q, &o);
                                 if (r < 0) {
                                         log_debug_errno(r, "Invalid data object: %m, ignoring");
                                         break;
@@ -115,8 +142,12 @@ static int journald_file_punch_holes(JournalFile *f) {
                                 if (le64toh(o.data.n_entries) == 0)
                                         continue;
 
-                                (void) journald_file_entry_array_punch_hole(
-                                        f, le64toh(o.data.entry_array_offset), le64toh(o.data.n_entries) - 1);
+                                r = journald_file_entry_array_punch_hole(
+                                                f, le64toh(o.data.entry_array_offset), le64toh(o.data.n_entries) - 1);
+                                if (r == -EOPNOTSUPP)
+                                        return -EOPNOTSUPP;
+
+                                /* Ignore other errors */
                         }
                 }
         }
@@ -179,7 +210,10 @@ static void journald_file_set_offline_internal(JournaldFile *f) {
 
                                 log_debug_errno(r, "Failed to re-enable copy-on-write for %s: %m, rewriting file", f->file->path);
 
-                                r = copy_file_atomic(f->file->path, f->file->path, f->file->mode, 0, FS_NOCOW_FL, COPY_REPLACE | COPY_FSYNC);
+                                r = copy_file_atomic(FORMAT_PROC_FD_PATH(f->file->fd), f->file->path, f->file->mode,
+                                                     0,
+                                                     FS_NOCOW_FL,
+                                                     COPY_REPLACE | COPY_FSYNC | COPY_HOLES | COPY_ALL_XATTRS);
                                 if (r < 0) {
                                         log_debug_errno(r, "Failed to rewrite %s: %m", f->file->path);
                                         continue;
