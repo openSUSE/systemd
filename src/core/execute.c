@@ -1171,7 +1171,7 @@ static int setup_pam(
                 uid_t uid,
                 gid_t gid,
                 const char *tty,
-                char ***env,
+                char ***env, /* updated on success */
                 const int fds[], size_t n_fds) {
 
 #if HAVE_PAM
@@ -1182,10 +1182,11 @@ static int setup_pam(
         };
 
         _cleanup_(barrier_destroy) Barrier barrier = BARRIER_NULL;
+        _cleanup_strv_free_ char **e = NULL;
         pam_handle_t *handle = NULL;
         sigset_t old_ss;
         int pam_code = PAM_SUCCESS, r;
-        char **nv, **e = NULL;
+        char **nv;
         bool close_session = false;
         pid_t pam_pid = 0, parent_pid;
         int flags = 0;
@@ -1256,8 +1257,7 @@ static int setup_pam(
                 goto fail;
         }
 
-        /* Block SIGTERM, so that we know that it won't get lost in
-         * the child */
+        /* Block SIGTERM, so that we know that it won't get lost in the child */
 
         assert_se(sigprocmask_many(SIG_BLOCK, &old_ss, SIGTERM, -1) >= 0);
 
@@ -1269,18 +1269,16 @@ static int setup_pam(
         if (r == 0) {
                 int sig, ret = EXIT_PAM;
 
-                /* The child's job is to reset the PAM session on
-                 * termination */
+                /* The child's job is to reset the PAM session on termination */
                 barrier_set_role(&barrier, BARRIER_CHILD);
 
                 /* Make sure we don't keep open the passed fds in this child. We assume that otherwise only
                  * those fds are open here that have been opened by PAM. */
                 (void) close_many(fds, n_fds);
 
-                /* Drop privileges - we don't need any to pam_close_session
-                 * and this will make PR_SET_PDEATHSIG work in most cases.
-                 * If this fails, ignore the error - but expect sd-pam threads
-                 * to fail to exit normally */
+                /* Drop privileges - we don't need any to pam_close_session and this will make
+                 * PR_SET_PDEATHSIG work in most cases.  If this fails, ignore the error - but expect sd-pam
+                 * threads to fail to exit normally */
 
                 r = maybe_setgroups(0, NULL);
                 if (r < 0)
@@ -1292,20 +1290,16 @@ static int setup_pam(
 
                 (void) ignore_signals(SIGPIPE);
 
-                /* Wait until our parent died. This will only work if
-                 * the above setresuid() succeeds, otherwise the kernel
-                 * will not allow unprivileged parents kill their privileged
-                 * children this way. We rely on the control groups kill logic
-                 * to do the rest for us. */
+                /* Wait until our parent died. This will only work if the above setresuid() succeeds,
+                 * otherwise the kernel will not allow unprivileged parents kill their privileged children
+                 * this way. We rely on the control groups kill logic to do the rest for us. */
                 if (prctl(PR_SET_PDEATHSIG, SIGTERM) < 0)
                         goto child_finish;
 
-                /* Tell the parent that our setup is done. This is especially
-                 * important regarding dropping privileges. Otherwise, unit
-                 * setup might race against our setresuid(2) call.
+                /* Tell the parent that our setup is done. This is especially important regarding dropping
+                 * privileges. Otherwise, unit setup might race against our setresuid(2) call.
                  *
-                 * If the parent aborted, we'll detect this below, hence ignore
-                 * return failure here. */
+                 * If the parent aborted, we'll detect this below, hence ignore return failure here. */
                 (void) barrier_place(&barrier);
 
                 /* Check if our parent process might already have died? */
@@ -1342,25 +1336,27 @@ static int setup_pam(
                 ret = 0;
 
         child_finish:
-                pam_end(handle, pam_code | flags);
+                /* NB: pam_end() when called in child processes should set PAM_DATA_SILENT to let the module
+                 * know about this. See pam_end(3) */
+                (void) pam_end(handle, pam_code | flags | PAM_DATA_SILENT);
                 _exit(ret);
         }
 
         barrier_set_role(&barrier, BARRIER_PARENT);
 
-        /* If the child was forked off successfully it will do all the
-         * cleanups, so forget about the handle here. */
+        /* If the child was forked off successfully it will do all the cleanups, so forget about the handle
+         * here. */
         handle = NULL;
 
         /* Unblock SIGTERM again in the parent */
         assert_se(sigprocmask(SIG_SETMASK, &old_ss, NULL) >= 0);
 
-        /* We close the log explicitly here, since the PAM modules
-         * might have opened it, but we don't want this fd around. */
+        /* We close the log explicitly here, since the PAM modules might have opened it, but we don't want
+         * this fd around. */
         closelog();
 
-        /* Synchronously wait for the child to initialize. We don't care for
-         * errors as we cannot recover. However, warn loudly if it happens. */
+        /* Synchronously wait for the child to initialize. We don't care for errors as we cannot
+         * recover. However, warn loudly if it happens. */
         if (!barrier_place_and_sync(&barrier))
                 log_error("PAM initialization failed");
 
@@ -1377,12 +1373,10 @@ fail:
                 if (close_session)
                         pam_code = pam_close_session(handle, flags);
 
-                pam_end(handle, pam_code | flags);
+                (void) pam_end(handle, pam_code | flags);
         }
 
-        strv_free(e);
         closelog();
-
         return r;
 #else
         return 0;
@@ -1870,11 +1864,11 @@ static int build_environment(
                 our_env[n_env++] = x;
         }
 
-        /* If this is D-Bus, tell the nss-systemd module, since it relies on being able to use D-Bus look up dynamic
-         * users via PID 1, possibly dead-locking the dbus daemon. This way it will not use D-Bus to resolve names, but
-         * check the database directly. */
-        if (p->flags & EXEC_NSS_BYPASS_BUS) {
-                x = strdup("SYSTEMD_NSS_BYPASS_BUS=1");
+        /* If this is D-Bus, tell the nss-systemd module, since it relies on being able to use blocking
+         * Varlink calls back to us for look up dynamic users in PID 1. Break the deadlock between D-Bus and
+         * PID 1 by disabling use of PID1' NSS interface for looking up dynamic users. */
+        if (p->flags & EXEC_NSS_DYNAMIC_BYPASS) {
+                x = strdup("SYSTEMD_NSS_DYNAMIC_BYPASS=1");
                 if (!x)
                         return -ENOMEM;
                 our_env[n_env++] = x;
@@ -3237,7 +3231,7 @@ static int compile_symlinks(
                                         return r;
                         }
 
-                        if (!exec_directory_is_private(context, dt))
+                        if (!exec_directory_is_private(context, dt) || exec_context_with_rootfs(context))
                                 continue;
 
                         private_path = path_join(params->prefix[dt], "private", context->directories[dt].items[i].path);

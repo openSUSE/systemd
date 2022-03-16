@@ -1151,6 +1151,8 @@ static int mount_image(const MountEntry *m, const char *root_directory) {
                                 NULL);
                 if (r < 0)
                         return log_debug_errno(r, "Failed to acquire 'os-release' data of OS tree '%s': %m", empty_to_root(root_directory));
+                if (isempty(host_os_release_id))
+                        return log_debug_errno(SYNTHETIC_ERRNO(EINVAL), "'ID' field not found or empty in 'os-release' data of OS tree '%s': %m", empty_to_root(root_directory));
         }
 
         r = verity_dissect_and_mount(
@@ -1378,7 +1380,7 @@ static int apply_one_mount(
                         (void) mkdir_parents(mount_entry_path(m), 0755);
 
                         q = make_mount_point_inode_from_path(what, mount_entry_path(m), 0755);
-                        if (q < 0)
+                        if (q < 0 && q != -EEXIST)
                                 log_error_errno(q, "Failed to create destination mount point node '%s': %m",
                                                 mount_entry_path(m));
                         else
@@ -1576,7 +1578,14 @@ static size_t namespace_calculate_mounts(
                 ns_info->private_ipc; /* /dev/mqueue */
 }
 
-static void normalize_mounts(const char *root_directory, MountEntry *mounts, size_t *n_mounts) {
+/* Walk all mount entries and dropping any unused mounts. This affects all
+ * mounts:
+ * - that are implicitly protected by a path that has been rendered inaccessible
+ * - whose immediate parent requests the same protection mode as the mount itself
+ * - that are outside of the relevant root directory
+ * - which are duplicates
+ */
+static void drop_unused_mounts(const char *root_directory, MountEntry *mounts, size_t *n_mounts) {
         assert(root_directory);
         assert(n_mounts);
         assert(mounts || *n_mounts == 0);
@@ -1682,7 +1691,7 @@ static int apply_mounts(
                 if (!again)
                         break;
 
-                normalize_mounts(root, mounts, n_mounts);
+                drop_unused_mounts(root, mounts, n_mounts);
         }
 
         /* Now that all filesystems have been set up, but before the
@@ -1691,7 +1700,7 @@ static int apply_mounts(
          * exist, which means this will be a no-op. */
         r = create_symlinks_from_tuples(root, exec_dir_symlinks);
         if (r < 0)
-                return r;
+                return log_debug_errno(r, "Failed to set up ExecDirectories symlinks inside mount namespace: %m");
 
         /* Create a deny list we can pass to bind_mount_recursive() */
         deny_list = new(char*, (*n_mounts)+1);
@@ -2155,14 +2164,19 @@ int setup_namespace(
                                 goto finish;
                 }
 
+                /* Note, if proc is mounted with subset=pid then neither of the
+                 * two paths will exist, i.e. they are implicitly protected by
+                 * the mount option. */
                 if (ns_info->protect_hostname) {
                         *(m++) = (MountEntry) {
                                 .path_const = "/proc/sys/kernel/hostname",
                                 .mode = READONLY,
+                                .ignore = ignore_protect_proc,
                         };
                         *(m++) = (MountEntry) {
                                 .path_const = "/proc/sys/kernel/domainname",
                                 .mode = READONLY,
+                                .ignore = ignore_protect_proc,
                         };
                 }
 
@@ -2243,7 +2257,7 @@ int setup_namespace(
                 if (r < 0)
                         goto finish;
 
-                normalize_mounts(root, mounts, &n_mounts);
+                drop_unused_mounts(root, mounts, &n_mounts);
         }
 
         /* All above is just preparation, figuring out what to do. Let's now actually start doing something. */
