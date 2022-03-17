@@ -14,6 +14,7 @@
 #include "conf-parser.h"
 #include "def.h"
 #include "dirent-util.h"
+#include "errno-list.h"
 #include "extract-word.h"
 #include "fd-util.h"
 #include "fileio.h"
@@ -76,12 +77,10 @@ static bool unit_file_install_info_has_also(const UnitFileInstallInfo *i) {
 }
 
 void unit_file_presets_freep(UnitFilePresets *p) {
-        size_t i;
-
         if (!p)
                 return;
 
-        for (i = 0; i < p->n_rules; i++) {
+        for (size_t i = 0; i < p->n_rules; i++) {
                 free(p->rules[i].pattern);
                 strv_free(p->rules[i].instances);
         }
@@ -254,15 +253,19 @@ static int path_is_vendor_or_generator(const LookupPaths *p, const char *path) {
 int unit_file_changes_add(
                 UnitFileChange **changes,
                 size_t *n_changes,
-                int type,
+                int type_or_errno, /* UNIT_FILE_SYMLINK, _UNLINK, _IS_MASKED, _IS_DANGLING if positive or errno if negative */
                 const char *path,
                 const char *source) {
 
         _cleanup_free_ char *p = NULL, *s = NULL;
         UnitFileChange *c;
 
-        assert(path);
         assert(!changes == !n_changes);
+
+        if (type_or_errno >= 0)
+                assert(type_or_errno < _UNIT_FILE_CHANGE_TYPE_MAX);
+        else
+                assert(type_or_errno >= -ERRNO_MAX);
 
         if (!changes)
                 return 0;
@@ -272,29 +275,35 @@ int unit_file_changes_add(
                 return -ENOMEM;
         *changes = c;
 
-        p = strdup(path);
-        if (source)
+        if (path) {
+                p = strdup(path);
+                if (!p)
+                        return -ENOMEM;
+
+                path_simplify(p, false);
+        }
+
+        if (source) {
                 s = strdup(source);
+                if (!s)
+                        return -ENOMEM;
 
-        if (!p || (source && !s))
-                return -ENOMEM;
-
-        path_simplify(p, false);
-        if (s)
                 path_simplify(s, false);
+        }
 
-        c[*n_changes] = (UnitFileChange) { type, p, s };
-        p = s = NULL;
-        (*n_changes) ++;
+        c[(*n_changes)++] = (UnitFileChange) {
+                .type_or_errno = type_or_errno,
+                .path = TAKE_PTR(p),
+                .source = TAKE_PTR(s),
+        };
+
         return 0;
 }
 
 void unit_file_changes_free(UnitFileChange *changes, size_t n_changes) {
-        size_t i;
-
         assert(changes || n_changes == 0);
 
-        for (i = 0; i < n_changes; i++) {
+        for (size_t i = 0; i < n_changes; i++) {
                 free(changes[i].path);
                 free(changes[i].source);
         }
@@ -303,17 +312,16 @@ void unit_file_changes_free(UnitFileChange *changes, size_t n_changes) {
 }
 
 void unit_file_dump_changes(int r, const char *verb, const UnitFileChange *changes, size_t n_changes, bool quiet) {
-        size_t i;
         bool logged = false;
 
         assert(changes || n_changes == 0);
         /* If verb is not specified, errors are not allowed! */
         assert(verb || r >= 0);
 
-        for (i = 0; i < n_changes; i++) {
-                assert(verb || changes[i].type >= 0);
+        for (size_t i = 0; i < n_changes; i++) {
+                assert(verb || changes[i].type_or_errno >= 0);
 
-                switch(changes[i].type) {
+                switch(changes[i].type_or_errno) {
                 case UNIT_FILE_SYMLINK:
                         if (!quiet)
                                 log_info("Created symlink %s %s %s.",
@@ -334,47 +342,51 @@ void unit_file_dump_changes(int r, const char *verb, const UnitFileChange *chang
                                 log_info("Unit %s is an alias to a unit that is not present, ignoring.",
                                          changes[i].path);
                         break;
+                case UNIT_FILE_AUXILIARY_FAILED:
+                        if (!quiet)
+                                log_warning("Failed to enable auxiliary unit %s, ignoring.", changes[i].source);
+                        break;
                 case -EEXIST:
                         if (changes[i].source)
-                                log_error_errno(changes[i].type,
+                                log_error_errno(changes[i].type_or_errno,
                                                 "Failed to %s unit, file %s already exists and is a symlink to %s.",
                                                 verb, changes[i].path, changes[i].source);
                         else
-                                log_error_errno(changes[i].type,
+                                log_error_errno(changes[i].type_or_errno,
                                                 "Failed to %s unit, file %s already exists.",
                                                 verb, changes[i].path);
                         logged = true;
                         break;
                 case -ERFKILL:
-                        log_error_errno(changes[i].type, "Failed to %s unit, unit %s is masked.",
+                        log_error_errno(changes[i].type_or_errno, "Failed to %s unit, unit %s is masked.",
                                         verb, changes[i].path);
                         logged = true;
                         break;
                 case -EADDRNOTAVAIL:
-                        log_error_errno(changes[i].type, "Failed to %s unit, unit %s is transient or generated.",
+                        log_error_errno(changes[i].type_or_errno, "Failed to %s unit, unit %s is transient or generated.",
                                         verb, changes[i].path);
                         logged = true;
                         break;
                 case -EUCLEAN:
-                        log_error_errno(changes[i].type,
+                        log_error_errno(changes[i].type_or_errno,
                                         "Failed to %s unit, \"%s\" is not a valid unit name.",
                                         verb, changes[i].path);
                         logged = true;
                         break;
                 case -ELOOP:
-                        log_error_errno(changes[i].type, "Failed to %s unit, refusing to operate on linked unit file %s",
+                        log_error_errno(changes[i].type_or_errno, "Failed to %s unit, refusing to operate on linked unit file %s",
                                         verb, changes[i].path);
                         logged = true;
                         break;
 
                 case -ENOENT:
-                        log_error_errno(changes[i].type, "Failed to %s unit, unit %s does not exist.", verb, changes[i].path);
+                        log_error_errno(changes[i].type_or_errno, "Failed to %s unit, unit %s does not exist.", verb, changes[i].path);
                         logged = true;
                         break;
 
                 default:
-                        assert(changes[i].type < 0);
-                        log_error_errno(changes[i].type, "Failed to %s unit, file %s: %m.",
+                        assert(changes[i].type_or_errno < 0);
+                        log_error_errno(changes[i].type_or_errno, "Failed to %s unit, file %s: %m.",
                                         verb, changes[i].path);
                         logged = true;
                 }
@@ -2006,6 +2018,13 @@ static int install_context_apply(
 
                 q = install_info_traverse(scope, c, paths, i, flags, NULL);
                 if (q < 0) {
+                        if (i->auxiliary) {
+                                q = unit_file_changes_add(changes, n_changes, UNIT_FILE_AUXILIARY_FAILED, NULL, i->name);
+                                if (q < 0)
+                                        return q;
+                                continue;
+                        }
+
                         unit_file_changes_add(changes, n_changes, q, i->name, NULL);
                         return q;
                 }
@@ -3088,12 +3107,11 @@ static int pattern_match_multiple_instances(
 
 static int query_presets(const char *name, const UnitFilePresets *presets, char ***instance_name_list) {
         PresetAction action = PRESET_UNKNOWN;
-        size_t i;
-        char **s;
+
         if (!unit_name_is_valid(name, UNIT_NAME_ANY))
                 return -EINVAL;
 
-        for (i = 0; i < presets->n_rules; i++)
+        for (size_t i = 0; i < presets->n_rules; i++)
                 if (pattern_match_multiple_instances(presets->rules[i], name, instance_name_list) > 0 ||
                     fnmatch(presets->rules[i].pattern, name, FNM_NOESCAPE) == 0) {
                         action = presets->rules[i].action;
@@ -3105,10 +3123,11 @@ static int query_presets(const char *name, const UnitFilePresets *presets, char 
                 log_debug("Preset files don't specify rule for %s. Enabling.", name);
                 return 1;
         case PRESET_ENABLE:
-                if (instance_name_list && *instance_name_list)
+                if (instance_name_list && *instance_name_list) {
+                        char **s;
                         STRV_FOREACH(s, *instance_name_list)
                                 log_debug("Preset files say enable %s.", *s);
-                else
+                } else
                         log_debug("Preset files say enable %s.", name);
                 return 1;
         case PRESET_DISABLE:
@@ -3458,13 +3477,14 @@ static const char* const unit_file_state_table[_UNIT_FILE_STATE_MAX] = {
 DEFINE_STRING_TABLE_LOOKUP(unit_file_state, UnitFileState);
 
 static const char* const unit_file_change_type_table[_UNIT_FILE_CHANGE_TYPE_MAX] = {
-        [UNIT_FILE_SYMLINK]     = "symlink",
-        [UNIT_FILE_UNLINK]      = "unlink",
-        [UNIT_FILE_IS_MASKED]   = "masked",
-        [UNIT_FILE_IS_DANGLING] = "dangling",
+        [UNIT_FILE_SYMLINK]                 = "symlink",
+        [UNIT_FILE_UNLINK]                  = "unlink",
+        [UNIT_FILE_IS_MASKED]               = "masked",
+        [UNIT_FILE_IS_DANGLING]             = "dangling",
+        [UNIT_FILE_AUXILIARY_FAILED]        = "auxiliary unit failed",
 };
 
-DEFINE_STRING_TABLE_LOOKUP(unit_file_change_type, UnitFileChangeType);
+DEFINE_STRING_TABLE_LOOKUP(unit_file_change_type, int);
 
 static const char* const unit_file_preset_mode_table[_UNIT_FILE_PRESET_MAX] = {
         [UNIT_FILE_PRESET_FULL]         = "full",

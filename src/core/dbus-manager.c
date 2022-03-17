@@ -1949,9 +1949,9 @@ static int install_error(
 
         for (i = 0; i < n_changes; i++)
 
-                switch(changes[i].type) {
+                switch(changes[i].type_or_errno) {
 
-                case 0 ... INT_MAX:
+                case 0 ... _UNIT_FILE_CHANGE_TYPE_MAX: /* not errors */
                         continue;
 
                 case -EEXIST:
@@ -1993,7 +1993,8 @@ static int install_error(
                         goto found;
 
                 default:
-                        r = sd_bus_error_set_errnof(error, changes[i].type, "File %s: %m", changes[i].path);
+                        assert(changes[i].type_or_errno < 0); /* other errors */
+                        r = sd_bus_error_set_errnof(error, changes[i].type_or_errno, "File %s: %m", changes[i].path);
                         goto found;
                 }
 
@@ -2039,14 +2040,14 @@ static int reply_unit_file_changes_and_free(
 
         for (i = 0; i < n_changes; i++) {
 
-                if (changes[i].type < 0) {
+                if (changes[i].type_or_errno < 0) {
                         bad = true;
                         continue;
                 }
 
                 r = sd_bus_message_append(
                                 reply, "(sss)",
-                                unit_file_change_type_to_string(changes[i].type),
+                                unit_file_change_type_to_string(changes[i].type_or_errno),
                                 changes[i].path,
                                 changes[i].source);
                 if (r < 0)
@@ -2394,7 +2395,7 @@ static int method_get_unit_file_links(sd_bus_message *message, void *userdata, s
                 return log_error_errno(r, "Failed to get file links for %s: %m", name);
 
         for (i = 0; i < n_changes; i++)
-                if (changes[i].type == UNIT_FILE_UNLINK) {
+                if (changes[i].type_or_errno == UNIT_FILE_UNLINK) {
                         r = sd_bus_message_append(reply, "s", changes[i].path);
                         if (r < 0)
                                 return r;
