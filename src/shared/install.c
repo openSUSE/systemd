@@ -288,7 +288,7 @@ static int create_symlink(
 
         if (symlink(old_path, new_path) >= 0) {
                 unit_file_changes_add(changes, n_changes, UNIT_FILE_SYMLINK, new_path, old_path);
-                return 0;
+                return 1;
         }
 
         if (errno != EEXIST)
@@ -311,7 +311,7 @@ static int create_symlink(
         unit_file_changes_add(changes, n_changes, UNIT_FILE_UNLINK, new_path, NULL);
         unit_file_changes_add(changes, n_changes, UNIT_FILE_SYMLINK, new_path, old_path);
 
-        return 0;
+        return 1;
 }
 
 static int mark_symlink_for_removal(
@@ -734,6 +734,19 @@ static UnitFileInstallInfo *install_info_find(InstallContext *c, const char *nam
                 return i;
 
         return ordered_hashmap_get(c->will_process, name);
+}
+
+static int install_info_may_process(UnitFileInstallInfo *i, const LookupPaths *paths) {
+        assert(i);
+        assert(paths);
+
+        /* Checks whether the loaded unit file is one we should process, or is masked, transient or generated and thus
+         * not subject to enable/disable operations. */
+
+        if (i->type == UNIT_FILE_TYPE_MASKED)
+                return -ESHUTDOWN;
+
+        return 0;
 }
 
 static int install_info_add(
@@ -1587,7 +1600,7 @@ int unit_file_unmask(
                         return -ENOMEM;
 
                 if (unlink(path) < 0) {
-                        if (errno != -ENOENT && r >= 0)
+                        if (errno != ENOENT && r >= 0)
                                 r = -errno;
                 } else {
                         q = mark_symlink_for_removal(&remove_symlinks_to, path);
@@ -1734,8 +1747,9 @@ int unit_file_add_dependency(
         r = install_info_discover(scope, &c, root_dir, &paths, target, SEARCH_FOLLOW_CONFIG_SYMLINKS, &target_info);
         if (r < 0)
                 return r;
-        if (target_info->type == UNIT_FILE_TYPE_MASKED)
-                return -ESHUTDOWN;
+        r = install_info_may_process(target_info, &paths);
+        if (r < 0)
+                return r;
 
         assert(target_info->type == UNIT_FILE_TYPE_REGULAR);
 
@@ -1745,8 +1759,9 @@ int unit_file_add_dependency(
                 r = install_info_discover(scope, &c, root_dir, &paths, *f, SEARCH_FOLLOW_CONFIG_SYMLINKS, &i);
                 if (r < 0)
                         return r;
-                if (i->type == UNIT_FILE_TYPE_MASKED)
-                        return -ESHUTDOWN;
+                r = install_info_may_process(i, &paths);
+                if (r < 0)
+                        return r;
 
                 assert(i->type == UNIT_FILE_TYPE_REGULAR);
 
@@ -1803,8 +1818,9 @@ int unit_file_enable(
                 r = install_info_discover(scope, &c, root_dir, &paths, *f, SEARCH_LOAD, &i);
                 if (r < 0)
                         return r;
-                if (i->type == UNIT_FILE_TYPE_MASKED)
-                        return -ESHUTDOWN;
+                r = install_info_may_process(i, &paths);
+                if (r < 0)
+                        return r;
 
                 assert(i->type == UNIT_FILE_TYPE_REGULAR);
         }
@@ -1930,8 +1946,9 @@ int unit_file_set_default(
         r = install_info_discover(scope, &c, root_dir, &paths, name, 0, &i);
         if (r < 0)
                 return r;
-        if (i->type == UNIT_FILE_TYPE_MASKED)
-                return -ESHUTDOWN;
+        r = install_info_may_process(i, &paths);
+        if (r < 0)
+                return r;
 
         path = strjoina(config_path, "/" SPECIAL_DEFAULT_TARGET);
 
@@ -1964,8 +1981,9 @@ int unit_file_get_default(
         r = install_info_discover(scope, &c, root_dir, &paths, SPECIAL_DEFAULT_TARGET, SEARCH_FOLLOW_CONFIG_SYMLINKS, &i);
         if (r < 0)
                 return r;
-        if (i->type == UNIT_FILE_TYPE_MASKED)
-                return -ESHUTDOWN;
+        r = install_info_may_process(i, &paths);
+        if (r < 0)
+                return r;
 
         n = strdup(i->name);
         if (!n)
@@ -2228,8 +2246,9 @@ static int preset_prepare_one(
                 if (r < 0)
                         return r;
 
-                if (i->type == UNIT_FILE_TYPE_MASKED)
-                        return -ESHUTDOWN;
+                r = install_info_may_process(i, paths);
+                if (r < 0)
+                        return r;
         } else
                 r = install_info_discover(scope, minus, root_dir, paths, name, SEARCH_FOLLOW_CONFIG_SYMLINKS, &i);
 

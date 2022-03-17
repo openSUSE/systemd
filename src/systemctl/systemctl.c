@@ -2337,41 +2337,11 @@ static int unit_find_paths(
 
         if (!install_client_side() && !unit_name_is_valid(unit_name, UNIT_NAME_TEMPLATE)) {
                 _cleanup_bus_error_free_ sd_bus_error error = SD_BUS_ERROR_NULL;
-                _cleanup_bus_message_unref_ sd_bus_message *unit_load_error = NULL;
                 _cleanup_free_ char *unit = NULL;
-                char *unit_load_error_name, *unit_load_error_message;
 
                 unit = unit_dbus_path_from_name(unit_name);
                 if (!unit)
                         return log_oom();
-
-                if (need_daemon_reload(bus, unit_name) > 0)
-                        warn_unit_file_changed(unit_name);
-
-                r = sd_bus_get_property(
-                                bus,
-                                "org.freedesktop.systemd1",
-                                unit,
-                                "org.freedesktop.systemd1.Unit",
-                                "LoadError",
-                                &error,
-                                &unit_load_error,
-                                "(ss)");
-                if (r < 0)
-                        return log_error_errno(r, "Failed to get LoadError: %s", bus_error_message(&error, r));
-
-                r = sd_bus_message_read(
-                                unit_load_error,
-                                "(ss)",
-                                &unit_load_error_name,
-                                &unit_load_error_message);
-                if (r < 0)
-                        return bus_log_parse_error(r);
-
-                if (!isempty(unit_load_error_name)) {
-                        log_error("Unit %s is not loaded: %s", unit_name, unit_load_error_message);
-                        return 0;
-                }
 
                 r = sd_bus_get_property_string(
                                 bus,
@@ -5460,6 +5430,8 @@ static int enable_unit(int argc, char *argv[], void *userdata) {
 
                 if (r == -ESHUTDOWN)
                         return log_error_errno(r, "Unit file is masked.");
+                if (r == -ELOOP)
+                        return log_error_errno(r, "Refusing to operate on linked unit file.");
                 if (r < 0)
                         return log_error_errno(r, "Operation failed: %m");
 
