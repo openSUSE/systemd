@@ -3667,6 +3667,9 @@ fail:
 
         (void) journal_file_close(f);
 
+        if (newly_created && fd < 0)
+                (void) unlink(fname);
+
         return r;
 }
 
