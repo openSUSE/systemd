@@ -131,3 +131,5 @@ int syncfs_path(int atfd, const char *path);
 int open_parent(const char *path, int flags, mode_t mode);
 
 int path_is_encrypted(const char *path);
+
+int openat_report_new(int dirfd, const char *pathname, int flags, mode_t mode, bool *ret_newly_created);
