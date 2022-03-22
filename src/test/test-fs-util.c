@@ -1019,6 +1019,24 @@ TEST(openat_report_new) {
         assert_se(fd >= 0);
         fd = safe_close(fd);
         assert_se(!b);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR, 0666, &b);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+        assert_se(!b);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT|O_EXCL, 0666, &b);
+        assert_se(fd == -EEXIST);
+
+        assert_se(unlink(j) >= 0);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR, 0666, &b);
+        assert_se(fd == -ENOENT);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT|O_EXCL, 0666, &b);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+        assert_se(b);
 }
 
 DEFINE_CUSTOM_TEST_MAIN(LOG_INFO, arg_test_dir = argv[1], /* no outro */);
