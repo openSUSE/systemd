@@ -869,6 +869,76 @@ static void test_conservative_rename(void) {
         assert_se(access(q, F_OK) < 0 && errno == ENOENT);
 }
 
+static void test_openat_report_new(void) {
+        _cleanup_free_ char *j = NULL;
+        _cleanup_(rm_rf_physical_and_freep) char *d = NULL;
+        _cleanup_close_ int fd = -1;
+        bool b;
+
+        log_info("/* %s */", __func__);
+
+        assert_se(mkdtemp_malloc(NULL, &d) >= 0);
+
+        j = path_join(d, "test");
+        assert_se(j);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT, 0666, &b);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+        assert_se(b);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT, 0666, &b);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+        assert_se(!b);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT, 0666, &b);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+        assert_se(!b);
+
+        assert_se(unlink(j) >= 0);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT, 0666, &b);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+        assert_se(b);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT, 0666, &b);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+        assert_se(!b);
+
+        assert_se(unlink(j) >= 0);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT, 0666, NULL);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT, 0666, &b);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+        assert_se(!b);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR, 0666, &b);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+        assert_se(!b);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT|O_EXCL, 0666, &b);
+        assert_se(fd == -EEXIST);
+
+        assert_se(unlink(j) >= 0);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR, 0666, &b);
+        assert_se(fd == -ENOENT);
+
+        fd = openat_report_new(AT_FDCWD, j, O_RDWR|O_CREAT|O_EXCL, 0666, &b);
+        assert_se(fd >= 0);
+        fd = safe_close(fd);
+        assert_se(b);
+}
+
 int main(int argc, char *argv[]) {
         test_setup_logging(LOG_INFO);
 
@@ -887,6 +957,7 @@ int main(int argc, char *argv[]) {
         test_rename_noreplace();
         test_chmod_and_chown();
         test_conservative_rename();
+        test_openat_report_new();
 
         return 0;
 }

@@ -1617,3 +1617,50 @@ int posix_fallocate_loop(int fd, uint64_t offset, uint64_t size) {
 
         return -EINTR;
 }
+
+int openat_report_new(int dirfd, const char *pathname, int flags, mode_t mode, bool *ret_newly_created) {
+        unsigned attempts = 7;
+        int fd;
+
+        /* Just like openat(), but adds one thing: optionally returns whether we created the file anew or if
+         * it already existed before. This is only relevant if O_CREAT is set without O_EXCL, and thus will
+         * shortcut to openat() otherwise */
+
+        if (!ret_newly_created)
+                return RET_NERRNO(openat(dirfd, pathname, flags, mode));
+
+        if (!FLAGS_SET(flags, O_CREAT) || FLAGS_SET(flags, O_EXCL)) {
+                fd = openat(dirfd, pathname, flags, mode);
+                if (fd < 0)
+                        return -errno;
+
+                *ret_newly_created = FLAGS_SET(flags, O_CREAT);
+                return fd;
+        }
+
+        for (;;) {
+                /* First, attempt to open without O_CREAT/O_EXCL, i.e. open existing file */
+                fd = openat(dirfd, pathname, flags & ~(O_CREAT | O_EXCL), mode);
+                if (fd >= 0) {
+                        *ret_newly_created = false;
+                        return fd;
+                }
+                if (errno != ENOENT)
+                        return -errno;
+
+                /* So the file didn't exist yet, hence create it with O_CREAT/O_EXCL. */
+                fd = openat(dirfd, pathname, flags | O_CREAT | O_EXCL, mode);
+                if (fd >= 0) {
+                        *ret_newly_created = true;
+                        return fd;
+                }
+                if (errno != EEXIST)
+                        return -errno;
+
+                /* Hmm, so now we got EEXIST? So it apparently exists now? If so, let's try to open again
+                 * without the two flags. But let's not spin forever, hence put a limit on things */
+
+                if (--attempts == 0) /* Give up eventually, somebody is playing with us */
+                        return -EEXIST;
+        }
+}

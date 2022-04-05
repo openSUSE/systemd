@@ -151,3 +151,5 @@ static inline int conservative_rename(const char *oldpath, const char *newpath) 
 }
 
 int posix_fallocate_loop(int fd, uint64_t offset, uint64_t size);
+
+int openat_report_new(int dirfd, const char *pathname, int flags, mode_t mode, bool *ret_newly_created);

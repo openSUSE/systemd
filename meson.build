@@ -1484,6 +1484,9 @@ else
 endif
 conf.set10('ENABLE_IMPORTD', have)
 
+want_kernel_install = get_option('kernel-install')
+conf.set10('ENABLE_KERNEL_INSTALL', want_kernel_install)
+
 want_homed = get_option('homed')
 if want_homed != 'false'
         have = (conf.get('HAVE_OPENSSL') == 1 and
@@ -1631,6 +1634,10 @@ else
 endif
 conf.set10('ENABLE_EFI', have)
 
+subdir('src/fundamental')
+subdir('src/boot/efi')
+conf.set10('HAVE_GNU_EFI', have_gnu_efi)
+
 ############################################################
 
 build_bpf_skel_py = find_program('tools/build-bpf-skel.py')
@@ -1683,7 +1690,6 @@ includes = [libsystemd_includes, include_directories('src/shared')]
 
 subdir('po')
 subdir('catalog')
-subdir('src/fundamental')
 subdir('src/basic')
 subdir('src/libsystemd')
 subdir('src/shared')
@@ -1775,7 +1781,6 @@ subdir('src/journal')
 subdir('src/libsystemd-network')
 
 subdir('src/analyze')
-subdir('src/boot/efi')
 subdir('src/busctl')
 subdir('src/coredump')
 subdir('src/cryptenroll')
@@ -2169,7 +2174,7 @@ if conf.get('HAVE_PAM') == 1
                 install_dir : rootlibexecdir)
 endif
 
-if conf.get('ENABLE_EFI') == 1 and conf.get('HAVE_BLKID') == 1
+if conf.get('HAVE_BLKID') == 1 and conf.get('HAVE_GNU_EFI') == 1
         public_programs += executable(
                 'bootctl',
                 'src/boot/bootctl.c',
@@ -3871,7 +3876,7 @@ foreach tuple : [
         ['hwdb'],
         ['importd'],
         ['initrd'],
-        ['kernel-install',        get_option('kernel-install')],
+        ['kernel-install'],
         ['localed'],
         ['logind'],
         ['machined'],
