@@ -2381,7 +2381,7 @@ static int item_compare(const Item *a, const Item *b) {
         return CMP(a->type, b->type);
 }
 
-static bool item_compatible(Item *a, Item *b) {
+static bool item_compatible(const Item *a, const Item *b) {
         assert(a);
         assert(b);
         assert(streq(a->path, b->path));
@@ -2564,13 +2564,13 @@ static int find_gid(const char *group, gid_t *ret_gid, Hashmap **cache) {
         return name_to_gid_offline(arg_root, group, ret_gid, cache);
 }
 
-static bool is_duplicated_item(ItemArray *existing, Item *i) {
+static bool is_duplicated_item(ItemArray *existing, const Item *i) {
 
         assert(existing);
         assert(i);
 
         for (size_t n = 0; n < existing->n_items; n++) {
-                Item *e = existing->items + n;
+                const Item *e = existing->items + n;
 
                 if (item_compatible(e, i))
                         continue;
