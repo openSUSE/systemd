@@ -3537,9 +3537,9 @@ int journal_file_open(
                  * or so, we likely fail quickly than block for long. For regular files O_NONBLOCK has no effect, hence
                  * it doesn't hurt in that case. */
 
-                f->fd = open(f->path, f->flags|O_CLOEXEC|O_NONBLOCK, f->mode);
+                f->fd = openat_report_new(AT_FDCWD, f->path, f->flags|O_CLOEXEC|O_NONBLOCK, f->mode, &newly_created);
                 if (f->fd < 0) {
-                        r = -errno;
+                        r = f->fd;
                         goto fail;
                 }
 
@@ -3549,6 +3549,19 @@ int journal_file_open(
                 r = fd_nonblock(f->fd, false);
                 if (r < 0)
                         goto fail;
+
+                if (!newly_created) {
+                        r = journal_file_fstat(f);
+                        if (r < 0)
+                                goto fail;
+                }
+        } else {
+                r = journal_file_fstat(f);
+                if (r < 0)
+                        goto fail;
+
+                /* If we just got the fd passed in, we don't really know if we created the file anew */
+                newly_created = f->last_stat.st_size == 0 && f->writable;
         }
 
         f->cache_fd = mmap_cache_add_fd(f->mmap, f->fd);
@@ -3557,12 +3570,7 @@ int journal_file_open(
                 goto fail;
         }
 
-        r = journal_file_fstat(f);
-        if (r < 0)
-                goto fail;
-
-        if (f->last_stat.st_size == 0 && f->writable) {
-
+        if (newly_created) {
                 (void) journal_file_warn_btrfs(f);
 
                 /* Let's attach the creation time to the journal file, so that the vacuuming code knows the age of this
@@ -3589,8 +3597,6 @@ int journal_file_open(
                 r = journal_file_fstat(f);
                 if (r < 0)
                         goto fail;
-
-                newly_created = true;
         }
 
         if (f->last_stat.st_size < (off_t) HEADER_SIZE_MIN) {
@@ -3687,6 +3693,9 @@ fail:
                 r = -EIO;
 
         (void) journal_file_close(f);
+
+        if (newly_created && fd < 0)
+                (void) unlink(fname);
 
         return r;
 }
