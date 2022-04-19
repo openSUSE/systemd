@@ -1084,8 +1084,11 @@ static int attach_luks_or_plain_or_bitlk_by_tpm2(
                                 break;
                         if (ERRNO_IS_NOT_SUPPORTED(r)) /* TPM2 support not compiled in? */
                                 return log_debug_errno(SYNTHETIC_ERRNO(EAGAIN), "TPM2 support not available, falling back to traditional unlocking.");
-                        if (r != -EAGAIN) /* EAGAIN means: no tpm2 chip found */
-                                return r;
+                        /* EAGAIN means: no tpm2 chip found */
+                        if (r != -EAGAIN) {
+                                log_notice_errno(r, "TPM2 operation failed, falling back to traditional unlocking: %m");
+                                return -EAGAIN; /* Mangle error code: let's make any form of TPM2 failure non-fatal. */
+                        }
                 } else {
                         _cleanup_free_ void *blob = NULL, *policy_hash = NULL;
                         size_t blob_size, policy_hash_size;
@@ -1137,8 +1140,11 @@ static int attach_luks_or_plain_or_bitlk_by_tpm2(
 
                         if (r >= 0)
                                 break;
-                        if (r != -EAGAIN) /* EAGAIN means: no tpm2 chip found */
-                                return r;
+                        /* EAGAIN means: no tpm2 chip found */
+                        if (r != -EAGAIN) {
+                                log_notice_errno(r, "TPM2 operation failed, falling back to traditional unlocking: %m");
+                                return -EAGAIN; /* Mangle error code: let's make any form of TPM2 failure non-fatal. */
+                        }
                 }
 
                 if (!monitor) {
