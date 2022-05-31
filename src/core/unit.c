@@ -671,8 +671,8 @@ Unit* unit_free(Unit *u) {
 
         unit_dequeue_rewatch_pids(u);
 
-        sd_bus_slot_unref(u->match_bus_slot);
-        sd_bus_track_unref(u->bus_track);
+        u->match_bus_slot = sd_bus_slot_unref(u->match_bus_slot);
+        u->bus_track = sd_bus_track_unref(u->bus_track);
         u->deserialized_refs = strv_free(u->deserialized_refs);
         u->pending_freezer_message = sd_bus_message_unref(u->pending_freezer_message);
 
@@ -5830,6 +5830,8 @@ static int unit_freezer_action(Unit *u, FreezerAction action) {
         r = method(u);
         if (r <= 0)
                 return r;
+
+        assert(IN_SET(u->freezer_state, FREEZER_FREEZING, FREEZER_THAWING));
 
         return 1;
 }
