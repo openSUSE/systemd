@@ -521,7 +521,6 @@ static int extract_image_and_extensions(
         int r;
 
         assert(name_or_path);
-        assert(matches);
 
         r = image_find_harder(IMAGE_PORTABLE, name_or_path, NULL, &image);
         if (r < 0)
@@ -576,6 +575,8 @@ static int extract_image_and_extensions(
                                    "PORTABLE_PREFIXES", &prefixes);
                 if (r < 0)
                         return r;
+                if (isempty(id))
+                        return sd_bus_error_set_errnof(error, SYNTHETIC_ERRNO(ESTALE), "Image %s os-release metadata lacks the ID field", name_or_path);
 
                 if (prefixes) {
                         valid_prefixes = strv_split(prefixes, WHITESPACE);
