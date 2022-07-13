@@ -1578,7 +1578,7 @@ static int create_directory_or_subvolume(const char *path, mode_t mode, bool sub
                 if (!IN_SET(r, -EEXIST, -EROFS))
                         return log_error_errno(r, "Failed to create directory or subvolume \"%s\": %m", path);
 
-                k = is_dir_fd(pfd);
+                k = is_dir_full(pfd, basename(path), /* follow= */ false);
                 if (k == -ENOENT && r == -EROFS)
                         return log_error_errno(r, "%s does not exist and cannot be created as the file system is read-only.", path);
                 if (k < 0)
