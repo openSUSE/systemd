@@ -280,7 +280,7 @@ static int journal_file_object_verify(JournalFile *f, uint64_t offset, Object *o
                         if (le64toh(o->entry.items[i].object_offset) == 0 ||
                             !VALID64(le64toh(o->entry.items[i].object_offset))) {
                                 error(offset,
-                                      "Invalid entry item (%"PRIu64"/%"PRIu64" offset: "OFSfmt,
+                                      "Invalid entry item (%"PRIu64"/%"PRIu64") offset: "OFSfmt,
                                       i, journal_file_entry_n_items(o),
                                       le64toh(o->entry.items[i].object_offset));
                                 return -EBADMSG;
@@ -669,6 +669,11 @@ static int verify_entry(
                         error(p, "Data object missing from hash table");
                         return -EBADMSG;
                 }
+
+                /* Pointer might have moved, reposition */
+                r = journal_file_move_to_object(f, OBJECT_DATA, q, &u);
+                if (r < 0)
+                        return r;
 
                 r = journal_file_move_to_entry_by_offset_for_data(f, u, p, DIRECTION_DOWN, NULL, NULL);
                 if (r < 0)

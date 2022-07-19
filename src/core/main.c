@@ -2118,11 +2118,9 @@ static int initialize_runtime(
                         write_container_id();
                 }
 
-                if (arg_watchdog_device) {
-                        r = watchdog_set_device(arg_watchdog_device);
-                        if (r < 0)
-                                log_warning_errno(r, "Failed to set watchdog device to %s, ignoring: %m", arg_watchdog_device);
-                }
+                r = watchdog_set_device(arg_watchdog_device);
+                if (r < 0)
+                        log_warning_errno(r, "Failed to set watchdog device to %s, ignoring: %m", arg_watchdog_device);
         } else {
                 _cleanup_free_ char *p = NULL;
 
@@ -2377,8 +2375,8 @@ static void reset_arguments(void) {
         arg_reboot_watchdog = 10 * USEC_PER_MINUTE;
         arg_kexec_watchdog = 0;
         arg_pretimeout_watchdog = 0;
-        arg_early_core_pattern = NULL;
-        arg_watchdog_device = NULL;
+        arg_early_core_pattern = mfree(arg_early_core_pattern);
+        arg_watchdog_device = mfree(arg_watchdog_device);
         arg_watchdog_pretimeout_governor = mfree(arg_watchdog_pretimeout_governor);
 
         arg_default_environment = strv_free(arg_default_environment);
