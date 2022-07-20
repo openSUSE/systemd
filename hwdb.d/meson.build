@@ -27,6 +27,9 @@ hwdb_files_test = files('''
         60-keyboard.hwdb
         60-seat.hwdb
         60-sensor.hwdb
+        70-analyzers.hwdb
+        70-av-production.hwdb
+        70-cameras.hwdb
         70-joystick.hwdb
         70-mouse.hwdb
         70-pointingstick.hwdb

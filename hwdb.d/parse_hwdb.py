@@ -74,6 +74,7 @@ TYPES = {'mouse':    ('usb', 'bluetooth', 'ps2', '*'),
          'keyboard': ('name', ),
          'sensor':   ('modalias', ),
          'ieee1394-unit-function' : ('node', ),
+         'camera':   ('usb'),
         }
 
 # Patterns that are used to set general properties on a device
@@ -134,6 +135,8 @@ def property_grammar():
              ('MOUSE_WHEEL_CLICK_COUNT', INTEGER),
              ('MOUSE_WHEEL_CLICK_COUNT_HORIZONTAL', INTEGER),
              ('ID_AUTOSUSPEND', Or((Literal('0'), Literal('1')))),
+             ('ID_AV_PRODUCTION_CONTROLLER', Or((Literal('0'), Literal('1')))),
+             ('ID_PERSIST', Or((Literal('0'), Literal('1')))),
              ('ID_INPUT', Or((Literal('0'), Literal('1')))),
              ('ID_INPUT_ACCELEROMETER', Or((Literal('0'), Literal('1')))),
              ('ID_INPUT_JOYSTICK', Or((Literal('0'), Literal('1')))),
@@ -147,6 +150,7 @@ def property_grammar():
              ('ID_INPUT_TOUCHPAD', Or((Literal('0'), Literal('1')))),
              ('ID_INPUT_TOUCHSCREEN', Or((Literal('0'), Literal('1')))),
              ('ID_INPUT_TRACKBALL', Or((Literal('0'), Literal('1')))),
+             ('ID_SIGNAL_ANALYZER', Or((Literal('0'), Literal('1')))),
              ('POINTINGSTICK_SENSITIVITY', INTEGER),
              ('POINTINGSTICK_CONST_ACCEL', REAL),
              ('ID_INPUT_JOYSTICK_INTEGRATION', Or(('internal', 'external'))),
@@ -165,6 +169,8 @@ def property_grammar():
              ('ID_VENDOR_FROM_DATABASE', name_literal),
              ('ID_MODEL_FROM_DATABASE', name_literal),
              ('ID_TAG_MASTER_OF_SEAT', Literal('1')),
+             ('ID_INFRARED_CAMERA', Or((Literal('0'), Literal('1')))),
+             ('ID_CAMERA_DIRECTION', Or(('front', 'rear'))),
             )
     fixed_props = [Literal(name)('NAME') - Suppress('=') - val('VALUE')
                    for name, val in props]
