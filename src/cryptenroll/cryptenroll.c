@@ -13,6 +13,7 @@
 #include "cryptenroll.h"
 #include "cryptsetup-util.h"
 #include "escape.h"
+#include "fileio.h"
 #include "libfido2-util.h"
 #include "main-func.h"
 #include "memory-util.h"
@@ -27,6 +28,7 @@
 #include "tpm2-util.h"
 
 static EnrollType arg_enroll_type = _ENROLL_TYPE_INVALID;
+static char *arg_unlock_keyfile = NULL;
 static char *arg_pkcs11_token_uri = NULL;
 static char *arg_fido2_device = NULL;
 static char *arg_tpm2_device = NULL;
@@ -40,6 +42,7 @@ static Fido2EnrollFlags arg_fido2_lock_with = FIDO2ENROLL_PIN | FIDO2ENROLL_UP;
 
 assert_cc(sizeof(arg_wipe_slots_mask) * 8 >= _ENROLL_TYPE_MAX);
 
+STATIC_DESTRUCTOR_REGISTER(arg_unlock_keyfile, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_pkcs11_token_uri, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_fido2_device, freep);
 STATIC_DESTRUCTOR_REGISTER(arg_tpm2_device, freep);
@@ -85,6 +88,8 @@ static int help(void) {
                "     --version         Show package version\n"
                "     --password        Enroll a user-supplied password\n"
                "     --recovery-key    Enroll a recovery key\n"
+               "     --unlock-key-file=PATH\n"
+               "                       Use a file to unlock the volume\n"
                "     --pkcs11-token-uri=URI\n"
                "                       Specify PKCS#11 security token URI\n"
                "     --fido2-device=PATH\n"
@@ -116,6 +121,7 @@ static int parse_argv(int argc, char *argv[]) {
                 ARG_VERSION = 0x100,
                 ARG_PASSWORD,
                 ARG_RECOVERY_KEY,
+                ARG_UNLOCK_KEYFILE,
                 ARG_PKCS11_TOKEN_URI,
                 ARG_FIDO2_DEVICE,
                 ARG_TPM2_DEVICE,
@@ -131,6 +137,7 @@ static int parse_argv(int argc, char *argv[]) {
                 { "version",                      no_argument,       NULL, ARG_VERSION          },
                 { "password",                     no_argument,       NULL, ARG_PASSWORD         },
                 { "recovery-key",                 no_argument,       NULL, ARG_RECOVERY_KEY     },
+                { "unlock-key-file",              required_argument, NULL, ARG_UNLOCK_KEYFILE   },
                 { "pkcs11-token-uri",             required_argument, NULL, ARG_PKCS11_TOKEN_URI },
                 { "fido2-device",                 required_argument, NULL, ARG_FIDO2_DEVICE     },
                 { "fido2-with-client-pin",        required_argument, NULL, ARG_FIDO2_WITH_PIN   },
@@ -204,6 +211,12 @@ static int parse_argv(int argc, char *argv[]) {
                                                        "Multiple operations specified at once, refusing.");
 
                         arg_enroll_type = ENROLL_RECOVERY;
+                        break;
+
+                case ARG_UNLOCK_KEYFILE:
+                        r = parse_path_argument(optarg, /* suppress_root= */ true, &arg_unlock_keyfile);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case ARG_PKCS11_TOKEN_URI: {
@@ -418,6 +431,35 @@ static int prepare_luks(
         if (!vk)
                 return log_oom();
 
+        if (arg_unlock_keyfile) {
+                _cleanup_(erase_and_freep) char *password = NULL;
+                size_t password_len;
+
+                r = read_full_file_full(
+                                AT_FDCWD,
+                                arg_unlock_keyfile,
+                                0,
+                                SIZE_MAX,
+                                READ_FULL_FILE_SECURE|READ_FULL_FILE_WARN_WORLD_READABLE|READ_FULL_FILE_CONNECT_SOCKET,
+                                NULL,
+                                &password,
+                                &password_len);
+                if (r < 0)
+                        return log_error_errno(r, "Reading keyfile %s failed: %m", arg_unlock_keyfile);
+
+                r = crypt_volume_key_get(
+                                cd,
+                                CRYPT_ANY_SLOT,
+                                vk,
+                                &vks,
+                                password,
+                                password_len);
+                if (r < 0)
+                        return log_error_errno(r, "Unlocking via keyfile failed: %m");
+
+                goto out;
+        }
+
         e = getenv("PASSWORD");
         if (e) {
                 _cleanup_(erase_and_freep) char *password = NULL;
@@ -489,6 +531,7 @@ static int prepare_luks(
                 }
         }
 
+out:
         *ret_cd = TAKE_PTR(cd);
         *ret_volume_key = TAKE_PTR(vk);
         *ret_volume_key_size = vks;
