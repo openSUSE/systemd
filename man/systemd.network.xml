@@ -1103,9 +1103,9 @@ Table=1234</programlisting></para>
           IGMP snooping since the switch would not replicate multicast packets on  ports that did not
           have IGMP reports for the multicast addresses. Linux vxlan interfaces created via
           <command>ip link add vxlan</command> or networkd's netdev kind vxlan have the group option
-          that enables then to do the required join. By extending ip address command with option
-          <literal>autojoin</literal> we can get similar functionality for openvswitch (OVS) vxlan
-          interfaces as well as other tunneling mechanisms that need to receive multicast traffic.
+          that enables them to do the required join. By extending <command>ip address</command> command
+          with option <literal>autojoin</literal> we can get similar functionality for openvswitch (OVS)
+          vxlan interfaces as well as other tunneling mechanisms that need to receive multicast traffic.
           Defaults to <literal>no</literal>.</para>
         </listitem>
       </varlistentry>
@@ -1487,7 +1487,7 @@ Table=1234</programlisting></para>
           <para>For IPv4 route, defaults to <literal>host</literal> if <varname>Type=</varname> is
           <literal>local</literal> or <literal>nat</literal>, and <literal>link</literal> if
           <varname>Type=</varname> is <literal>broadcast</literal>, <literal>multicast</literal>,
-          <literal>anycast</literal>, or direct <literal>unicast</literal> routes. In other cases,
+          <literal>anycast</literal>, or <literal>unicast</literal>. In other cases,
           defaults to <literal>global</literal>. The value is not used for IPv6.</para>
         </listitem>
       </varlistentry>
@@ -2534,7 +2534,7 @@ Token=prefixstable:2002:da8:1::</programlisting></para>
       <varlistentry>
         <term><varname>ServerAddress=</varname></term>
         <listitem><para>Specifies server address for the DHCP server. Takes an IPv4 address with prefix
-        length, for example <literal>192.168.0.1/24</literal>. This setting may be useful when the link on
+        length, for example 192.168.0.1/24. This setting may be useful when the link on
         which the DHCP server is running has multiple static addresses. When unset, one of static addresses
         in the link will be automatically selected. Defaults to unset.</para></listitem>
       </varlistentry>
@@ -2956,7 +2956,7 @@ Token=prefixstable:2002:da8:1::</programlisting></para>
 
         <listitem><para>The IPv6 route that is to be distributed to hosts.  Similarly to configuring static
         IPv6 routes, the setting is configured as an IPv6 prefix routes and its prefix route length,
-        separated by a <literal>/</literal> character. Use multiple [IPv6PrefixRoutes] sections to configure
+        separated by a <literal>/</literal> character. Use multiple [IPv6RoutePrefix] sections to configure
         multiple IPv6 prefix routes.</para></listitem>
       </varlistentry>
 

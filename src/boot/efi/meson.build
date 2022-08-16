@@ -200,6 +200,12 @@ efi_cflags = cc.get_supported_arguments(
         '-include', version_h,
 ]
 
+# On some distros, sd-boot/-stub may trigger some bug somewhere that will cause
+# kernel execution to fail. The cause seems to be purely based on code size and
+# always compiling with at least -O1 will work around that.
+# https://github.com/systemd/systemd/issues/24202
+efi_cflags += '-O1'
+
 efi_cflags += cc.get_supported_arguments({
         'ia32':   ['-mno-sse', '-mno-mmx'],
         'x86_64': ['-mno-red-zone', '-mno-sse', '-mno-mmx'],
@@ -260,6 +266,13 @@ efi_ldflags = [
         '-z', 'nocombreloc',
         efi_crt0,
 ]
+
+possible_link_flags = [
+        '-Wl,--no-warn-execstack',
+        '-Wl,--no-warn-rwx-segments',
+]
+efi_ldflags += cc.get_supported_link_arguments(possible_link_flags)
+
 if efi_arch[1] in ['aarch64', 'arm', 'riscv64']
         efi_ldflags += ['-shared']
         # Aarch64, ARM32 and 64bit RISC-V don't have an EFI capable objcopy.
