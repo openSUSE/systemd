@@ -1326,6 +1326,47 @@ static int dump_fallback(sd_bus *bus) {
         return 0;
 }
 
+static int dump_patterns(sd_bus *bus, char **patterns) {
+        _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+        _cleanup_(sd_bus_message_unrefp) sd_bus_message *reply = NULL, *m = NULL;
+        _cleanup_strv_free_ char **mangled = NULL;
+        const char *text;
+        char **pattern;
+        int r;
+
+        r = bus_message_new_method_call(bus, &m, bus_systemd_mgr, "DumpPatterns");
+        if (r < 0)
+                return bus_log_create_error(r);
+
+        STRV_FOREACH(pattern, patterns) {
+                char *t;
+
+                r = unit_name_mangle_with_suffix(*pattern, NULL, UNIT_NAME_MANGLE_GLOB, ".service", &t);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to mangle name: %m");
+
+                r = strv_consume(&mangled, t);
+                if (r < 0)
+                        return log_oom();
+        }
+
+        r = sd_bus_message_append_strv(m, mangled);
+        if (r < 0)
+                return bus_log_create_error(r);
+
+        r = sd_bus_call(bus, m, 0, &error, &reply);
+        if (r < 0)
+                return log_error_errno(r, "Failed to issue method call DumpPatterns: %s",
+                                       bus_error_message(&error, r));
+
+        r = sd_bus_message_read(reply, "s", &text);
+        if (r < 0)
+                return bus_log_parse_error(r);
+
+        fputs(text, stdout);
+        return r;
+}
+
 static int dump(int argc, char *argv[], void *userdata) {
         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
         _cleanup_(sd_bus_message_unrefp) sd_bus_message *reply = NULL;
@@ -1338,6 +1379,9 @@ static int dump(int argc, char *argv[], void *userdata) {
                 return bus_log_connect_error(r);
 
         (void) pager_open(arg_pager_flags);
+
+        if (argc > 1)
+                return dump_patterns(bus, strv_skip(argv, 1));
 
         if (!sd_bus_can_send(bus, SD_BUS_TYPE_UNIX_FD))
                 return dump_fallback(bus);
@@ -2184,7 +2228,7 @@ static int help(int argc, char *argv[], void *userdata) {
                "  critical-chain [UNIT...] Print a tree of the time critical chain of units\n"
                "  plot                     Output SVG graphic showing service initialization\n"
                "  dot [UNIT...]            Output dependency graph in %s format\n"
-               "  dump                     Output state serialization of service manager\n"
+               "  dump [PATTERN...]        Output state serialization of service manager\n"
                "  cat-config               Show configuration file and drop-ins\n"
                "  unit-files               List files and symlinks for units\n"
                "  unit-paths               List load directories for units\n"
@@ -2406,7 +2450,7 @@ static int run(int argc, char *argv[]) {
                 { "set-log-target",    2,        2,        0,            set_log_target         },
                 { "get-log-target",    VERB_ANY, 1,        0,            get_log_target         },
                 { "service-watchdogs", VERB_ANY, 2,        0,            service_watchdogs      },
-                { "dump",              VERB_ANY, 1,        0,            dump                   },
+                { "dump",              VERB_ANY, VERB_ANY, 0,            dump                   },
                 { "cat-config",        2,        VERB_ANY, 0,            cat_config             },
                 { "unit-files",        VERB_ANY, VERB_ANY, 0,            do_unit_files          },
                 { "unit-paths",        1,        1,        0,            dump_unit_paths        },
