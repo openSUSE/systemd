@@ -514,9 +514,9 @@ static int dev_pci_slot(sd_device *dev, struct netnames *names) {
 }
 
 static int names_vio(sd_device *dev, struct netnames *names) {
+        const char *syspath, *subsystem, *p, *s;
         sd_device *parent;
-        unsigned busid, slotid, ethid;
-        const char *syspath, *subsystem;
+        unsigned slotid;
         int r;
 
         /* check if our direct parent is a VIO device with no other bus in-between */
@@ -539,11 +539,26 @@ static int names_vio(sd_device *dev, struct netnames *names) {
         if (r < 0)
                 return log_device_debug_errno(dev, r, "sd_device_get_syspath failed: %m");
 
-        r = sscanf(syspath, "/sys/devices/vio/%4x%4x/net/eth%u", &busid, &slotid, &ethid);
-        log_device_debug(dev, "Parsing vio slot information from syspath \"%s\": %s",
-                         syspath, r == 3 ? "success" : "failure");
-        if (r != 3)
+        p = path_startswith(syspath, "/sys/devices/vio/");
+        if (!p)
                 return -EINVAL;
+
+        r = path_find_first_component(&p, /* accept_dot_dot = */ false, &s);
+        if (r < 0)
+                return r;
+        if (r != 8)
+                return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL),
+                                              "VIO bus ID and slot ID have invalid length: %s", syspath);
+
+        s = strndupa(s, 8);
+        if (!in_charset(s, HEXDIGITS))
+                return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL),
+                                              "VIO bus ID and slot ID contain invalid characters: %s", s);
+
+        /* Parse only slot ID (tha last 4 hexdigits). */
+        r = safe_atou_full(s + 4, 16, &slotid);
+        if (r < 0)
+                return log_device_debug_errno(dev, r, "Failed to parse VIO slot from syspath \"%s\": %m", syspath);
 
         xsprintf(names->vio_slot, "v%u", slotid);
         names->type = NET_VIO;
