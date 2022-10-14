@@ -1334,7 +1334,7 @@ static int dump_patterns(sd_bus *bus, char **patterns) {
         char **pattern;
         int r;
 
-        r = bus_message_new_method_call(bus, &m, bus_systemd_mgr, "DumpPatterns");
+        r = bus_message_new_method_call(bus, &m, bus_systemd_mgr, "DumpUnitsMatchingPatterns");
         if (r < 0)
                 return bus_log_create_error(r);
 
