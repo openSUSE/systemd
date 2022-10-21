@@ -989,6 +989,16 @@ endif
 
 #####################################################################
 
+libatomic = []
+if not cc.links('''#include <stdint.h>
+                   int main() {
+                     char i;
+                     __atomic_exchange_1(&i, 1, 0);
+                     return 1;
+                   }''',
+                name : 'Atomic builtin requires -latomic')
+        libatomic = cc.find_library('atomic')
+endif
 threads = dependency('threads')
 librt = cc.find_library('rt')
 libm = cc.find_library('m')
@@ -1015,7 +1025,7 @@ endif
 want_bpf_framework = get_option('bpf-framework')
 bpf_framework_required = want_bpf_framework == 'true'
 
-libbpf = dependency('libbpf', required : bpf_framework_required, version : '>= 0.2')
+libbpf = dependency('libbpf', required : bpf_framework_required, version : '>= 0.1.0')
 conf.set10('HAVE_LIBBPF', libbpf.found())
 
 if want_bpf_framework == 'false' or not libbpf.found() or skip_deps
@@ -3095,7 +3105,7 @@ if conf.get('ENABLE_OOMD') == 1
                    systemd_oomd_sources,
                    include_directories : includes,
                    link_with : [libshared],
-                   dependencies : [],
+                   dependencies : [libatomic],
                    install_rpath : rootlibexecdir,
                    install : true,
                    install_dir : rootlibexecdir)
