@@ -102,3 +102,7 @@ int sched_policy_from_string(const char *s);
 #define PID_TO_PTR(p) ((void*) ((uintptr_t) p))
 
 int pid_compare_func(const void *a, const void *b);
+
+static inline bool pid_is_valid(pid_t p) {
+        return p > 0;
+}
