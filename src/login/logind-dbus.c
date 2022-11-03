@@ -1539,14 +1539,18 @@ static int bus_manager_log_shutdown(
                 q = NULL;
         }
 
-        if (isempty(m->wall_message))
+        if (isempty(m->wall_message)) {
                 p = strjoina(p, ".");
-        else
-                p = strjoina(p, " (", m->wall_message, ").");
+                return log_struct(LOG_NOTICE,
+                                  "MESSAGE_ID=" SD_MESSAGE_SHUTDOWN_STR,
+                                  p,
+                                  q);
+        }
 
+        p = strjoina(p, " (%s).");
         return log_struct(LOG_NOTICE,
                           "MESSAGE_ID=" SD_MESSAGE_SHUTDOWN_STR,
-                          p,
+                          p, m->wall_message,
                           q);
 }
 
