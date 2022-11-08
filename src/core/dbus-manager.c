@@ -973,7 +973,7 @@ static int transient_unit_from_message(
 
         if (!unit_is_pristine(u))
                 return sd_bus_error_setf(error, BUS_ERROR_UNIT_EXISTS,
-                                         "Unit %s already exists.", name);
+                                         "Unit %s was already loaded or has a fragment file.", name);
 
         /* OK, the unit failed to load and is unreferenced, now let's
          * fill in the transient data instead */
@@ -2639,21 +2639,27 @@ static int method_get_unit_file_links(sd_bus_message *message, void *userdata, s
                 (runtime ? UNIT_FILE_RUNTIME : 0);
 
         r = unit_file_disable(LOOKUP_SCOPE_SYSTEM, flags, NULL, p, &changes, &n_changes);
-        if (r < 0)
-                return log_error_errno(r, "Failed to get file links for %s: %m", name);
+        if (r < 0) {
+                log_error_errno(r, "Failed to get file links for %s: %m", name);
+                goto finish;
+        }
 
         for (i = 0; i < n_changes; i++)
                 if (changes[i].type_or_errno == UNIT_FILE_UNLINK) {
                         r = sd_bus_message_append(reply, "s", changes[i].path);
                         if (r < 0)
-                                return r;
+                                goto finish;
                 }
 
         r = sd_bus_message_close_container(reply);
         if (r < 0)
-                return r;
+                goto finish;
 
-        return sd_bus_send(NULL, reply, NULL);
+        r = sd_bus_send(NULL, reply, NULL);
+
+finish:
+        unit_file_changes_free(changes, n_changes);
+        return r;
 }
 
 static int method_get_job_waiting(sd_bus_message *message, void *userdata, sd_bus_error *error) {
