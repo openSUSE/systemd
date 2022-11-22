@@ -292,6 +292,8 @@ int main(int argc, char *argv[]) {
                         r = ppoll(p, ELEMENTSOF(p), ts, NULL);
                 }
                 if (r < 0) {
+                        if (ERRNO_IS_TRANSIENT(errno)) /* don't be bothered by signals, i.e. EINTR */
+                                continue;
                         log_error("ppoll() failed: %m");
                         goto finish;
                 }
