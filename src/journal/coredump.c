@@ -134,7 +134,7 @@ static int parse_config(void) {
                                  false, NULL);
 }
 
-static int fix_acl(int fd, uid_t uid) {
+static int fix_acl(int fd, uid_t uid, bool allow_user) {
 
 #ifdef HAVE_ACL
         _cleanup_(acl_freep) acl_t acl = NULL;
@@ -143,6 +143,10 @@ static int fix_acl(int fd, uid_t uid) {
         int r;
 
         assert(fd >= 0);
+
+        /* We don't allow users to read coredumps if the uid or capabilities were changed. */
+        if (!allow_user)
+                return 0;
 
         if (uid <= SYSTEM_UID_MAX)
                 return 0;
@@ -217,7 +221,8 @@ static int fix_permissions(
                 const char *filename,
                 const char *target,
                 const char *info[_INFO_LEN],
-                uid_t uid) {
+                uid_t uid,
+                bool allow_user) {
 
         assert(fd >= 0);
         assert(filename);
@@ -226,7 +231,7 @@ static int fix_permissions(
 
         /* Ignore errors on these */
         fchmod(fd, 0640);
-        fix_acl(fd, uid);
+        fix_acl(fd, uid, allow_user);
         fix_xattr(fd, info);
 
         if (fsync(fd) < 0)
@@ -294,9 +299,154 @@ static int make_filename(const char *info[_INFO_LEN], char **ret) {
         return 0;
 }
 
+static int parse_auxv64(
+                const uint64_t *auxv,
+                size_t size_bytes,
+                int *at_secure,
+                uid_t *uid,
+                uid_t *euid,
+                gid_t *gid,
+                gid_t *egid) {
+
+        size_t words;
+
+        assert(auxv || size_bytes == 0);
+
+        if (size_bytes % (2 * sizeof(uint64_t)) != 0)
+                return log_warning_errno(EIO, "Incomplete auxv structure (%zu bytes).", size_bytes);
+
+        words = size_bytes / sizeof(uint64_t);
+
+        /* Note that we set output variables even on error. */
+
+        for (size_t i = 0; i + 1 < words; i += 2)
+                switch (auxv[i]) {
+                case AT_SECURE:
+                        *at_secure = auxv[i + 1] != 0;
+                        break;
+                case AT_UID:
+                        *uid = auxv[i + 1];
+                        break;
+                case AT_EUID:
+                        *euid = auxv[i + 1];
+                        break;
+                case AT_GID:
+                        *gid = auxv[i + 1];
+                        break;
+                case AT_EGID:
+                        *egid = auxv[i + 1];
+                        break;
+                case AT_NULL:
+                        if (auxv[i + 1] != 0)
+                                goto error;
+                        return 0;
+                }
+ error:
+        return log_warning_errno(ENODATA, "AT_NULL terminator not found, cannot parse auxv structure.");
+}
+
+static int parse_auxv32(
+                const uint32_t *auxv,
+                size_t size_bytes,
+                int *at_secure,
+                uid_t *uid,
+                uid_t *euid,
+                gid_t *gid,
+                gid_t *egid) {
+
+        size_t words;
+
+        assert(auxv || size_bytes == 0);
+
+        words = size_bytes / sizeof(uint32_t);
+
+        if (size_bytes % (2 * sizeof(uint32_t)) != 0)
+                return log_warning_errno(EIO, "Incomplete auxv structure (%zu bytes).", size_bytes);
+
+        /* Note that we set output variables even on error. */
+
+        for (size_t i = 0; i + 1 < words; i += 2)
+                switch (auxv[i]) {
+                case AT_SECURE:
+                        *at_secure = auxv[i + 1] != 0;
+                        break;
+                case AT_UID:
+                        *uid = auxv[i + 1];
+                        break;
+                case AT_EUID:
+                        *euid = auxv[i + 1];
+                        break;
+                case AT_GID:
+                        *gid = auxv[i + 1];
+                        break;
+                case AT_EGID:
+                        *egid = auxv[i + 1];
+                        break;
+                case AT_NULL:
+                        if (auxv[i + 1] != 0)
+                                goto error;
+                        return 0;
+                }
+ error:
+        return log_warning_errno(ENODATA, "AT_NULL terminator not found, cannot parse auxv structure.");
+}
+
+static int grant_user_access(int core_fd, void *auxv_data, size_t auxv_size) {
+        int at_secure = -1;
+        uid_t uid = UID_INVALID, euid = UID_INVALID;
+        uid_t gid = GID_INVALID, egid = GID_INVALID;
+        uint8_t elf[EI_NIDENT];
+        int r;
+
+        assert(core_fd >= 0);
+
+        if (!auxv_data)
+                return log_warning_errno(ENODATA, "No auxv data, not adjusting permissions.");
+
+        errno = 0;
+        if (pread(core_fd, &elf, sizeof(elf), 0) != sizeof(elf))
+                return log_warning_errno(errno_or_else(EIO),
+                                         "Failed to pread from coredump fd: %s", errno != 0 ? strerror(errno) : "Premature EOF");
+
+        if (elf[EI_MAG0] != ELFMAG0 ||
+            elf[EI_MAG1] != ELFMAG1 ||
+            elf[EI_MAG2] != ELFMAG2 ||
+            elf[EI_MAG3] != ELFMAG3 ||
+            elf[EI_VERSION] != EV_CURRENT)
+                return log_info_errno(EUCLEAN, "Core file does not have ELF header, not adjusting permissions.");
+        if (!IN_SET(elf[EI_CLASS], ELFCLASS32, ELFCLASS64) ||
+            !IN_SET(elf[EI_DATA], ELFDATA2LSB, ELFDATA2MSB))
+                return log_info_errno(EUCLEAN, "Core file has strange ELF class, not adjusting permissions.");
+
+        if ((elf[EI_DATA] == ELFDATA2LSB) != (__BYTE_ORDER == __LITTLE_ENDIAN))
+                return log_info_errno(EUCLEAN, "Core file has non-native endianness, not adjusting permissions.");
+
+        if (elf[EI_CLASS] == ELFCLASS64)
+                r = parse_auxv64((const uint64_t*) auxv_data, auxv_size,
+                                 &at_secure, &uid, &euid, &gid, &egid);
+        else
+                r = parse_auxv32((const uint32_t*) auxv_data, auxv_size,
+                                 &at_secure, &uid, &euid, &gid, &egid);
+        if (r < 0)
+                return r;
+
+        /* We allow access if we got all the data and at_secure is not set and
+         * the uid/gid matches euid/egid. */
+        bool ret =
+                at_secure == 0 &&
+                uid != UID_INVALID && euid != UID_INVALID && uid == euid &&
+                gid != GID_INVALID && egid != GID_INVALID && gid == egid;
+        log_debug("Will %s access (uid="UID_FMT " euid="UID_FMT " gid="GID_FMT " egid="GID_FMT " at_secure=%s)",
+                  ret ? "permit" : "restrict",
+                  uid, euid, gid, egid, yes_no(at_secure));
+        return ret;
+}
+
 static int save_external_coredump(
                 const char *info[_INFO_LEN],
                 uid_t uid,
+                void *auxv_data,
+                size_t auxv_size,
                 char **ret_filename,
                 int *ret_node_fd,
                 int *ret_data_fd,
@@ -362,6 +512,8 @@ static int save_external_coredump(
                 goto fail;
         }
 
+        bool allow_user = grant_user_access(fd, auxv_data, auxv_size) > 0;
+
 #if defined(HAVE_XZ) || defined(HAVE_LZ4)
         /* If we will remove the coredump anyway, do not compress. */
         if (maybe_remove_external_coredump(NULL, st.st_size) == 0
@@ -394,7 +546,7 @@ static int save_external_coredump(
                         goto fail_compressed;
                 }
 
-                r = fix_permissions(fd_compressed, tmp_compressed, fn_compressed, info, uid);
+                r = fix_permissions(fd_compressed, tmp_compressed, fn_compressed, info, uid, allow_user);
                 if (r < 0)
                         goto fail_compressed;
 
@@ -418,7 +570,7 @@ static int save_external_coredump(
 uncompressed:
 #endif
 
-        r = fix_permissions(fd, tmp, fn, info, uid);
+        r = fix_permissions(fd, tmp, fn, info, uid, allow_user);
         if (r < 0)
                 goto fail;
 
@@ -581,6 +733,8 @@ int main(int argc, char* argv[]) {
         uid_t uid, owner_uid;
         gid_t gid;
         pid_t pid;
+        void *auxv_data;
+        size_t auxv_size;
         char *t;
         const char *p;
 
@@ -653,7 +807,7 @@ int main(int argc, char* argv[]) {
                         if (arg_storage != COREDUMP_STORAGE_NONE)
                                 arg_storage = COREDUMP_STORAGE_EXTERNAL;
 
-                        r = save_external_coredump(info, uid, &filename, &coredump_node_fd, &coredump_fd, &coredump_size);
+                        r = save_external_coredump(info, uid, NULL, 0, &filename, &coredump_node_fd, &coredump_fd, &coredump_size);
                         if (r < 0)
                                 goto finish;
 
@@ -782,6 +936,20 @@ int main(int argc, char* argv[]) {
                         IOVEC_SET_STRING(iovec[j++], core_proc_cgroup);
         }
 
+        /* We attach /proc/auxv here. ELF coredumps also contain a note for this (NT_AUXV), see elf(5). */
+        p = procfs_file_alloca(pid, "auxv");
+        if (read_full_virtual_file(p, &t, &auxv_size) >= 0) {
+                auxv_data = malloc(strlen("COREDUMP_PROC_AUXV=") + auxv_size);
+                if (auxv_data) {
+                        mempcpy(stpcpy(auxv_data, "COREDUMP_PROC_AUXV="), t, auxv_size);
+
+                        iovec[j].iov_base = auxv_data;
+                        iovec[j].iov_len = strlen("COREDUMP_PROC_AUXV=") + auxv_size;
+                        j++;
+                }
+                free(t);
+        }
+
         if (get_process_cwd(pid, &t) >= 0) {
                 core_cwd = strjoina("COREDUMP_CWD=", t);
                 free(t);
@@ -815,7 +983,8 @@ int main(int argc, char* argv[]) {
         coredump_vacuum(-1, arg_keep_free, arg_max_use);
 
         /* Always stream the coredump to disk, if that's possible */
-        r = save_external_coredump(info, uid, &filename, &coredump_node_fd, &coredump_fd, &coredump_size);
+        r = save_external_coredump(info, uid, auxv_data, auxv_size, &filename,
+                                   &coredump_node_fd, &coredump_fd, &coredump_size);
         if (r < 0)
                 /* skip whole core dumping part */
                 goto log;
