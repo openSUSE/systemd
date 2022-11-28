@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <sys/prctl.h>
+#include <sys/auxv.h>
 #include <sys/xattr.h>
 #include <unistd.h>
 
@@ -103,6 +104,7 @@ enum {
         CONTEXT_COMM,
         CONTEXT_EXE,
         CONTEXT_UNIT,
+        CONTEXT_PROC_AUXV,
         _CONTEXT_MAX
 };
 
@@ -154,8 +156,7 @@ static inline uint64_t storage_size_max(void) {
         return arg_storage == COREDUMP_STORAGE_EXTERNAL ? arg_external_size_max : arg_journal_size_max;
 }
 
-static int fix_acl(int fd, uid_t uid) {
-
+static int fix_acl(int fd, uid_t uid, bool allow_user) {
 #ifdef HAVE_ACL
         _cleanup_(acl_freep) acl_t acl = NULL;
         acl_entry_t entry;
@@ -163,6 +164,11 @@ static int fix_acl(int fd, uid_t uid) {
         int r;
 
         assert(fd >= 0);
+        assert(uid_is_valid(uid));
+
+        /* We don't allow users to read coredumps if the uid or capabilities were changed. */
+        if (!allow_user)
+                return 0;
 
         if (uid <= SYSTEM_UID_MAX)
                 return 0;
@@ -240,7 +246,8 @@ static int fix_permissions(
                 const char *filename,
                 const char *target,
                 const char *context[_CONTEXT_MAX],
-                uid_t uid) {
+                uid_t uid,
+                bool allow_user) {
 
         int r;
 
@@ -250,7 +257,7 @@ static int fix_permissions(
 
         /* Ignore errors on these */
         (void) fchmod(fd, 0640);
-        (void) fix_acl(fd, uid);
+        (void) fix_acl(fd, uid, allow_user);
         (void) fix_xattr(fd, context);
 
         if (fsync(fd) < 0)
@@ -319,8 +326,156 @@ static int make_filename(const char *context[_CONTEXT_MAX], char **ret) {
         return 0;
 }
 
+static int parse_auxv64(
+                const uint64_t *auxv,
+                size_t size_bytes,
+                int *at_secure,
+                uid_t *uid,
+                uid_t *euid,
+                gid_t *gid,
+                gid_t *egid) {
+
+        size_t words;
+
+        assert(auxv || size_bytes == 0);
+
+        if (size_bytes % (2 * sizeof(uint64_t)) != 0)
+                return log_warning_errno(EIO, "Incomplete auxv structure (%zu bytes).", size_bytes);
+
+        words = size_bytes / sizeof(uint64_t);
+
+        /* Note that we set output variables even on error. */
+
+        for (size_t i = 0; i + 1 < words; i += 2)
+                switch (auxv[i]) {
+                case AT_SECURE:
+                        *at_secure = auxv[i + 1] != 0;
+                        break;
+                case AT_UID:
+                        *uid = auxv[i + 1];
+                        break;
+                case AT_EUID:
+                        *euid = auxv[i + 1];
+                        break;
+                case AT_GID:
+                        *gid = auxv[i + 1];
+                        break;
+                case AT_EGID:
+                        *egid = auxv[i + 1];
+                        break;
+                case AT_NULL:
+                        if (auxv[i + 1] != 0)
+                                goto error;
+                        return 0;
+                }
+ error:
+        return log_warning_errno(ENODATA, "AT_NULL terminator not found, cannot parse auxv structure.");
+}
+
+static int parse_auxv32(
+                const uint32_t *auxv,
+                size_t size_bytes,
+                int *at_secure,
+                uid_t *uid,
+                uid_t *euid,
+                gid_t *gid,
+                gid_t *egid) {
+
+        size_t words;
+
+        assert(auxv || size_bytes == 0);
+
+        words = size_bytes / sizeof(uint32_t);
+
+        if (size_bytes % (2 * sizeof(uint32_t)) != 0)
+                return log_warning_errno(EIO, "Incomplete auxv structure (%zu bytes).", size_bytes);
+
+        /* Note that we set output variables even on error. */
+
+        for (size_t i = 0; i + 1 < words; i += 2)
+                switch (auxv[i]) {
+                case AT_SECURE:
+                        *at_secure = auxv[i + 1] != 0;
+                        break;
+                case AT_UID:
+                        *uid = auxv[i + 1];
+                        break;
+                case AT_EUID:
+                        *euid = auxv[i + 1];
+                        break;
+                case AT_GID:
+                        *gid = auxv[i + 1];
+                        break;
+                case AT_EGID:
+                        *egid = auxv[i + 1];
+                        break;
+                case AT_NULL:
+                        if (auxv[i + 1] != 0)
+                                goto error;
+                        return 0;
+                }
+ error:
+        return log_warning_errno(ENODATA, "AT_NULL terminator not found, cannot parse auxv structure.");
+}
+
+static int grant_user_access(int core_fd, const char *context[_CONTEXT_MAX], const size_t context_sizes[_CONTEXT_MAX]) {
+        int at_secure = -1;
+        uid_t uid = UID_INVALID, euid = UID_INVALID;
+        uid_t gid = GID_INVALID, egid = GID_INVALID;
+        uint8_t elf[EI_NIDENT];
+        int r;
+
+        assert(core_fd >= 0);
+        assert(context);
+        assert(context_sizes);
+
+        if (!context[CONTEXT_PROC_AUXV])
+                return log_warning_errno(ENODATA, "No auxv data, not adjusting permissions.");
+
+        errno = 0;
+        if (pread(core_fd, &elf, sizeof(elf), 0) != sizeof(elf))
+                return log_warning_errno(errno_or_else(EIO),
+                                         "Failed to pread from coredump fd: %s", errno != 0 ? strerror(errno) : "Premature EOF");
+
+        if (elf[EI_MAG0] != ELFMAG0 ||
+            elf[EI_MAG1] != ELFMAG1 ||
+            elf[EI_MAG2] != ELFMAG2 ||
+            elf[EI_MAG3] != ELFMAG3 ||
+            elf[EI_VERSION] != EV_CURRENT)
+                return log_info_errno(EUCLEAN, "Core file does not have ELF header, not adjusting permissions.");
+        if (!IN_SET(elf[EI_CLASS], ELFCLASS32, ELFCLASS64) ||
+            !IN_SET(elf[EI_DATA], ELFDATA2LSB, ELFDATA2MSB))
+                return log_info_errno(EUCLEAN, "Core file has strange ELF class, not adjusting permissions.");
+
+        if ((elf[EI_DATA] == ELFDATA2LSB) != (__BYTE_ORDER == __LITTLE_ENDIAN))
+                return log_info_errno(EUCLEAN, "Core file has non-native endianness, not adjusting permissions.");
+
+        if (elf[EI_CLASS] == ELFCLASS64)
+                r = parse_auxv64((const uint64_t*) context[CONTEXT_PROC_AUXV],
+                                 context_sizes[CONTEXT_PROC_AUXV],
+                                 &at_secure, &uid, &euid, &gid, &egid);
+        else
+                r = parse_auxv32((const uint32_t*) context[CONTEXT_PROC_AUXV],
+                                 context_sizes[CONTEXT_PROC_AUXV],
+                                 &at_secure, &uid, &euid, &gid, &egid);
+        if (r < 0)
+                return r;
+
+        /* We allow access if we got all the data and at_secure is not set and
+         * the uid/gid matches euid/egid. */
+        bool ret =
+                at_secure == 0 &&
+                uid != UID_INVALID && euid != UID_INVALID && uid == euid &&
+                gid != GID_INVALID && egid != GID_INVALID && gid == egid;
+        log_debug("Will %s access (uid="UID_FMT " euid="UID_FMT " gid="GID_FMT " egid="GID_FMT " at_secure=%s)",
+                  ret ? "permit" : "restrict",
+                  uid, euid, gid, egid, yes_no(at_secure));
+        return ret;
+}
+
 static int save_external_coredump(
                 const char *context[_CONTEXT_MAX],
+                size_t context_sizes[_CONTEXT_MAX],
                 int input_fd,
                 char **ret_filename,
                 int *ret_node_fd,
@@ -331,6 +486,7 @@ static int save_external_coredump(
         _cleanup_free_ char *fn = NULL, *tmp = NULL;
         _cleanup_close_ int fd = -1;
         uint64_t rlimit, max_size;
+        bool allow_user;
         struct stat st;
         uid_t uid;
         int r;
@@ -375,6 +531,7 @@ static int save_external_coredump(
                 log_error_errno(r, "Cannot store coredump of %s (%s): %m", context[CONTEXT_PID], context[CONTEXT_COMM]);
                 goto fail;
         }
+
         *ret_truncated = r == 1;
         if (*ret_truncated)
                 log_struct(LOG_INFO,
@@ -392,6 +549,8 @@ static int save_external_coredump(
                 log_error_errno(errno, "Failed to seek on %s: %m", coredump_tmpfile_name(tmp));
                 goto fail;
         }
+
+        allow_user = context_sizes ? grant_user_access(fd, context, context_sizes) > 0 : false;
 
 #if defined(HAVE_XZ) || defined(HAVE_LZ4)
         /* If we will remove the coredump anyway, do not compress. */
@@ -418,7 +577,7 @@ static int save_external_coredump(
                         goto fail_compressed;
                 }
 
-                r = fix_permissions(fd_compressed, tmp_compressed, fn_compressed, context, uid);
+                r = fix_permissions(fd_compressed, tmp_compressed, fn_compressed, context, uid, allow_user);
                 if (r < 0)
                         goto fail_compressed;
 
@@ -444,7 +603,7 @@ static int save_external_coredump(
 uncompressed:
 #endif
 
-        r = fix_permissions(fd, tmp, fn, context, uid);
+        r = fix_permissions(fd, tmp, fn, context, uid, allow_user);
         if (r < 0)
                 goto fail;
 
@@ -712,6 +871,7 @@ static bool is_pid1_crash(const char *context[_CONTEXT_MAX]) {
 
 static int submit_coredump(
                 const char *context[_CONTEXT_MAX],
+                size_t context_sizes[_CONTEXT_MAX],
                 struct iovec *iovec,
                 size_t n_iovec_allocated,
                 size_t n_iovec,
@@ -734,7 +894,7 @@ static int submit_coredump(
         (void) coredump_vacuum(-1, arg_keep_free, arg_max_use);
 
         /* Always stream the coredump to disk, if that's possible */
-        r = save_external_coredump(context, input_fd,
+        r = save_external_coredump(context, context_sizes, input_fd,
                                    &filename, &coredump_node_fd, &coredump_fd, &coredump_size, &truncated);
         if (r < 0)
                 /* Skip whole core dumping part */
@@ -838,7 +998,7 @@ log:
         return 0;
 }
 
-static void map_context_fields(const struct iovec *iovec, const char* context[]) {
+static void map_context_fields(const struct iovec *iovec, const char* context[], size_t context_sizes[]) {
 
         static const char * const context_field_names[] = {
                 [CONTEXT_PID] = "COREDUMP_PID=",
@@ -849,6 +1009,7 @@ static void map_context_fields(const struct iovec *iovec, const char* context[])
                 [CONTEXT_RLIMIT] = "COREDUMP_RLIMIT=",
                 [CONTEXT_COMM] = "COREDUMP_COMM=",
                 [CONTEXT_EXE] = "COREDUMP_EXE=",
+                [CONTEXT_PROC_AUXV] = "COREDUMP_PROC_AUXV=",
         };
 
         unsigned i;
@@ -872,6 +1033,7 @@ static void map_context_fields(const struct iovec *iovec, const char* context[])
                 /* Note that these strings are NUL terminated, because we made sure that a trailing NUL byte is in the
                  * buffer, though not included in the iov_len count. (see below) */
                 context[i] = (char*) iovec->iov_base + l;
+                context_sizes[i] = iovec->iov_len - l;
                 break;
         }
 }
@@ -881,6 +1043,7 @@ static int process_socket(int fd) {
         struct iovec *iovec = NULL;
         size_t n_iovec = 0, n_allocated = 0, i, k;
         const char *context[_CONTEXT_MAX] = {};
+        size_t context_sizes[_CONTEXT_MAX] = {};
         int r;
 
         assert(fd >= 0);
@@ -964,7 +1127,7 @@ static int process_socket(int fd) {
                 iovec[n_iovec].iov_len = (size_t) n;
 
                 cmsg_close_all(&mh);
-                map_context_fields(iovec + n_iovec, context);
+                map_context_fields(iovec + n_iovec, context, context_sizes);
                 n_iovec++;
         }
 
@@ -990,7 +1153,7 @@ static int process_socket(int fd) {
         if (k > 6)
                 context[CONTEXT_TIMESTAMP] = strndupa(context[CONTEXT_TIMESTAMP], k - 6);
 
-        r = submit_coredump(context, iovec, n_allocated, n_iovec, coredump_fd);
+        r = submit_coredump(context, context_sizes, iovec, n_allocated, n_iovec, coredump_fd);
 
 finish:
         for (i = 0; i < n_iovec; i++)
@@ -1083,6 +1246,22 @@ static char* set_iovec_field_free(struct iovec iovec[27], size_t *n_iovec, const
         return x;
 }
 
+static void* set_iovec_data_field_free(struct iovec iovec[27], size_t *n_iovec, const char *field, void *data, size_t size) {
+        void *x;
+
+        x = malloc(strlen(field) + size);
+        if (x) {
+                mempcpy(stpcpy(x, field), data, size);
+
+                iovec[*n_iovec].iov_base = x;
+                iovec[*n_iovec].iov_len = strlen(field) + size;
+                (*n_iovec)++;
+        }
+
+        free(data);
+        return x;
+}
+
 static int gather_pid_metadata(
                 char* context[_CONTEXT_MAX],
                 char **comm_fallback,
@@ -1096,6 +1275,7 @@ static int gather_pid_metadata(
         uid_t owner_uid;
         pid_t pid;
         char *t;
+        size_t size;
         const char *p;
         int r, signo;
 
@@ -1191,12 +1371,17 @@ static int gather_pid_metadata(
                 set_iovec_field_free(iovec, n_iovec, "COREDUMP_PROC_LIMITS=", t);
 
         p = procfs_file_alloca(pid, "cgroup");
-        if (read_full_file(p, &t, NULL) >=0)
+        if (read_full_file(p, &t, NULL) >= 0)
                 set_iovec_field_free(iovec, n_iovec, "COREDUMP_PROC_CGROUP=", t);
 
         p = procfs_file_alloca(pid, "mountinfo");
-        if (read_full_file(p, &t, NULL) >=0)
+        if (read_full_file(p, &t, NULL) >= 0)
                 set_iovec_field_free(iovec, n_iovec, "COREDUMP_PROC_MOUNTINFO=", t);
+
+        /* We attach /proc/auxv here. ELF coredumps also contain a note for this (NT_AUXV), see elf(5). */
+        p = procfs_file_alloca(pid, "auxv");
+        if (read_full_virtual_file(p, &t, &size) >= 0)
+                set_iovec_data_field_free(iovec, n_iovec, "COREDUMP_PROC_AUXV=", t, size);
 
         if (get_process_cwd(pid, &t) >= 0)
                 set_iovec_field_free(iovec, n_iovec, "COREDUMP_CWD=", t);
@@ -1262,7 +1447,7 @@ static int process_kernel(int argc, char* argv[]) {
         assert(n_iovec <= ELEMENTSOF(iovec));
 
         if (is_journald_crash((const char**) context) || is_pid1_crash((const char**) context))
-                r = submit_coredump((const char**) context,
+                r = submit_coredump((const char**) context, NULL,
                                     iovec, ELEMENTSOF(iovec), n_iovec,
                                     STDIN_FILENO);
         else
