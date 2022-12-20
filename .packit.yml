@@ -4,8 +4,8 @@
 # Docs: https://packit.dev/docs/
 
 specfile_path: .packit_rpm/systemd.spec
-synced_files:
-  - .packit.yaml
+files_to_sync:
+  - .packit.yml
   - src: .packit_rpm/systemd.spec
     dest: systemd.spec
 upstream_package_name: systemd
@@ -32,14 +32,15 @@ actions:
     # [0] https://github.com/mesonbuild/meson/issues/7360
     # [1] https://github.com/systemd/systemd/pull/18908#issuecomment-792250110
     - 'sed -i "/^CONFIGURE_OPTS=(/a--werror" .packit_rpm/systemd.spec'
+    # Ignore unpackages standalone binaries
+    - "sed -i 's/assert False,.*/pass/' .packit_rpm/split-files.py"
 
 jobs:
 - job: copr_build
   trigger: pull_request
-  metadata:
-    targets:
-    - fedora-rawhide-aarch64
-    - fedora-rawhide-i386
-    - fedora-rawhide-ppc64le
-    - fedora-rawhide-s390x
-    - fedora-rawhide-x86_64
+  targets:
+  - fedora-rawhide-aarch64
+  - fedora-rawhide-i386
+  - fedora-rawhide-ppc64le
+  - fedora-rawhide-s390x
+  - fedora-rawhide-x86_64
