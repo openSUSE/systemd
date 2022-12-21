@@ -60,6 +60,10 @@ static inline const char* one_zero(bool b) {
         return b ? "1" : "0";
 }
 
+static inline const char* enable_disable(bool b) {
+        return b ? "enable" : "disable";
+}
+
 void execute_directories(const char* const* directories, usec_t timeout, char *argv[]);
 
 bool plymouth_running(void);
@@ -125,6 +129,17 @@ static inline int negative_errno(void) {
          * be 0 and thus the caller's error-handling might not be triggered. */
         assert_return(errno > 0, -EINVAL);
         return -errno;
+}
+
+static inline int errno_or_else(int fallback) {
+        /* To be used when invoking library calls where errno handling is not defined clearly: we return
+         * errno if it is set, and the specified error otherwise. The idea is that the caller initializes
+         * errno to zero before doing an API call, and then uses this helper to retrieve a somewhat useful
+         * error code */
+        if (errno > 0)
+                return -errno;
+
+        return -abs(fallback);
 }
 
 static inline unsigned u64log2(uint64_t n) {
