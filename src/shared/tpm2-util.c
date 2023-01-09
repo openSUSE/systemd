@@ -610,6 +610,8 @@ finish:
         return r;
 }
 
+#define RETRY_UNSEAL_MAX 30u
+
 int tpm2_unseal(
                 const char *device,
                 uint32_t pcr_mask,
@@ -672,17 +674,6 @@ int tpm2_unseal(
         if (r < 0)
                 return r;
 
-        r = tpm2_make_pcr_session(c.esys_context, pcr_mask, &session, &policy_digest);
-        if (r < 0)
-                goto finish;
-
-        /* If we know the policy hash to expect, and it doesn't match, we can shortcut things here, and not
-         * wait until the TPM2 tells us to go away. */
-        if (known_policy_hash_size > 0 &&
-            memcmp_nn(policy_digest->buffer, policy_digest->size, known_policy_hash, known_policy_hash_size) != 0)
-                return log_error_errno(SYNTHETIC_ERRNO(EPERM),
-                                       "Current policy digest does not match stored policy digest, cancelling TPM2 authentication attempt.");
-
         r = tpm2_make_primary(c.esys_context, &primary);
         if (r < 0)
                 return r;
@@ -704,19 +695,39 @@ int tpm2_unseal(
                 goto finish;
         }
 
-        log_debug("Unsealing HMAC key.");
+        for (unsigned i = RETRY_UNSEAL_MAX;; i--) {
+                r = tpm2_make_pcr_session(c.esys_context, pcr_mask, &session, &policy_digest);
+                if (r < 0)
+                        goto finish;
 
-        rc = sym_Esys_Unseal(
-                        c.esys_context,
-                        hmac_key,
-                        session,
-                        ESYS_TR_NONE,
-                        ESYS_TR_NONE,
-                        &unsealed);
-        if (rc != TSS2_RC_SUCCESS) {
-                r = log_error_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE),
-                                    "Failed to unseal HMAC key in TPM: %s", sym_Tss2_RC_Decode(rc));
-                goto finish;
+                /* If we know the policy hash to expect, and it doesn't match, we can shortcut things here, and not
+                 * wait until the TPM2 tells us to go away. */
+                if (known_policy_hash_size > 0 &&
+                        memcmp_nn(policy_digest->buffer, policy_digest->size, known_policy_hash, known_policy_hash_size) != 0)
+                                return log_error_errno(SYNTHETIC_ERRNO(EPERM),
+                                                       "Current policy digest does not match stored policy digest, cancelling TPM2 authentication attempt.");
+
+                log_debug("Unsealing HMAC key.");
+
+                rc = sym_Esys_Unseal(
+                                c.esys_context,
+                                hmac_key,
+                                session,
+                                ESYS_TR_NONE,
+                                ESYS_TR_NONE,
+                                &unsealed);
+                if (rc == TPM2_RC_PCR_CHANGED && i > 0) {
+                        log_debug("A PCR value changed during the TPM2 policy session, restarting HMAC key unsealing (%u tries left).", i);
+                        session = flush_context_verbose(c.esys_context, session);
+                        continue;
+                }
+                if (rc != TSS2_RC_SUCCESS) {
+                        r = log_error_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE),
+                                            "Failed to unseal HMAC key in TPM: %s", sym_Tss2_RC_Decode(rc));
+                        goto finish;
+                }
+
+                break;
         }
 
         secret = memdup(unsealed->buffer, unsealed->size);
