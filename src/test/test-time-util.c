@@ -248,6 +248,13 @@ static void test_format_timespan(usec_t accuracy) {
         assert_se(buf == format_timespan(buf, 5, 100005, 1000));
 }
 
+static void test_format_timespan2(void) {
+        /* See issue #23928. */
+        _cleanup_free_ char *buf;
+        assert_se(buf = new(char, 5));
+        assert_se(buf == format_timespan(buf, 5, 100005, 1000));
+}
+
 static void test_verify_timezone(void) {
         log_info("/* %s */", __func__);
 
@@ -622,6 +629,7 @@ int main(int argc, char *argv[]) {
         test_format_timespan(1);
         test_format_timespan(USEC_PER_MSEC);
         test_format_timespan(USEC_PER_SEC);
+        test_format_timespan2();
         test_verify_timezone();
         test_timezone_is_valid();
         test_get_timezones();

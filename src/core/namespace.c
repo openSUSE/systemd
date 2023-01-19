@@ -6,7 +6,9 @@
 #include <stdio.h>
 #include <sys/mount.h>
 #include <unistd.h>
+#if WANT_LINUX_FS_H
 #include <linux/fs.h>
+#endif
 
 #include "alloc-util.h"
 #include "base-filesystem.h"
@@ -1156,7 +1158,7 @@ static int mount_image(const MountEntry *m, const char *root_directory) {
         }
 
         r = verity_dissect_and_mount(
-                                mount_entry_source(m), mount_entry_path(m), m->image_options,
+                                /* src_fd= */ -1, mount_entry_source(m), mount_entry_path(m), m->image_options,
                                 host_os_release_id, host_os_release_version_id, host_os_release_sysext_level);
         if (r == -ENOENT && m->ignore)
                 return 0;

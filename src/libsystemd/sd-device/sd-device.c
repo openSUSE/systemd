@@ -1195,6 +1195,13 @@ int device_add_devlink(sd_device *device, const char *devlink) {
         return 0;
 }
 
+bool device_has_devlink(sd_device *device, const char *devlink) {
+        assert(device);
+        assert(devlink);
+
+        return set_contains(device->devlinks, devlink);
+}
+
 static int device_add_property_internal_from_string(sd_device *device, const char *str) {
         _cleanup_free_ char *key = NULL;
         char *value;
@@ -1476,6 +1483,9 @@ _public_ int sd_device_get_is_initialized(sd_device *device) {
         assert_return(device, -EINVAL);
 
         r = device_read_db(device);
+        if (r == -ENOENT)
+                /* The device may be already removed or renamed. */
+                return false;
         if (r < 0)
                 return r;
 
