@@ -109,17 +109,17 @@ enum {
 };
 
 static const char * const meta_field_names[_META_MAX] = {
-        [META_ARGV_PID]       = "COREDUMP_PID=",
-        [META_ARGV_UID]       = "COREDUMP_UID=",
-        [META_ARGV_GID]       = "COREDUMP_GID=",
-        [META_ARGV_SIGNAL]    = "COREDUMP_SIGNAL=",
-        [META_ARGV_TIMESTAMP] = "COREDUMP_TIMESTAMP=",
-        [META_ARGV_RLIMIT]    = "COREDUMP_RLIMIT=",
-        [META_ARGV_HOSTNAME]  = "COREDUMP_HOSTNAME=",
-        [META_COMM]           = "COREDUMP_COMM=",
-        [META_EXE]            = "COREDUMP_EXE=",
-        [META_UNIT]           = "COREDUMP_UNIT=",
-        [META_PROC_AUXV]      = "COREDUMP_PROC_AUXV=",
+        [META_ARGV_PID]          = "COREDUMP_PID=",
+        [META_ARGV_UID]          = "COREDUMP_UID=",
+        [META_ARGV_GID]          = "COREDUMP_GID=",
+        [META_ARGV_SIGNAL]       = "COREDUMP_SIGNAL=",
+        [META_ARGV_TIMESTAMP]    = "COREDUMP_TIMESTAMP=",
+        [META_ARGV_RLIMIT]       = "COREDUMP_RLIMIT=",
+        [META_ARGV_HOSTNAME]     = "COREDUMP_HOSTNAME=",
+        [META_COMM]              = "COREDUMP_COMM=",
+        [META_EXE]               = "COREDUMP_EXE=",
+        [META_UNIT]              = "COREDUMP_UNIT=",
+        [META_PROC_AUXV]         = "COREDUMP_PROC_AUXV=",
 };
 
 typedef struct Context {
@@ -443,7 +443,7 @@ static int grant_user_access(int core_fd, const Context *context) {
         errno = 0;
         if (pread(core_fd, &elf, sizeof(elf), 0) != sizeof(elf))
                 return log_warning_errno(errno_or_else(EIO),
-                                         "Failed to pread from coredump fd: %s", errno != 0 ? strerror_safe(errno) : "Premature EOF");
+                                         "Failed to pread from coredump fd: %s", errno != 0 ? strerror_safe(errno) : "Unexpected EOF");
 
         if (elf[EI_MAG0] != ELFMAG0 ||
             elf[EI_MAG1] != ELFMAG1 ||
@@ -1435,6 +1435,13 @@ static int process_kernel(int argc, char* argv[]) {
         Context context = {};
         struct iovec_wrapper *iovw;
         int r;
+
+        /* When we're invoked by the kernel, stdout/stderr are closed which is dangerous because the fds
+         * could get reallocated. To avoid hard to debug issues, let's instead bind stdout/stderr to
+         * /dev/null. */
+        r = rearrange_stdio(STDIN_FILENO, -1, -1);
+        if (r < 0)
+                return log_error_errno(r, "Failed to connect stdout/stderr to /dev/null: %m");
 
         log_debug("Processing coredump received from the kernel...");
 

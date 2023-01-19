@@ -7,7 +7,9 @@
 #include <sys/statvfs.h>
 #include <unistd.h>
 #include <linux/loop.h>
+#if WANT_LINUX_FS_H
 #include <linux/fs.h>
+#endif
 
 #include "alloc-util.h"
 #include "dissect-image.h"
@@ -737,6 +739,7 @@ static int mount_in_namespace(
         bool mount_slave_created = false, mount_slave_mounted = false,
                 mount_tmp_created = false, mount_tmp_mounted = false,
                 mount_outside_created = false, mount_outside_mounted = false;
+        _cleanup_free_ char *chased_src_path = NULL;
         struct stat st, self_mntns_st;
         pid_t child;
         int r;
@@ -775,10 +778,11 @@ static int mount_in_namespace(
         if (r < 0)
                 return log_debug_errno(r == -ENOENT ? SYNTHETIC_ERRNO(EOPNOTSUPP) : r, "Target does not allow propagation of mount points");
 
-        r = chase_symlinks(src, NULL, CHASE_TRAIL_SLASH, NULL, &chased_src_fd);
+        r = chase_symlinks(src, NULL, 0, &chased_src_path, &chased_src_fd);
         if (r < 0)
                 return log_debug_errno(r, "Failed to resolve source path of %s: %m", src);
         xsprintf(chased_src, "/proc/self/fd/%i", chased_src_fd);
+        log_debug("Chased source path of %s to %s", src, chased_src_path);
 
         if (fstat(chased_src_fd, &st) < 0)
                 return log_debug_errno(errno, "Failed to stat() resolved source path %s: %m", src);
@@ -823,7 +827,7 @@ static int mount_in_namespace(
         mount_tmp_created = true;
 
         if (is_image)
-                r = verity_dissect_and_mount(chased_src, mount_tmp, options, NULL, NULL, NULL);
+                r = verity_dissect_and_mount(chased_src_fd, chased_src_path, mount_tmp, options, NULL, NULL, NULL);
         else
                 r = mount_follow_verbose(LOG_DEBUG, chased_src, mount_tmp, NULL, MS_BIND, NULL);
         if (r < 0)
@@ -1085,8 +1089,10 @@ int make_mount_point_inode_from_stat(const struct stat *st, const char *dest, mo
 
         if (S_ISDIR(st->st_mode))
                 return mkdir_label(dest, mode);
+        else if (mknod(dest, S_IFREG|(mode & ~0111), 0) < 0)
+                return -errno;
         else
-                return mknod(dest, S_IFREG|(mode & ~0111), 0);
+                return 0;
 }
 
 int make_mount_point_inode_from_path(const char *source, const char *dest, mode_t mode) {

@@ -357,12 +357,18 @@ possible_common_cc_flags = [
         '-Wno-string-plus-int',  # clang
 ]
 
-# Disable -Wmaybe-unitialized when compiling with -Os/-O1/-O3/etc. There are
+c_args = get_option('c_args')
+
+# Disable -Wmaybe-uninitialized when compiling with -Os/-O1/-O3/etc. There are
 # too many false positives with gcc >= 8. Effectively, we only test with -O0
 # and -O2; this should be enough to catch most important cases without too much
 # busywork. See https://github.com/systemd/systemd/pull/19226.
 if cc.get_id() == 'gcc' and (not '02'.contains(get_option('optimization')) or
-                             cc.version().version_compare('<10'))
+                             cc.version().version_compare('<10') or
+                             '-Os' in c_args or
+                             '-O1' in c_args or
+                             '-O3' in c_args or
+                             '-Og' in c_args)
         possible_common_cc_flags += '-Wno-maybe-uninitialized'
 endif
 
@@ -448,7 +454,6 @@ decl_headers = '''
 #include <uchar.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
-#include <linux/fs.h>
 '''
 
 foreach decl : ['char16_t',
@@ -459,6 +464,17 @@ foreach decl : ['char16_t',
 
         # We get -1 if the size cannot be determined
         have = cc.sizeof(decl, prefix : decl_headers, args : '-D_GNU_SOURCE') > 0
+
+        if decl == 'struct mount_attr'
+                if have
+                        want_linux_fs_h = false
+                else
+                        have = cc.sizeof(decl,
+                                         prefix : decl_headers + '#include <linux/fs.h>',
+                                         args : '-D_GNU_SOURCE') > 0
+                        want_linux_fs_h = have
+                endif
+        endif
 
         if decl == 'struct statx'
                 if have
@@ -475,6 +491,7 @@ foreach decl : ['char16_t',
 endforeach
 
 conf.set10('WANT_LINUX_STAT_H', want_linux_stat_h)
+conf.set10('WANT_LINUX_FS_H', want_linux_fs_h)
 
 foreach ident : ['secure_getenv', '__secure_getenv']
         conf.set10('HAVE_' + ident.to_upper(), cc.has_function(ident))
@@ -1923,7 +1940,7 @@ public_programs += executable(
                         libmount,
                         libblkid],
         install_rpath : rootlibexecdir,
-        install : conf.get('ENABLE_ANALYZE'))
+        install : conf.get('ENABLE_ANALYZE') == 1)
 
 executable(
         'systemd-journald',
@@ -3370,7 +3387,7 @@ test_cflags = ['-DTEST_CODE=1']
 # bunch of _cleanup_ variables in tests, to ensure valgrind is triggered if we
 # use the variable unexpectedly. This triggers a lot of maybe-uninitialized
 # false positives when the combination of -O2 and -flto is used. Suppress them.
-if '-O2' in get_option('c_args') and '-flto=auto' in get_option('c_args')
+if '-O2' in c_args and '-flto=auto' in c_args
         test_cflags += cc.first_supported_argument('-Wno-maybe-uninitialized')
 endif
 
