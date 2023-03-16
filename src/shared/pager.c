@@ -25,7 +25,10 @@
 #include <sys/prctl.h>
 #include <unistd.h>
 
+#include "sd-login.h"
+
 #include "copy.h"
+#include "env-util.h"
 #include "fd-util.h"
 #include "locale-util.h"
 #include "macro.h"
@@ -85,6 +88,8 @@ int pager_open(bool jump_to_end) {
         /* In the child start the pager */
         if (pager_pid == 0) {
                 const char* less_opts, *less_charset;
+                int use_secure_mode, r;
+                bool trust_pager;
 
                 (void) reset_all_signal_handlers();
                 (void) reset_signal_mask();
@@ -100,8 +105,7 @@ int pager_open(bool jump_to_end) {
                         less_opts = strjoina(less_opts, " +G");
                 setenv("LESS", less_opts, 1);
 
-                /* Initialize a good charset for less. This is
-                 * particularly important if we output UTF-8
+                /* Initialize a good charset for less. This is particularly important if we output UTF-8
                  * characters. */
                 less_charset = getenv("SYSTEMD_LESSCHARSET");
                 if (!less_charset && is_locale_utf8())
@@ -118,21 +122,58 @@ int pager_open(bool jump_to_end) {
                 if (getppid() != parent_pid)
                         _exit(EXIT_SUCCESS);
 
-                if (pager) {
+                /* People might invoke us from sudo, don't needlessly allow less to be a way to shell out
+                 * privileged stuff. If the user set $SYSTEMD_PAGERSECURE, trust their configuration of the
+                 * pager. If they didn't, use secure mode when under euid is changed. If $SYSTEMD_PAGERSECURE
+                 * wasn't explicitly set, and we autodetect the need for secure mode, only use the pager we
+                 * know to be good. */
+                use_secure_mode = getenv_bool("SYSTEMD_PAGERSECURE");
+                trust_pager = use_secure_mode >= 0;
+                if (use_secure_mode == -ENXIO) {
+                        uid_t uid;
+
+                        r = sd_pid_get_owner_uid(0, &uid);
+                        if (r < 0)
+                                log_debug_errno(r, "sd_pid_get_owner_uid() failed, enabling pager secure mode: %m");
+
+                        use_secure_mode = r < 0 || uid != geteuid();
+
+                } else if (use_secure_mode < 0) {
+                        log_warning_errno(use_secure_mode, "Unable to parse $SYSTEMD_PAGERSECURE, assuming true: %m");
+                        use_secure_mode = true;
+                }
+
+                /* We generally always set variables used by less, even if we end up using a different pager.
+                 * They shouldn't hurt in any case, and ideally other pagers would look at them too. */
+                if (use_secure_mode)
+                        r = setenv("LESSSECURE", "1", 1);
+                else
+                        r = unsetenv("LESSSECURE");
+                if (r < 0) {
+                        log_error_errno(errno, "Failed to adjust environment variable LESSSECURE: %m");
+                        _exit(EXIT_FAILURE);
+                }
+
+                if (trust_pager && pager) { /* The pager config might be set globally, and we cannot
+                                             * know if the user adjusted it to be appropriate for the
+                                             * secure mode. Thus, start the pager specified through
+                                             * envvars only when $SYSTEMD_PAGERSECURE was explicitly set
+                                             * as well. */
                         execlp(pager, pager, NULL);
                         execl("/bin/sh", "sh", "-c", pager, NULL);
                 }
 
-                /* Debian's alternatives command for pagers is
-                 * called 'pager'. Note that we do not call
-                 * sensible-pagers here, since that is just a
-                 * shell script that implements a logic that
-                 * is similar to this one anyway, but is
-                 * Debian-specific. */
-                execlp("pager", "pager", NULL);
+                /* Debian's alternatives command for pagers is called 'pager'. Note that we do not
+                 * call sensible-pagers here, since that is just a shell script that implements a
+                 * logic that is similar to this one anyway, but is Debian-specific. */
+                if (!use_secure_mode)
+                        execlp("pager", "pager", NULL);
 
+                /* Only less implements secure mode right now. */
                 execlp("less", "less", NULL);
-                execlp("more", "more", NULL);
+
+                if (!use_secure_mode)
+                        execlp("more", "more", NULL);
 
                 pager_fallback();
                 /* not reached */
