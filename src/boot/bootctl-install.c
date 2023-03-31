@@ -67,7 +67,7 @@ static int load_etc_machine_info(void) {
                 if (r < 0)
                         return log_error_errno(r, "Failed to parse KERNEL_INSTALL_MACHINE_ID=%s in /etc/machine-info: %m", s);
 
-                log_debug("Loaded KERNEL_INSTALL_MACHINE_ID=%s from KERNEL_INSTALL_MACHINE_ID in /etc/machine-info.",
+                log_debug("Loaded KERNEL_INSTALL_MACHINE_ID=%s from /etc/machine-info.",
                           SD_ID128_TO_STRING(arg_machine_id));
         }
 
@@ -98,7 +98,7 @@ static int load_etc_kernel_install_conf(void) {
                 return log_error_errno(r, "Failed to parse %s: %m", p);
 
         if (!isempty(layout)) {
-                log_debug("layout=%s is specified in /etc/machine-info.", layout);
+                log_debug("layout=%s is specified in %s.", layout, p);
                 free_and_replace(arg_install_layout, layout);
         }
 
@@ -133,7 +133,7 @@ static int settle_make_entry_directory(void) {
         bool layout_type1 = use_boot_loader_spec_type1();
         if (arg_make_entry_directory < 0) { /* Automatic mode */
                 if (layout_type1) {
-                        if (arg_entry_token == ARG_ENTRY_TOKEN_MACHINE_ID) {
+                        if (arg_entry_token_type == ARG_ENTRY_TOKEN_MACHINE_ID) {
                                 r = path_is_temporary_fs("/etc/machine-id");
                                 if (r < 0)
                                         return log_debug_errno(r, "Couldn't determine whether /etc/machine-id is on a temporary file system: %m");
@@ -645,7 +645,8 @@ static int install_variables(
                 uint64_t psize,
                 sd_id128_t uuid,
                 const char *path,
-                bool first) {
+                bool first,
+                bool graceful) {
 
         uint16_t slot;
         int r;
@@ -668,18 +669,30 @@ static int install_variables(
                 return log_error_errno(r, "Cannot access \"%s/%s\": %m", esp_path, path);
 
         r = find_slot(uuid, path, &slot);
-        if (r < 0)
-                return log_error_errno(r,
-                                       r == -ENOENT ?
-                                       "Failed to access EFI variables. Is the \"efivarfs\" filesystem mounted?" :
-                                       "Failed to determine current boot order: %m");
+        if (r < 0) {
+                int level = graceful ? arg_quiet ? LOG_DEBUG : LOG_INFO : LOG_ERR;
+                const char *skip = graceful ? ", skipping" : "";
+
+                log_full_errno(level, r,
+                               r == -ENOENT ?
+                               "Failed to access EFI variables%s. Is the \"efivarfs\" filesystem mounted?" :
+                               "Failed to determine current boot order%s: %m", skip);
+
+                return graceful ? 0 : r;
+        }
 
         if (first || r == 0) {
                 r = efi_add_boot_option(slot, pick_efi_boot_option_description(),
                                         part, pstart, psize,
                                         uuid, path);
-                if (r < 0)
-                        return log_error_errno(r, "Failed to create EFI Boot variable entry: %m");
+                if (r < 0) {
+                        int level = graceful ? arg_quiet ? LOG_DEBUG : LOG_INFO : LOG_ERR;
+                        const char *skip = graceful ? ", skipping" : "";
+
+                        log_full_errno(level, r, "Failed to create EFI Boot variable entry%s: %m", skip);
+
+                        return graceful ? 0 : r;
+                }
 
                 log_info("Created EFI boot entry \"%s\".", pick_efi_boot_option_description());
         }
@@ -807,7 +820,7 @@ int verb_install(int argc, char *argv[], void *userdata) {
         }
 
         char *path = strjoina("/EFI/systemd/systemd-boot", arch, ".efi");
-        return install_variables(arg_esp_path, part, pstart, psize, uuid, path, install);
+        return install_variables(arg_esp_path, part, pstart, psize, uuid, path, install, graceful);
 }
 
 static int remove_boot_efi(const char *esp_path) {
