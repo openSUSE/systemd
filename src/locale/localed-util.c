@@ -578,6 +578,7 @@ static int read_next_mapping(
 int vconsole_convert_to_x11(const VCContext *vc, X11Context *ret) {
         _cleanup_fclose_ FILE *f = NULL;
         const char *map;
+        X11Context xc;
         int r;
 
         assert(vc);
@@ -599,10 +600,8 @@ int vconsole_convert_to_x11(const VCContext *vc, X11Context *ret) {
                 r = read_next_mapping(map, 5, UINT_MAX, f, &n, &a);
                 if (r < 0)
                         return r;
-                if (r == 0) {
-                        *ret = (X11Context) {};
-                        return 0;
-                }
+                if (r == 0)
+                        break;
 
                 if (!streq(vc->keymap, a[0]))
                         continue;
@@ -615,6 +614,41 @@ int vconsole_convert_to_x11(const VCContext *vc, X11Context *ret) {
                                              .options = empty_or_dash_to_null(a[4]),
                                      });
         }
+
+        /* No custom mapping has been found, see if the keymap is a converted one. In such case deducing the
+         * corresponding x11 layout is easy. */
+        _cleanup_free_ char *xlayout = NULL, *converted = NULL;
+        char *xvariant;
+
+        xlayout = strdup(vc->keymap);
+        if (!xlayout)
+                return -ENOMEM;
+        xvariant = strchr(xlayout, '-');
+        if (xvariant) {
+                xvariant[0] = '\0';
+                xvariant++;
+        }
+
+        /* Note: by default we use keyboard model "microsoftpro" which should be equivalent to "pc105" but
+         * with the internet/media key mapping added. */
+        xc = (X11Context) {
+                .layout  = xlayout,
+                .model   = (char*) "microsoftpro",
+                .variant = xvariant,
+                .options = (char*) "terminate:ctrl_alt_bksp",
+        };
+
+        /* This sanity check seems redundant with the verification of the X11 layout done on the next
+         * step. However xkbcommon is an optional dependency hence the verification might be a NOP.  */
+        r = find_converted_keymap(&xc, &converted);
+        if (r < 0)
+                return r;
+        if (r == 0) {
+                *ret = (X11Context) {};
+                return 0;
+        }
+
+        return x11_context_copy(ret, &xc);
 }
 
 int find_converted_keymap(const X11Context *xc, char **ret) {
