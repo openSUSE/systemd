@@ -251,6 +251,21 @@ int probe_filesystem_full(
         if (!b)
                 return -ENOMEM;
 
+        /* The Linux kernel maintains separate block device caches for main ("whole") and partition block
+         * devices, which means making a change to one might not be reflected immediately when reading via
+         * the other. That's massively confusing when mixing accesses to such devices. Let's address this in
+         * a limited way: when probing a file system that is not at the beginning of the block device we
+         * apparently probe a partition via the main block device, and in that case let's first flush the
+         * main block device cache, so that we get the data that the per-partition block device last
+         * sync'ed on.
+         *
+         * This only works under the assumption that any tools that write to the partition block devices
+         * issue an syncfs()/fsync() on the device after making changes. Typically file system formatting
+         * tools that write a superblock onto a partition block device do that, however. */
+        if (offset != 0)
+                if (ioctl(fd, BLKFLSBUF, 0) < 0)
+                        log_debug_errno(errno, "Failed to flush block device cache, ignoring: %m");
+
         errno = 0;
         r = blkid_probe_set_device(
                         b,
@@ -1423,6 +1438,7 @@ static int is_loop_device(const char *path) {
 static int run_fsck(int node_fd, const char *fstype) {
         int r, exit_status;
         pid_t pid;
+        _cleanup_free_ char *fsck_path = NULL;
 
         assert(node_fd >= 0);
         assert(fstype);
@@ -1437,6 +1453,14 @@ static int run_fsck(int node_fd, const char *fstype) {
                 return 0;
         }
 
+        r = find_executable("fsck", &fsck_path);
+        /* We proceed anyway if we can't determine whether the fsck
+         * binary for some specific fstype exists,
+         * but the lack of the main fsck binary should be considered
+         * an error. */
+        if (r < 0)
+                return log_error_errno(r, "Cannot find fsck binary: %m");
+
         r = safe_fork_full(
                         "(fsck)",
                         &node_fd, 1, /* Leave the node fd open */
@@ -1446,7 +1470,7 @@ static int run_fsck(int node_fd, const char *fstype) {
                 return log_debug_errno(r, "Failed to fork off fsck: %m");
         if (r == 0) {
                 /* Child */
-                execl("/sbin/fsck", "/sbin/fsck", "-aT", FORMAT_PROC_FD_PATH(node_fd), NULL);
+                execl(fsck_path, fsck_path, "-aT", FORMAT_PROC_FD_PATH(node_fd), NULL);
                 log_open();
                 log_debug_errno(errno, "Failed to execl() fsck: %m");
                 _exit(FSCK_OPERATIONAL_ERROR);
@@ -1454,7 +1478,7 @@ static int run_fsck(int node_fd, const char *fstype) {
 
         exit_status = wait_for_terminate_and_check("fsck", pid, 0);
         if (exit_status < 0)
-                return log_debug_errno(exit_status, "Failed to fork off /sbin/fsck: %m");
+                return log_debug_errno(exit_status, "Failed to fork off %s: %m", fsck_path);
 
         if ((exit_status & ~FSCK_ERROR_CORRECTED) != FSCK_SUCCESS) {
                 log_debug("fsck failed with exit status %i.", exit_status);
@@ -1526,17 +1550,18 @@ static int mount_partition(
 
         if (!fstype)
                 return -EAFNOSUPPORT;
-        r = dissect_fstype_ok(fstype);
-        if (r < 0)
-                return r;
-        if (!r)
-                return -EIDRM; /* Recognizable error */
 
         /* We are looking at an encrypted partition? This either means stacked encryption, or the caller
          * didn't call dissected_image_decrypt() beforehand. Let's return a recognizable error for this
          * case. */
         if (streq(fstype, "crypto_LUKS"))
                 return -EUNATCH;
+
+        r = dissect_fstype_ok(fstype);
+        if (r < 0)
+                return r;
+        if (!r)
+                return -EIDRM; /* Recognizable error */
 
         rw = m->rw && !(flags & DISSECT_IMAGE_MOUNT_READ_ONLY);
 

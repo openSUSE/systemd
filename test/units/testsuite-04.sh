@@ -74,10 +74,10 @@ journalctl -b -o export --output-fields=MESSAGE,FOO --output-fields=PRIORITY,MES
 grep -q '^__CURSOR=' /output
 grep -q '^MESSAGE=foo$' /output
 grep -q '^PRIORITY=6$' /output
-grep '^FOO=' /output && { echo 'unexpected success'; exit 1; }
-grep '^SYSLOG_FACILITY=' /output && { echo 'unexpected success'; exit 1; }
+(! grep '^FOO=' /output)
+(! grep '^SYSLOG_FACILITY=' /output)
 
-# `-b all` negates earlier use of -b (-b and -m are otherwise exclusive)
+# '-b all' negates earlier use of -b (-b and -m are otherwise exclusive)
 journalctl -b -1 -b all -m >/dev/null
 
 # -b always behaves like -b0
@@ -175,6 +175,7 @@ sleep 3
 systemctl kill --signal=SIGKILL systemd-journald
 sleep 3
 [[ ! -f "/i-lose-my-logs" ]]
+systemctl stop forever-print-hola
 
 # https://github.com/systemd/systemd/issues/15528
 journalctl --follow --file=/var/log/journal/*/* | head -n1 || [[ $? -eq 1 ]]
@@ -211,11 +212,7 @@ function is_xattr_supported() {
     END=$(date '+%Y-%m-%d %T.%6N')
     systemctl stop text_xattr
 
-    if journalctl -q -u "text_xattr" -S "$START" -U "$END" --grep "Failed to set 'user.journald_log_filter_patterns' xattr.*not supported$"; then
-        return 1
-    fi
-
-    return 0
+    ! journalctl -q -u "text_xattr" -S "$START" -U "$END" --grep "Failed to set 'user.journald_log_filter_patterns' xattr.*not supported$"
 }
 
 if is_xattr_supported; then

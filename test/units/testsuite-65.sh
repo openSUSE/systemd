@@ -11,13 +11,15 @@ export SYSTEMD_LOG_LEVEL=debug
 
 # Sanity checks
 #
-# We can't really test time, blame, critical-chain and plot verbs here, as
+# We can't really test time, critical-chain and plot verbs here, as
 # the testsuite service is a part of the boot transaction, so let's assume
 # they fail
 systemd-analyze || :
 systemd-analyze time || :
-systemd-analyze blame || :
 systemd-analyze critical-chain || :
+# blame
+systemd-analyze blame
+systemd-run --wait --user --pipe -M testuser@.host systemd-analyze blame
 # plot
 systemd-analyze plot >/dev/null || :
 systemd-analyze plot --json=pretty >/dev/null || :
@@ -147,6 +149,11 @@ systemd-analyze cat-config /etc/systemd/system.conf >/dev/null
 systemd-analyze cat-config systemd/system.conf systemd/journald.conf >/dev/null
 systemd-analyze cat-config systemd/system.conf foo/bar systemd/journald.conf >/dev/null
 systemd-analyze cat-config foo/bar
+# security
+systemd-analyze security
+systemd-analyze security --json=off
+systemd-analyze security --json=pretty | jq
+systemd-analyze security --json=short | jq
 
 if [[ ! -v ASAN_OPTIONS ]]; then
     # check that systemd-analyze cat-config paths work in a chroot
@@ -171,16 +178,13 @@ EOF
 
 set +e
 # Default behaviour is to recurse through all dependencies when unit is loaded
-systemd-analyze verify --root=/tmp/img/ testfile.service \
-    && { echo 'unexpected success'; exit 1; }
+(! systemd-analyze verify --root=/tmp/img/ testfile.service)
 
 # As above, recurses through all dependencies when unit is loaded
-systemd-analyze verify --recursive-errors=yes --root=/tmp/img/ testfile.service \
-    && { echo 'unexpected success'; exit 1; }
+(! systemd-analyze verify --recursive-errors=yes --root=/tmp/img/ testfile.service)
 
 # Recurses through unit file and its direct dependencies when unit is loaded
-systemd-analyze verify --recursive-errors=one --root=/tmp/img/ testfile.service \
-    && { echo 'unexpected success'; exit 1; }
+(! systemd-analyze verify --recursive-errors=one --root=/tmp/img/ testfile.service)
 
 set -e
 
@@ -210,8 +214,7 @@ systemd-analyze verify --recursive-errors=no /tmp/testfile2.service
 
 set +e
 # Non-zero exit status since all associated dependencies are recursively loaded when the unit file is loaded
-systemd-analyze verify --recursive-errors=yes /tmp/testfile2.service \
-    && { echo 'unexpected success'; exit 1; }
+(! systemd-analyze verify --recursive-errors=yes /tmp/testfile2.service)
 set -e
 
 rm /tmp/testfile.service
@@ -233,19 +236,15 @@ rm /tmp/.testfile.service
 # Alias a unit file's name on disk (see #20061)
 cp /tmp/testfile.service /tmp/testsrvc
 
-systemd-analyze verify /tmp/testsrvc \
-    && { echo 'unexpected success'; exit 1; }
+(! systemd-analyze verify /tmp/testsrvc)
 
 systemd-analyze verify /tmp/testsrvc:alias.service
 
 # Zero exit status since the value used for comparison determine exposure to security threats is by default 100
 systemd-analyze security --offline=true /tmp/testfile.service
 
-set +e
 #The overall exposure level assigned to the unit is greater than the set threshold
-systemd-analyze security --threshold=90 --offline=true /tmp/testfile.service \
-    && { echo 'unexpected success'; exit 1; }
-set -e
+(! systemd-analyze security --threshold=90 --offline=true /tmp/testfile.service)
 
 # Ensure we print the list of ACLs, see https://github.com/systemd/systemd/issues/23185
 systemd-analyze security --offline=true /tmp/testfile.service | grep -q -F "/dev/sda"
@@ -736,19 +735,15 @@ systemd-analyze security --threshold=25 --offline=true \
                            --profile=strict \
                            --root=/tmp/img/ testfile.service
 
-set +e
 # The trusted profile doesn't add any sanboxing options
-systemd-analyze security --threshold=25 --offline=true \
+(! systemd-analyze security --threshold=25 --offline=true \
                            --security-policy=/tmp/testfile.json \
                            --profile=/usr/lib/systemd/portable/profile/trusted/service.conf \
-                           --root=/tmp/img/ testfile.service \
-    && { echo 'unexpected success'; exit 1; }
+                           --root=/tmp/img/ testfile.service)
 
-systemd-analyze security --threshold=50 --offline=true \
+(! systemd-analyze security --threshold=50 --offline=true \
                            --security-policy=/tmp/testfile.json \
-                           --root=/tmp/img/ testfile.service \
-    && { echo 'unexpected success'; exit 1; }
-set -e
+                           --root=/tmp/img/ testfile.service)
 
 rm /tmp/img/usr/lib/systemd/system/testfile.service
 

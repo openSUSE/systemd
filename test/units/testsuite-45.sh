@@ -7,6 +7,27 @@ set -o pipefail
 # shellcheck source=test/units/assert.sh
 . "$(dirname "$0")"/assert.sh
 
+test_timedatectl() {
+    timedatectl --no-pager --help
+    timedatectl --version
+
+    timedatectl
+    timedatectl --no-ask-password
+    timedatectl status --machine=testuser@.host
+    timedatectl status
+    timedatectl show
+    timedatectl show --all
+    timedatectl show -p NTP
+    timedatectl show -p NTP --value
+    timedatectl list-timezones
+
+    if ! systemd-detect-virt -qc; then
+        systemctl enable --runtime --now systemd-timesyncd
+        timedatectl timesync-status
+        timedatectl show-timesync
+    fi
+}
+
 restore_timezone() {
     if [[ -f /tmp/timezone.bak ]]; then
         mv /tmp/timezone.bak /etc/timezone
@@ -191,8 +212,8 @@ start_mon() {
 }
 
 wait_mon() {
-    for ((i = 0; i < 10; i++)); do
-        if (( i != 0 )); then sleep 1; fi
+    for i in {1..10}; do
+        (( i > 1 )) && sleep 1
         if grep -q "$1" "$mon"; then break; fi
     done
     assert_in "$2" "$(cat "$mon")"
@@ -222,8 +243,8 @@ EOF
 
     echo 'disable NTP'
     timedatectl set-ntp false
-    for ((i = 0; i < 10; i++)); do
-        if (( i != 0 )); then sleep 1; fi
+    for i in {1..10}; do
+        (( i > 1 )) && sleep 1
         if [[ "$(systemctl show systemd-timesyncd --property ActiveState)" == "ActiveState=inactive" ]]; then
             break;
         fi
@@ -237,8 +258,8 @@ EOF
     timedatectl set-ntp true
     wait_mon "NTP" "BOOLEAN true"
     assert_ntp "true"
-    for ((i = 0; i < 10; i++)); do
-        if (( i != 0 )); then sleep 1; fi
+    for i in {1..10}; do
+        (( i > 1 )) && sleep 1
         if [[ "$(systemctl show systemd-timesyncd --property ActiveState)" == "ActiveState=active" ]]; then
             break;
         fi
@@ -256,6 +277,7 @@ EOF
 
 : >/failed
 
+test_timedatectl
 test_timezone
 test_adjtime
 test_ntp

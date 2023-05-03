@@ -1237,11 +1237,14 @@ install_systemd() {
         mkdir -p "$initdir/etc/systemd/system/service.d/"
         echo -e "[Service]\nProtectSystem=no\nProtectHome=no\n" >"$initdir/etc/systemd/system/service.d/99-gcov-override.conf"
         # Similarly, set ReadWritePaths= to the $BUILD_DIR in the test image
-        # to make the coverage work with units utilizing DynamicUser=yes. Do
-        # this only for services from TEST-20, as setting this system-wide
-        # has many undesirable side-effects
-        mkdir -p "$initdir/etc/systemd/system/test20-.service.d/"
-        echo -e "[Service]\nReadWritePaths=${BUILD_DIR:?}\n" >"$initdir/etc/systemd/system/test20-.service.d/99-gcov-rwpaths-override.conf"
+        # to make the coverage work with units using DynamicUser=yes. Do this
+        # only for services with test- prefix, as setting this system-wide
+        # has many undesirable side-effects, as it creates its own namespace.
+        mkdir -p "$initdir/etc/systemd/system/test-.service.d/"
+        echo -e "[Service]\nReadWritePaths=${BUILD_DIR:?}\n" >"$initdir/etc/systemd/system/test-.service.d/99-gcov-rwpaths-override.conf"
+        # Ditto, but for the user daemon
+        mkdir -p "$initdir/etc/systemd/user/test-.service.d/"
+        echo -e "[Service]\nReadWritePaths=${BUILD_DIR:?}\n" >"$initdir/etc/systemd/user/test-.service.d/99-gcov-rwpaths-override.conf"
     fi
 
     # If we're built with -Dportabled=false, tests with systemd-analyze
@@ -1938,12 +1941,12 @@ EOF
 <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
         "https://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
 <busconfig>
-    <limit name="service_start_timeout">60000</limit>
+    <limit name="service_start_timeout">120000</limit>
 </busconfig>
 EOF
         # Bump the client-side timeout in sd-bus as well
         mkdir -p "$initdir/etc/systemd/system.conf.d"
-        echo -e '[Manager]\nDefaultEnvironment=SYSTEMD_BUS_TIMEOUT=60' >"$initdir/etc/systemd/system.conf.d/bus-timeout.conf"
+        echo -e '[Manager]\nDefaultEnvironment=SYSTEMD_BUS_TIMEOUT=120' >"$initdir/etc/systemd/system.conf.d/bus-timeout.conf"
     fi
 }
 
