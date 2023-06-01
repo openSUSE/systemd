@@ -869,6 +869,11 @@ int manager_new(LookupScope scope, ManagerTestRunFlags test_run_flags, Manager *
                 .test_run_flags = test_run_flags,
 
                 .default_oom_policy = OOM_STOP,
+
+                .dump_ratelimit = {
+                        .interval = 10 * USEC_PER_MINUTE,
+                        .burst = 10,
+                },
         };
 
 #if ENABLE_EFI
@@ -1752,7 +1757,11 @@ static bool manager_dbus_is_running(Manager *m, bool deserialized) {
         u = manager_get_unit(m, SPECIAL_DBUS_SERVICE);
         if (!u)
                 return false;
-        if (!IN_SET((deserialized ? SERVICE(u)->deserialized_state : SERVICE(u)->state), SERVICE_RUNNING, SERVICE_RELOAD))
+        if (!IN_SET((deserialized ? SERVICE(u)->deserialized_state : SERVICE(u)->state),
+                    SERVICE_RUNNING,
+                    SERVICE_RELOAD,
+                    SERVICE_RELOAD_NOTIFY,
+                    SERVICE_RELOAD_SIGNAL))
                 return false;
 
         return true;
