@@ -378,11 +378,11 @@ static int delete_dm(dev_t devnum) {
 }
 
 static bool nonunmountable_path(const char *path) {
-        return path_equal(path, "/")
-#ifndef HAVE_SPLIT_USR
-                || path_equal(path, "/usr")
-#endif
-                || path_startswith(path, "/run/initramfs");
+        assert(path);
+
+        return path_equal(path, "/") ||
+                path_equal(path, "/usr") ||
+                path_startswith(path, "/run/initramfs");
 }
 
 static int remount_with_timeout(MountPoint *m, char *options) {
