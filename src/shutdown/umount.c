@@ -507,11 +507,10 @@ static int delete_md(MountPoint *m) {
 }
 
 static bool nonunmountable_path(const char *path) {
-        return path_equal(path, "/")
-#if ! HAVE_SPLIT_USR
-                || path_equal(path, "/usr")
-#endif
-                || path_startswith(path, "/run/initramfs");
+        assert(path);
+
+        return PATH_IN_SET(path, "/", "/usr") ||
+                path_startswith(path, "/run/initramfs");
 }
 
 static int remount_with_timeout(MountPoint *m, int umount_log_level) {
