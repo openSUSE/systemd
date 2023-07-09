@@ -54,6 +54,16 @@ static inline int RET_NERRNO(int ret) {
         return ret;
 }
 
+/* Collect possible errors in <acc>, so that the first error can be returned.
+ * Returns (possibly updated) <acc>. */
+#define RET_GATHER(acc, err)                    \
+        ({                                      \
+                int *__a = &(acc), __e = (err); \
+                if (*__a >= 0 && __e < 0)       \
+                        *__a = __e;             \
+                *__a;                           \
+        })
+
 static inline const char *strerror_safe(int error) {
         /* 'safe' here does NOT mean thread safety. */
         return strerror(abs(error)); /* lgtm [cpp/potentially-dangerous-function] */
