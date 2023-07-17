@@ -1776,6 +1776,8 @@ static int verb_random_seed(int argc, char *argv[], void *userdata) {
 static int verb_systemd_efi_options(int argc, char *argv[], void *userdata) {
         int r;
 
+        log_notice("Use of the SystemdOptions EFI variable is deprecated.");
+
         if (argc == 1) {
                 _cleanup_free_ char *line = NULL;
 
