@@ -352,14 +352,30 @@ static int md_list_get(MountPoint **head) {
         if (r < 0)
                 return r;
 
+        /* Filter out partitions. */
+        r = sd_device_enumerator_add_match_property(e, "DEVTYPE", "disk");
+        if (r < 0)
+                return r;
+
         FOREACH_DEVICE(e, d) {
                 _cleanup_free_ char *p = NULL;
-                const char *dn;
+                const char *dn, *md_level;
                 MountPoint *m;
                 dev_t devnum;
 
                 if (sd_device_get_devnum(d, &devnum) < 0 ||
                     sd_device_get_devname(d, &dn) < 0)
+                        continue;
+
+                r = sd_device_get_property_value(d, "MD_LEVEL", &md_level);
+                if (r < 0) {
+                        log_warning_errno(r, "Failed to get MD_LEVEL property for %s, ignoring: %m", dn);
+                        continue;
+                }
+
+                /* MD "containers" are a special type of MD devices, used for external metadata.
+                 * Since it doesn't provide RAID functionality in itself we don't need to stop it. */
+                if (streq(md_level, "container"))
                         continue;
 
                 p = strdup(dn);
@@ -507,11 +523,10 @@ static int delete_md(MountPoint *m) {
 }
 
 static bool nonunmountable_path(const char *path) {
-        return path_equal(path, "/")
-#if ! HAVE_SPLIT_USR
-                || path_equal(path, "/usr")
-#endif
-                || path_startswith(path, "/run/initramfs");
+        assert(path);
+
+        return PATH_IN_SET(path, "/", "/usr") ||
+                path_startswith(path, "/run/initramfs");
 }
 
 static int remount_with_timeout(MountPoint *m, int umount_log_level) {
@@ -697,15 +712,18 @@ static int loopback_points_list_detach(MountPoint **head, bool *changed, int umo
 static int dm_points_list_detach(MountPoint **head, bool *changed, int umount_log_level) {
         MountPoint *m, *n;
         int n_failed = 0, r;
-        dev_t rootdev = 0;
+        dev_t rootdev = 0, usrdev = 0;
 
         assert(head);
         assert(changed);
 
         (void) get_block_device("/", &rootdev);
+        (void) get_block_device("/usr", &usrdev);
 
         LIST_FOREACH_SAFE(mount_point, m, n, *head) {
-                if (major(rootdev) != 0 && rootdev == m->devnum) {
+                if ((major(rootdev) != 0 && rootdev == m->devnum) ||
+                    (major(usrdev) != 0 && usrdev == m->devnum)) {
+                        log_debug("Not detaching DM %s that backs the OS itself, skipping.", m->path);
                         n_failed ++;
                         continue;
                 }
@@ -728,15 +746,18 @@ static int dm_points_list_detach(MountPoint **head, bool *changed, int umount_lo
 static int md_points_list_detach(MountPoint **head, bool *changed, int umount_log_level) {
         MountPoint *m, *n;
         int n_failed = 0, r;
-        dev_t rootdev = 0;
+        dev_t rootdev = 0, usrdev = 0;
 
         assert(head);
         assert(changed);
 
         (void) get_block_device("/", &rootdev);
+        (void) get_block_device("/", &usrdev);
 
         LIST_FOREACH_SAFE(mount_point, m, n, *head) {
-                if (major(rootdev) != 0 && rootdev == m->devnum) {
+                if ((major(rootdev) != 0 && rootdev == m->devnum) ||
+                    (major(usrdev) != 0 && usrdev == m->devnum)) {
+                        log_debug("Not detaching MD %s that backs the OS itself, skipping.", m->path);
                         n_failed ++;
                         continue;
                 }
