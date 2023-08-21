@@ -134,7 +134,7 @@ custom_target(
         output : 'resolved.conf',
         command : [jinja2_cmdline, '@INPUT@', '@OUTPUT@'],
         install : conf.get('ENABLE_RESOLVE') == 1 and install_sysconfdir_samples,
-        install_dir : pkgsysconfdir)
+        install_dir : pkgconfigfiledir)
 
 ############################################################
 
