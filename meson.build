@@ -2243,6 +2243,7 @@ subdir('src/libsystemd')
 subdir('src/shared')
 subdir('src/udev')
 subdir('src/libudev')
+subdir('src/udev/compat') # must be after 'src/libudev' for the definition of 'libudev_basic'
 subdir('src/cryptsetup/cryptsetup-tokens')
 
 libsystemd = shared_library(
