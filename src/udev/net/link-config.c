@@ -706,10 +706,10 @@ static bool enable_name_policy(void) {
         if (r < 0)
                 log_warning_errno(r, "Failed to parse net.ifnames= kernel command line option, ignoring: %m");
         if (r <= 0)
-                return (cached = true);
+                return (cached = false);
 
-        if (!b)
-                log_info("Network interface NamePolicy= disabled on kernel command line.");
+        if (b)
+                log_info("Network interface NamePolicy= enabled on kernel command line.");
 
         return (cached = b);
 }

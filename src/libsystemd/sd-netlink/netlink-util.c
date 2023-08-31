@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 
+#include <net/if.h>
+
 #include "sd-netlink.h"
 
 #include "fd-util.h"
@@ -107,6 +109,40 @@ fail:
                 if (q < 0)
                         log_debug_errno(q, "Failed to restore '%s' as an alternative name on network interface %i, ignoring: %m",
                                         name, ifindex);
+        }
+
+        return r;
+}
+
+int rtnl_set_link_name_wait(sd_netlink **rtnl, int ifindex, const char *oldname, const char *name, char* const *alternative_names) {
+        char tmp[IFNAMSIZ];
+        int r;
+
+        r = rtnl_set_link_name(rtnl, ifindex, name, alternative_names);
+        if (r >= 0 || r != -EEXIST)
+                return r;
+
+        log_debug("%s: waiting for name %s to be released", oldname, name);
+
+        /* free our own name, another process may wait for us */
+        snprintf(tmp, IFNAMSIZ, "rename%d", ifindex);
+        r = rtnl_set_link_name(rtnl, ifindex, tmp, alternative_names);
+        if (r < 0)
+                  return r;
+
+        log_debug("%s: while waiting, renamed to %s to release our own name", oldname, tmp);
+
+        /* wait a maximum of 90 seconds for our target to become available */
+        for(int loop = 90 * 20; loop; loop--) {
+                const struct timespec duration = { 0, 1000 * 1000 * 1000 / 20 };
+
+                nanosleep(&duration, NULL);
+
+                r = rtnl_set_link_name(rtnl, ifindex, name, alternative_names);
+                if (r >= 0)
+                        break;
+                if (r != -EEXIST)
+                        break;
         }
 
         return r;

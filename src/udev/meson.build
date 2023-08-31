@@ -220,3 +220,7 @@ tests += [
                 'base' : test_libudev_base,
         },
 ]
+
+install_data('rule_generator/rule_generator.functions',
+             'rule_generator/write_net_rules',
+             install_dir : udevlibexecdir)
