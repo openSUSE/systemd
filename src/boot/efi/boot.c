@@ -918,17 +918,21 @@ static bool menu_run(
                 case KEYPRESS(0, 0, 'e'):
                 case KEYPRESS(0, 0, 'E'):
                         /* only the options of configured entries can be edited */
-                        if (!config->editor || !IN_SET(config->entries[idx_highlight]->type,
-                            LOADER_EFI, LOADER_LINUX, LOADER_UNIFIED_LINUX))
+                        if (!config->editor ||
+                            !IN_SET(config->entries[idx_highlight]->type, LOADER_EFI, LOADER_LINUX, LOADER_UNIFIED_LINUX)) {
+                                status = xstrdup16(u"Entry does not support editing the command line.");
                                 break;
+                        }
 
                         /* Unified kernels that are signed as a whole will not accept command line options
                          * when secure boot is enabled unless there is none embedded in the image. Do not try
                          * to pretend we can edit it to only have it be ignored. */
                         if (config->entries[idx_highlight]->type == LOADER_UNIFIED_LINUX &&
                             secure_boot_enabled() &&
-                            config->entries[idx_highlight]->options)
+                            config->entries[idx_highlight]->options) {
+                                status = xstrdup16(u"Entry not editable in SecureBoot mode.");
                                 break;
+                        }
 
                         /* The edit line may end up on the last line of the screen. And even though we're
                          * not telling the firmware to advance the line, it still does in this one case,
@@ -1346,7 +1350,7 @@ static void config_entry_parse_tries(
                         suffix);
 }
 
-static void config_entry_bump_counters(ConfigEntry *entry, EFI_FILE *root_dir) {
+static EFI_STATUS config_entry_bump_counters(ConfigEntry *entry) {
         _cleanup_free_ char16_t* old_path = NULL, *new_path = NULL;
         _cleanup_(file_closep) EFI_FILE *handle = NULL;
         _cleanup_free_ EFI_FILE_INFO *file_info = NULL;
@@ -1354,34 +1358,39 @@ static void config_entry_bump_counters(ConfigEntry *entry, EFI_FILE *root_dir) {
         EFI_STATUS err;
 
         assert(entry);
-        assert(root_dir);
 
         if (entry->tries_left < 0)
-                return;
+                return EFI_SUCCESS;
 
         if (!entry->path || !entry->current_name || !entry->next_name)
-                return;
+                return EFI_SUCCESS;
+
+        _cleanup_(file_closep) EFI_FILE *root = NULL;
+        err = open_volume(entry->device, &root);
+        if (err != EFI_SUCCESS)
+                return log_error_status(err, "Error opening entry root path: %m");
 
         old_path = xasprintf("%ls\\%ls", entry->path, entry->current_name);
 
-        err = root_dir->Open(root_dir, &handle, old_path, EFI_FILE_MODE_READ|EFI_FILE_MODE_WRITE, 0ULL);
+        err = root->Open(root, &handle, old_path, EFI_FILE_MODE_READ|EFI_FILE_MODE_WRITE, 0ULL);
         if (err != EFI_SUCCESS)
-                return;
+                return log_error_status(err, "Error opening boot entry: %m");
 
         err = get_file_info(handle, &file_info, &file_info_size);
         if (err != EFI_SUCCESS)
-                return;
+                return log_error_status(err, "Error getting boot entry file info: %m");
 
         /* And rename the file */
         strcpy16(file_info->FileName, entry->next_name);
         err = handle->SetInfo(handle, MAKE_GUID_PTR(EFI_FILE_INFO), file_info_size, file_info);
-        if (err != EFI_SUCCESS) {
-                log_error_status(err, "Failed to rename '%ls' to '%ls', ignoring: %m", old_path, entry->next_name);
-                return;
-        }
+        if (err != EFI_SUCCESS)
+                return log_error_status(
+                                err, "Failed to rename '%ls' to '%ls', ignoring: %m", old_path, entry->next_name);
 
         /* Flush everything to disk, just in case… */
-        (void) handle->Flush(handle);
+        err = handle->Flush(handle);
+        if (err != EFI_SUCCESS)
+                return log_error_status(err, "Error flushing boot entry file info: %m");
 
         /* Let's tell the OS that we renamed this file, so that it knows what to rename to the counter-less name on
          * success */
@@ -1393,6 +1402,8 @@ static void config_entry_bump_counters(ConfigEntry *entry, EFI_FILE *root_dir) {
                 free(entry->loader);
                 entry->loader = TAKE_PTR(new_path);
         }
+
+        return EFI_SUCCESS;
 }
 
 static void config_entry_add_type1(
@@ -2714,7 +2725,7 @@ static EFI_STATUS run(EFI_HANDLE image) {
                         continue;
                 }
 
-                config_entry_bump_counters(entry, root_dir);
+                (void) config_entry_bump_counters(entry);
                 save_selected_entry(&config, entry);
 
                 /* Optionally, read a random seed off the ESP and pass it to the OS */
