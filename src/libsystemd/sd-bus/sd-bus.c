@@ -2157,8 +2157,11 @@ _public_ int sd_bus_call(
                         left = (uint64_t) -1;
 
                 r = bus_poll(bus, true, left);
-                if (r < 0)
+                if (r < 0) {
+                        if (ERRNO_IS_TRANSIENT(r))
+                                continue;
                         goto fail;
+                }
                 if (r == 0) {
                         r = -ETIMEDOUT;
                         goto fail;
@@ -2926,6 +2929,7 @@ static int bus_poll(sd_bus *bus, bool need_more, uint64_t timeout_usec) {
 }
 
 _public_ int sd_bus_wait(sd_bus *bus, uint64_t timeout_usec) {
+        int r;
 
         assert_return(bus, -EINVAL);
         assert_return(!bus_pid_changed(bus), -ECHILD);
@@ -2939,7 +2943,11 @@ _public_ int sd_bus_wait(sd_bus *bus, uint64_t timeout_usec) {
         if (bus->rqueue_size > 0)
                 return 0;
 
-        return bus_poll(bus, false, timeout_usec);
+        r = bus_poll(bus, false, timeout_usec);
+        if (r < 0 && ERRNO_IS_TRANSIENT(r))
+                return 1; /* treat EINTR as success, but let's exit, so that the caller will call back into us soon. */
+
+        return r;
 }
 
 _public_ int sd_bus_flush(sd_bus *bus) {
@@ -2976,8 +2984,12 @@ _public_ int sd_bus_flush(sd_bus *bus) {
                         return 0;
 
                 r = bus_poll(bus, false, (uint64_t) -1);
-                if (r < 0)
+                if (r < 0) {
+                        if (ERRNO_IS_TRANSIENT(r))
+                                continue;
+
                         return r;
+                }
         }
 }
 
