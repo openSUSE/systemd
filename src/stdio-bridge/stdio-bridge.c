@@ -245,8 +245,11 @@ static int run(int argc, char *argv[]) {
                 };
 
                 r = ppoll(p, ELEMENTSOF(p), ts, NULL);
-                if (r < 0)
+                if (r < 0) {
+                        if (ERRNO_IS_TRANSIENT(errno)) /* don't be bothered by signals, i.e. EINTR */
+                                continue;
                         return log_error_errno(errno, "ppoll() failed: %m");
+                }
                 if (p[0].revents & POLLNVAL ||
                     p[1].revents & POLLNVAL ||
                     p[2].revents & POLLNVAL)
