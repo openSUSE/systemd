@@ -9,6 +9,7 @@
 #include "device-util.h"
 #include "devnode-acl.h"
 #include "dirent-util.h"
+#include "errno-util.h"
 #include "escape.h"
 #include "fd-util.h"
 #include "format-util.h"
@@ -225,8 +226,8 @@ int devnode_acl_all(const char *seat,
                 k = devnode_acl(n, flush, del, old_uid, add, new_uid);
                 if (k == -ENOENT)
                         log_debug("Device %s disappeared while setting ACLs", n);
-                else if (k < 0 && r == 0)
-                        r = k;
+                else
+                        RET_GATHER(r, k);
         }
 
         return r;

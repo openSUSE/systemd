@@ -78,12 +78,13 @@ typedef enum UnitDependencyMask {
         /* A dependency created because of some unit's RequiresMountsFor= setting */
         UNIT_DEPENDENCY_PATH               = 1 << 4,
 
-        /* A dependency created because of data read from /proc/self/mountinfo and no other configuration source */
-        UNIT_DEPENDENCY_MOUNTINFO_IMPLICIT = 1 << 5,
+        /* A dependency initially configured from the mount unit file however the dependency will be updated
+         * from /proc/self/mountinfo as soon as the kernel will make the entry for that mount available in
+         * the /proc file */
+        UNIT_DEPENDENCY_MOUNT_FILE         = 1 << 5,
 
-        /* A dependency created because of data read from /proc/self/mountinfo, but conditionalized by
-         * DefaultDependencies= and thus also involving configuration from UNIT_DEPENDENCY_FILE sources */
-        UNIT_DEPENDENCY_MOUNTINFO_DEFAULT  = 1 << 6,
+        /* A dependency created or updated because of data read from /proc/self/mountinfo */
+        UNIT_DEPENDENCY_MOUNTINFO          = 1 << 6,
 
         /* A dependency created because of data read from /proc/swaps and no other configuration source */
         UNIT_DEPENDENCY_PROC_SWAP          = 1 << 7,
@@ -999,6 +1000,14 @@ int unit_thaw_vtable_common(Unit *u);
 #define log_unit_notice_errno(unit, error, ...)  log_unit_full_errno(unit, LOG_NOTICE, error, __VA_ARGS__)
 #define log_unit_warning_errno(unit, error, ...) log_unit_full_errno(unit, LOG_WARNING, error, __VA_ARGS__)
 #define log_unit_error_errno(unit, error, ...)   log_unit_full_errno(unit, LOG_ERR, error, __VA_ARGS__)
+
+#if LOG_TRACE
+#  define log_unit_trace(...)          log_unit_debug(__VA_ARGS__)
+#  define log_unit_trace_errno(...)    log_unit_debug_errno(__VA_ARGS__)
+#else
+#  define log_unit_trace(...)          do {} while (0)
+#  define log_unit_trace_errno(e, ...) (-ERRNO_VALUE(e))
+#endif
 
 #define log_unit_struct_errno(unit, level, error, ...)                  \
         ({                                                              \
