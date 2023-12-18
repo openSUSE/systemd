@@ -360,7 +360,16 @@ static int font_load_and_wait(const char *vc, Context *c) {
                 _exit(EXIT_FAILURE);
         }
 
-        return wait_for_terminate_and_check(KBD_SETFONT, pid, WAIT_LOG);
+        /* setfont returns EX_OSERR when ioctl(KDFONTOP/PIO_FONTX/PIO_FONTX) fails.  This might mean various
+         * things, but in particular lack of a graphical console. Let's be generous and not treat this as an
+         * error. */
+        r = wait_for_terminate_and_check(KBD_SETFONT, pid, WAIT_LOG_ABNORMAL);
+        if (r == EX_OSERR)
+                log_notice(KBD_SETFONT " failed with a \"system error\" (EX_OSERR), ignoring.");
+        else if (r >= 0 && r != EXIT_SUCCESS)
+                log_error(KBD_SETFONT " failed with exit status %i.", r);
+
+        return r;
 }
 
 /*
@@ -511,22 +520,22 @@ static int find_source_vc(char **ret_path, unsigned *ret_idx) {
 
                 r = verify_vc_allocation(i);
                 if (r < 0) {
-                        if (!err)
-                                err = -r;
+                        log_debug_errno(r, "VC %u existance check failed, skipping: %m", i);
+                        RET_GATHER(err, r);
                         continue;
                 }
 
                 sprintf(path, "/dev/tty%u", i);
                 fd = open_terminal(path, O_RDWR|O_CLOEXEC|O_NOCTTY);
                 if (fd < 0) {
-                        if (!err)
-                                err = -fd;
+                        log_debug_errno(fd, "Failed to open terminal %s, ignoring: %m", path);
+                        RET_GATHER(err, r);
                         continue;
                 }
                 r = verify_vc_kbmode(fd);
                 if (r < 0) {
-                        if (!err)
-                                err = -r;
+                        log_debug_errno(r, "Failed to check VC %s keyboard mode: %m", path);
+                        RET_GATHER(err, r);
                         continue;
                 }
 
@@ -608,13 +617,9 @@ int main(int argc, char **argv) {
         if (idx > 0) {
                 if (r == 0)
                         setup_remaining_vcs(fd, idx, utf8);
-                else if (r == EX_OSERR)
-                        /* setfont returns EX_OSERR when ioctl(KDFONTOP/PIO_FONTX/PIO_FONTX) fails.
-                         * This might mean various things, but in particular lack of a graphical
-                         * console. Let's be generous and not treat this as an error. */
-                        log_notice("Setting fonts failed with a \"system error\", ignoring.");
                 else
-                        log_warning("Setting source virtual console failed, ignoring remaining ones");
+                        log_full(r == EX_OSERR ? LOG_NOTICE : LOG_WARNING,
+                                 "Setting source virtual console failed, ignoring remaining ones.");
         }
 
         return IN_SET(r, 0, EX_OSERR) && keyboard_ok ? EXIT_SUCCESS : EXIT_FAILURE;

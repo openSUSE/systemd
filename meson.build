@@ -210,6 +210,12 @@ profiledir = rootlibexecdir / 'portable' / 'profile'
 ntpservicelistdir = rootprefixdir / 'lib/systemd/ntp-units.d'
 credstoredir = prefixdir / 'lib/credstore'
 
+configfiledir = get_option('configfiledir')
+if configfiledir == ''
+        configfiledir= sysconfdir
+endif
+pkgconfigfiledir = configfiledir / 'systemd'
+
 docdir = get_option('docdir')
 if docdir == ''
         docdir = datadir / 'doc/systemd'
@@ -3806,7 +3812,7 @@ executable(
 
 if install_sysconfdir_samples
         install_data('src/sleep/sleep.conf',
-                     install_dir : pkgsysconfdir)
+                     install_dir : pkgconfigfiledir)
 endif
 
 public_programs += executable(

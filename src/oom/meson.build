@@ -18,7 +18,7 @@ if conf.get('ENABLE_OOMD') == 1
 
         if install_sysconfdir_samples
                 install_data('oomd.conf',
-                             install_dir : pkgsysconfdir)
+                             install_dir : pkgconfigfiledir)
         endif
 endif
 
