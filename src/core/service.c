@@ -1344,8 +1344,7 @@ fail:
 static int main_pid_good(Service *s) {
         assert(s);
 
-        /* Returns 0 if the pid is dead, 1 if it is good, -1 if we
-         * don't know */
+        /* Returns 0 if the pid is dead, > 0 if it is good, < 0 if we don't know */
 
         /* If we know the pid file, then let's just check if it is
          * still valid */
@@ -1366,8 +1365,12 @@ static int main_pid_good(Service *s) {
         return -EAGAIN;
 }
 
-_pure_ static int control_pid_good(Service *s) {
+static int control_pid_good(Service *s) {
         assert(s);
+
+        /* Returns 0 if the control PID is dead, > 0 if it is good. We never actually return < 0 here, but in order to
+         * make this function as similar as possible to main_pid_good() and cgroup_good(), we pretend that < 0 also
+         * means: we can't figure it out. */
 
         return s->control_pid > 0;
 }
@@ -1377,6 +1380,9 @@ static int cgroup_good(Service *s) {
 
         assert(s);
 
+        /* Returns 0 if the cgroup is empty or doesn't exist, > 0 if it is exists and is populated, < 0 if we can't
+         * figure it out */
+
         if (!UNIT(s)->cgroup_path)
                 return 0;
 
@@ -1384,7 +1390,7 @@ static int cgroup_good(Service *s) {
         if (r < 0)
                 return r;
 
-        return !r;
+        return r == 0;
 }
 
 static bool service_shall_restart(Service *s) {
@@ -2581,7 +2587,9 @@ static void service_notify_cgroup_empty_event(Unit *u) {
                  * SIGCHLD for. */
 
         case SERVICE_START:
-                if (s->type == SERVICE_NOTIFY) {
+                if (s->type == SERVICE_NOTIFY &&
+                    main_pid_good(s) == 0 &&
+                    control_pid_good(s) == 0) {
                         /* No chance of getting a ready notification anymore */
                         service_enter_stop_post(s, SERVICE_FAILURE_PROTOCOL);
                         break;
@@ -2590,7 +2598,10 @@ static void service_notify_cgroup_empty_event(Unit *u) {
                 /* Fall through */
 
         case SERVICE_START_POST:
-                if (s->pid_file_pathspec) {
+                if (s->pid_file_pathspec &&
+                    main_pid_good(s) == 0 &&
+                    control_pid_good(s) == 0) {
+
                         /* Give up hoping for the daemon to write its PID file */
                         log_unit_warning(u, "Daemon never wrote its PID file. Failing.");
 
@@ -2611,7 +2622,7 @@ static void service_notify_cgroup_empty_event(Unit *u) {
         case SERVICE_STOP_SIGTERM:
         case SERVICE_STOP_SIGKILL:
 
-                if (main_pid_good(s) <= 0 && !control_pid_good(s))
+                if (main_pid_good(s) <= 0 && control_pid_good(s) <= 0)
                         service_enter_stop_post(s, SERVICE_SUCCESS);
 
                 break;
@@ -2619,7 +2630,7 @@ static void service_notify_cgroup_empty_event(Unit *u) {
         case SERVICE_STOP_POST:
         case SERVICE_FINAL_SIGTERM:
         case SERVICE_FINAL_SIGKILL:
-                if (main_pid_good(s) <= 0 && !control_pid_good(s))
+                if (main_pid_good(s) <= 0 && control_pid_good(s) <= 0)
                         service_enter_dead(s, SERVICE_SUCCESS, true);
 
                 break;
@@ -2748,7 +2759,7 @@ static void service_sigchld_event(Unit *u, pid_t pid, int code, int status) {
                         case SERVICE_STOP_SIGTERM:
                         case SERVICE_STOP_SIGKILL:
 
-                                if (!control_pid_good(s))
+                                if (control_pid_good(s) <= 0)
                                         service_enter_stop_post(s, f);
 
                                 /* If there is still a control process, wait for that first */
@@ -2758,7 +2769,7 @@ static void service_sigchld_event(Unit *u, pid_t pid, int code, int status) {
                         case SERVICE_FINAL_SIGTERM:
                         case SERVICE_FINAL_SIGKILL:
 
-                                if (!control_pid_good(s))
+                                if (control_pid_good(s) <= 0)
                                         service_enter_dead(s, f, true);
                                 break;
 
@@ -2839,7 +2850,7 @@ static void service_sigchld_event(Unit *u, pid_t pid, int code, int status) {
                                         r = service_load_pid_file(s, !has_start_post);
                                         if (!has_start_post && r < 0) {
                                                 r = service_demand_pid_file(s);
-                                                if (r < 0 || !cgroup_good(s))
+                                                if (r < 0 || cgroup_good(s) == 0)
                                                         service_enter_signal(s, SERVICE_STOP_SIGTERM, SERVICE_FAILURE_PROTOCOL);
                                                 break;
                                         }
@@ -2861,7 +2872,7 @@ static void service_sigchld_event(Unit *u, pid_t pid, int code, int status) {
                                         r = service_load_pid_file(s, true);
                                         if (r < 0) {
                                                 r = service_demand_pid_file(s);
-                                                if (r < 0 || !cgroup_good(s))
+                                                if (r < 0 || cgroup_good(s) == 0)
                                                         service_enter_stop(s, SERVICE_FAILURE_PROTOCOL);
                                                 break;
                                         }
