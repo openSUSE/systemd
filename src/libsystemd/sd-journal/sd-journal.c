@@ -2064,7 +2064,8 @@ static sd_journal *journal_new(int flags, const char *path, const char *namespac
          SD_JOURNAL_SYSTEM |                            \
          SD_JOURNAL_CURRENT_USER |                      \
          SD_JOURNAL_ALL_NAMESPACES |                    \
-         SD_JOURNAL_INCLUDE_DEFAULT_NAMESPACE)
+         SD_JOURNAL_INCLUDE_DEFAULT_NAMESPACE |         \
+         SD_JOURNAL_ASSUME_IMMUTABLE)
 
 _public_ int sd_journal_open_namespace(sd_journal **ret, const char *namespace, int flags) {
         _cleanup_(sd_journal_closep) sd_journal *j = NULL;
@@ -2090,7 +2091,9 @@ _public_ int sd_journal_open(sd_journal **ret, int flags) {
 }
 
 #define OPEN_CONTAINER_ALLOWED_FLAGS                    \
-        (SD_JOURNAL_LOCAL_ONLY | SD_JOURNAL_SYSTEM)
+        (SD_JOURNAL_LOCAL_ONLY |                        \
+         SD_JOURNAL_SYSTEM |                            \
+         SD_JOURNAL_ASSUME_IMMUTABLE)
 
 _public_ int sd_journal_open_container(sd_journal **ret, const char *machine, int flags) {
         _cleanup_free_ char *root = NULL, *class = NULL;
@@ -2134,7 +2137,9 @@ _public_ int sd_journal_open_container(sd_journal **ret, const char *machine, in
 
 #define OPEN_DIRECTORY_ALLOWED_FLAGS                    \
         (SD_JOURNAL_OS_ROOT |                           \
-         SD_JOURNAL_SYSTEM | SD_JOURNAL_CURRENT_USER )
+         SD_JOURNAL_SYSTEM |                            \
+         SD_JOURNAL_CURRENT_USER |                      \
+         SD_JOURNAL_ASSUME_IMMUTABLE)
 
 _public_ int sd_journal_open_directory(sd_journal **ret, const char *path, int flags) {
         _cleanup_(sd_journal_closep) sd_journal *j = NULL;
@@ -2159,12 +2164,15 @@ _public_ int sd_journal_open_directory(sd_journal **ret, const char *path, int f
         return 0;
 }
 
+#define OPEN_FILES_ALLOWED_FLAGS                        \
+        (SD_JOURNAL_ASSUME_IMMUTABLE)
+
 _public_ int sd_journal_open_files(sd_journal **ret, const char **paths, int flags) {
         _cleanup_(sd_journal_closep) sd_journal *j = NULL;
         int r;
 
         assert_return(ret, -EINVAL);
-        assert_return(flags == 0, -EINVAL);
+        assert_return((flags & ~OPEN_FILES_ALLOWED_FLAGS) == 0, -EINVAL);
 
         j = journal_new(flags, NULL, NULL);
         if (!j)
@@ -2186,7 +2194,8 @@ _public_ int sd_journal_open_files(sd_journal **ret, const char **paths, int fla
         (SD_JOURNAL_OS_ROOT |                           \
          SD_JOURNAL_SYSTEM |                            \
          SD_JOURNAL_CURRENT_USER |                      \
-         SD_JOURNAL_TAKE_DIRECTORY_FD)
+         SD_JOURNAL_TAKE_DIRECTORY_FD |                 \
+         SD_JOURNAL_ASSUME_IMMUTABLE)
 
 _public_ int sd_journal_open_directory_fd(sd_journal **ret, int fd, int flags) {
         _cleanup_(sd_journal_closep) sd_journal *j = NULL;
@@ -2224,6 +2233,9 @@ _public_ int sd_journal_open_directory_fd(sd_journal **ret, int fd, int flags) {
         return 0;
 }
 
+#define OPEN_FILES_FD_ALLOWED_FLAGS                        \
+        (SD_JOURNAL_ASSUME_IMMUTABLE)
+
 _public_ int sd_journal_open_files_fd(sd_journal **ret, int fds[], unsigned n_fds, int flags) {
         JournalFile *f;
         _cleanup_(sd_journal_closep) sd_journal *j = NULL;
@@ -2231,7 +2243,7 @@ _public_ int sd_journal_open_files_fd(sd_journal **ret, int fds[], unsigned n_fd
 
         assert_return(ret, -EINVAL);
         assert_return(n_fds > 0, -EBADF);
-        assert_return(flags == 0, -EINVAL);
+        assert_return((flags & ~OPEN_FILES_FD_ALLOWED_FLAGS) == 0, -EINVAL);
 
         j = journal_new(flags, NULL, NULL);
         if (!j)
@@ -2409,6 +2421,9 @@ static int journal_file_read_tail_timestamp(sd_journal *j, JournalFile *f) {
         assert(f->header);
 
         /* Tries to read the timestamp of the most recently written entry. */
+
+        if (FLAGS_SET(j->flags, SD_JOURNAL_ASSUME_IMMUTABLE) && f->newest_entry_offset != 0)
+                return 0; /* We have already read the file, and we assume that the file is immutable. */
 
         if (f->header->state == f->newest_state &&
             f->header->state == STATE_ARCHIVED &&
@@ -2780,6 +2795,7 @@ _public_ int sd_journal_get_fd(sd_journal *j) {
 
         assert_return(j, -EINVAL);
         assert_return(!journal_origin_changed(j), -ECHILD);
+        assert_return(!FLAGS_SET(j->flags, SD_JOURNAL_ASSUME_IMMUTABLE), -EUNATCH);
 
         if (j->no_inotify)
                 return -EMEDIUMTYPE;
@@ -2806,6 +2822,7 @@ _public_ int sd_journal_get_events(sd_journal *j) {
 
         assert_return(j, -EINVAL);
         assert_return(!journal_origin_changed(j), -ECHILD);
+        assert_return(!FLAGS_SET(j->flags, SD_JOURNAL_ASSUME_IMMUTABLE), -EUNATCH);
 
         fd = sd_journal_get_fd(j);
         if (fd < 0)
@@ -2819,6 +2836,7 @@ _public_ int sd_journal_get_timeout(sd_journal *j, uint64_t *timeout_usec) {
 
         assert_return(j, -EINVAL);
         assert_return(!journal_origin_changed(j), -ECHILD);
+        assert_return(!FLAGS_SET(j->flags, SD_JOURNAL_ASSUME_IMMUTABLE), -EUNATCH);
         assert_return(timeout_usec, -EINVAL);
 
         fd = sd_journal_get_fd(j);
@@ -2946,6 +2964,8 @@ _public_ int sd_journal_process(sd_journal *j) {
         if (j->inotify_fd < 0) /* We have no inotify fd yet? Then there's noting to process. */
                 return 0;
 
+        assert_return(!FLAGS_SET(j->flags, SD_JOURNAL_ASSUME_IMMUTABLE), -EUNATCH);
+
         j->last_process_usec = now(CLOCK_MONOTONIC);
         j->last_invalidate_counter = j->current_invalidate_counter;
 
@@ -2974,6 +2994,7 @@ _public_ int sd_journal_wait(sd_journal *j, uint64_t timeout_usec) {
 
         assert_return(j, -EINVAL);
         assert_return(!journal_origin_changed(j), -ECHILD);
+        assert_return(!FLAGS_SET(j->flags, SD_JOURNAL_ASSUME_IMMUTABLE), -EUNATCH);
 
         if (j->inotify_fd < 0) {
                 JournalFile *f;
