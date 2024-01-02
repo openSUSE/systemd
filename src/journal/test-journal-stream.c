@@ -119,7 +119,7 @@ static void run_test(void) {
         (void) managed_journal_file_close(two);
         (void) managed_journal_file_close(three);
 
-        assert_se(sd_journal_open_directory(&j, t, 0) >= 0);
+        assert_se(sd_journal_open_directory(&j, t, SD_JOURNAL_ASSUME_IMMUTABLE) >= 0);
 
         assert_se(sd_journal_add_match(j, "MAGIC=quux", 0) >= 0);
         SD_JOURNAL_FOREACH_BACKWARDS(j) {
