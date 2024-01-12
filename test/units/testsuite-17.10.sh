@@ -25,7 +25,7 @@ netdev=dummy17.10
 ip link add $netdev type dummy
 
 blk="$(mktemp)"
-dd if=/dev/null of="$blk" bs=1M count=1
+dd if=/dev/zero of="$blk" bs=1M count=1
 loopdev="$(losetup --show -f "$blk")"
 
 udevadm -h
@@ -201,6 +201,15 @@ udevadm trigger --wait-daemon
 udevadm settle -t 300
 udevadm trigger --wait-daemon=5
 udevadm trigger -h
+
+# https://github.com/systemd/systemd/issues/29863
+if [[ "$(systemd-detect-virt -v)" != "qemu" ]]; then
+    udevadm control --log-level=0
+    for _ in {0..9}; do
+        timeout 30 udevadm trigger --settle
+    done
+    udevadm control --log-level=debug
+fi
 
 udevadm wait /dev/null
 udevadm wait /sys/class/net/$netdev

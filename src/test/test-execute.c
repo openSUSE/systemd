@@ -40,6 +40,7 @@
 
 static char *user_runtime_unit_dir = NULL;
 static bool can_unshare;
+static bool have_net_dummy;
 
 STATIC_DESTRUCTOR_REGISTER(user_runtime_unit_dir, freep);
 
@@ -436,6 +437,8 @@ static void test_exec_privatedevices(Manager *m) {
 
         test(m, "exec-privatedevices-yes.service", can_unshare ? 0 : MANAGER_IS_SYSTEM(m) ? EXIT_FAILURE : EXIT_NAMESPACE, CLD_EXITED);
         test(m, "exec-privatedevices-no.service", 0, CLD_EXITED);
+        if (access("/dev/kmsg", F_OK) >= 0)
+                test(m, "exec-privatedevices-bind.service", can_unshare ? 0 : MANAGER_IS_SYSTEM(m) ? EXIT_FAILURE : EXIT_NAMESPACE, CLD_EXITED);
         test(m, "exec-privatedevices-disabled-by-prefix.service", can_unshare ? 0 : MANAGER_IS_SYSTEM(m) ? EXIT_FAILURE : EXIT_NAMESPACE, CLD_EXITED);
         test(m, "exec-privatedevices-yes-with-group.service", can_unshare ? 0 : MANAGER_IS_SYSTEM(m) ? EXIT_FAILURE : EXIT_NAMESPACE, CLD_EXITED);
 
@@ -1073,6 +1076,9 @@ static void test_exec_ambientcapabilities(Manager *m) {
 static void test_exec_privatenetwork(Manager *m) {
         int r;
 
+        if (!have_net_dummy)
+                return (void)log_notice("Skipping %s, dummy network interface not available", __func__);
+
         r = find_executable("ip", NULL);
         if (r < 0) {
                 log_notice_errno(r, "Skipping %s, could not find ip binary: %m", __func__);
@@ -1085,6 +1091,9 @@ static void test_exec_privatenetwork(Manager *m) {
 
 static void test_exec_networknamespacepath(Manager *m) {
         int r;
+
+        if (!have_net_dummy)
+                return (void)log_notice("Skipping %s, dummy network interface not available", __func__);
 
         r = find_executable("ip", NULL);
         if (r < 0) {
@@ -1409,18 +1418,23 @@ static int intro(void) {
                 return log_tests_skipped("/sys is mounted read-only");
 
         /* Create dummy network interface for testing PrivateNetwork=yes */
-        (void) system("ip link add dummy-test-exec type dummy");
+        have_net_dummy = system("ip link add dummy-test-exec type dummy") == 0;
 
-        /* Create a network namespace and a dummy interface in it for NetworkNamespacePath= */
-        (void) system("ip netns add test-execute-netns");
-        (void) system("ip netns exec test-execute-netns ip link add dummy-test-ns type dummy");
+        if (have_net_dummy) {
+                /* Create a network namespace and a dummy interface in it for NetworkNamespacePath= */
+                (void) system("ip netns add test-execute-netns");
+                (void) system("ip netns exec test-execute-netns ip link add dummy-test-ns type dummy");
+        }
 
         return EXIT_SUCCESS;
 }
 
 static int outro(void) {
-        (void) system("ip link del dummy-test-exec");
-        (void) system("ip netns del test-execute-netns");
+        if (have_net_dummy) {
+                (void) system("ip link del dummy-test-exec");
+                (void) system("ip netns del test-execute-netns");
+        }
+
         (void) rmdir(PRIVATE_UNIT_DIR);
 
         return EXIT_SUCCESS;

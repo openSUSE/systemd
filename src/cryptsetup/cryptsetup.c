@@ -993,31 +993,37 @@ static int attach_tcrypt(
         if (key_data) {
                 params.passphrase = key_data;
                 params.passphrase_size = key_data_size;
+                r = crypt_load(cd, CRYPT_TCRYPT, &params);
+        } else if (key_file) {
+                r = read_one_line_file(key_file, &passphrase);
+                if (r < 0) {
+                        log_error_errno(r, "Failed to read password file '%s': %m", key_file);
+                        return -EAGAIN; /* log with the actual error, but return EAGAIN */
+                }
+                params.passphrase = passphrase;
+                params.passphrase_size = strlen(passphrase);
+                r = crypt_load(cd, CRYPT_TCRYPT, &params);
         } else {
-                if (key_file) {
-                        r = read_one_line_file(key_file, &passphrase);
-                        if (r < 0) {
-                                log_error_errno(r, "Failed to read password file '%s': %m", key_file);
-                                return -EAGAIN; /* log with the actual error, but return EAGAIN */
-                        }
-
-                        params.passphrase = passphrase;
-                } else
-                        params.passphrase = passwords[0];
-
-                params.passphrase_size = strlen(params.passphrase);
+                r = -EINVAL;
+                STRV_FOREACH(p, passwords){
+                        params.passphrase = *p;
+                        params.passphrase_size = strlen(*p);
+                        r = crypt_load(cd, CRYPT_TCRYPT, &params);
+                        if (r >= 0)
+                                break;
+                }
         }
 
-        r = crypt_load(cd, CRYPT_TCRYPT, &params);
         if (r < 0) {
                 if (r == -EPERM) {
                         if (key_data)
                                 log_error_errno(r, "Failed to activate using discovered key. (Key not correct?)");
-
-                        if (key_file)
+                        else if (key_file)
                                 log_error_errno(r, "Failed to activate using password file '%s'. (Key data not correct?)", key_file);
+                        else
+                                log_error_errno(r, "Failed to activate using supplied passwords.");
 
-                        return -EAGAIN; /* log the actual error, but return EAGAIN */
+                        return r;
                 }
 
                 return log_error_errno(r, "Failed to load tcrypt superblock on device %s: %m", crypt_get_device_name(cd));
@@ -1398,7 +1404,8 @@ static int attach_luks2_by_pkcs11_via_plugin(
         systemd_pkcs11_plugin_params params = {
                 .friendly_name = friendly_name,
                 .until = until,
-                .headless = headless
+                .headless = headless,
+                .askpw_flags = arg_ask_password_flags,
         };
 
         r = crypt_activate_by_token_pin(cd, name, "systemd-pkcs11", CRYPT_ANY_TOKEN, NULL, 0, &params, flags);
@@ -1489,8 +1496,8 @@ static int attach_luks_or_plain_or_bitlk_by_pkcs11(
                         if (r < 0)
                                 return r;
 
-                        log_notice("Security token %s not present for unlocking volume %s, please plug it in.",
-                                   uri, friendly);
+                        log_notice("Security token%s%s not present for unlocking volume %s, please plug it in.",
+                                   uri ? " " : "", strempty(uri), friendly);
 
                         /* Let's immediately rescan in case the token appeared in the time we needed
                          * to create and configure the monitor */

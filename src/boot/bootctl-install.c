@@ -975,9 +975,11 @@ static int remove_loader_variables(void) {
         /* Remove all persistent loader variables we define */
 
         FOREACH_STRING(var,
+                       EFI_LOADER_VARIABLE(LoaderConfigConsoleMode),
                        EFI_LOADER_VARIABLE(LoaderConfigTimeout),
                        EFI_LOADER_VARIABLE(LoaderConfigTimeoutOneShot),
                        EFI_LOADER_VARIABLE(LoaderEntryDefault),
+                       EFI_LOADER_VARIABLE(LoaderEntryLastBooted),
                        EFI_LOADER_VARIABLE(LoaderEntryOneShot),
                        EFI_LOADER_VARIABLE(LoaderSystemToken)){
 
@@ -1080,7 +1082,7 @@ int verb_remove(int argc, char *argv[], void *userdata) {
 int verb_is_installed(int argc, char *argv[], void *userdata) {
         int r;
 
-        r = acquire_esp(/* privileged_mode= */ false,
+        r = acquire_esp(/* unprivileged_mode= */ false,
                         /* graceful= */ arg_graceful,
                         NULL, NULL, NULL, NULL, NULL);
         if (r < 0)

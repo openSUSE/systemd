@@ -334,7 +334,7 @@
         the service with a private, minimal version of <filename>/dev/</filename>, combine this option with
         <varname>PrivateDevices=</varname>.</para>
 
-        <para>In order to allow propagating mounts at runtime in a safe manner, <filename>/run/systemd/propagate</filename>
+        <para>In order to allow propagating mounts at runtime in a safe manner, <filename>/run/systemd/propagate/</filename>
         on the host will be used to set up new mounts, and <filename>/run/host/incoming/</filename> in the private namespace
         will be used as an intermediate step to store them before being moved to the final mount point.</para></listitem>
       </varlistentry>
@@ -1556,7 +1556,12 @@ StateDirectory=aaa/bbb ccc</programlisting>
         permit this. Nest <varname>ReadWritePaths=</varname> inside of <varname>ReadOnlyPaths=</varname> in
         order to provide writable subdirectories within read-only directories. Use
         <varname>ReadWritePaths=</varname> in order to allow-list specific paths for write access if
-        <varname>ProtectSystem=strict</varname> is used.</para>
+        <varname>ProtectSystem=strict</varname> is used. Note that <varname>ReadWritePaths=</varname> cannot
+        be used to gain write access to a file system whose superblock is mounted read-only. On Linux, for
+        each mount point write access is granted only if the mount point itself <emphasis>and</emphasis> the
+        file system superblock backing it are not marked read-only. <varname>ReadWritePaths=</varname> only
+        controls the former, not the latter, hence a read-only file system superblock remains
+        protected.</para>
 
         <para>Paths listed in <varname>InaccessiblePaths=</varname> will be made inaccessible for processes inside
         the namespace along with everything below them in the file system hierarchy. This may be more restrictive than
@@ -1591,12 +1596,15 @@ StateDirectory=aaa/bbb ccc</programlisting>
         i.e. writable mounts appearing on the host will be writable in the unit's namespace too, even when propagated
         below a path marked with <varname>ReadOnlyPaths=</varname>! Restricting access with these options hence does
         not extend to submounts of a directory that are created later on. This means the lock-down offered by that
-        setting is not complete, and does not offer full protection. </para>
+        setting is not complete, and does not offer full protection.</para>
 
         <para>Note that the effect of these settings may be undone by privileged processes. In order to set up an
         effective sandboxed environment for a unit it is thus recommended to combine these settings with either
-        <varname>CapabilityBoundingSet=~CAP_SYS_ADMIN</varname> or
-        <varname>SystemCallFilter=~@mount</varname>.</para>
+        <varname>CapabilityBoundingSet=~CAP_SYS_ADMIN</varname> or <varname>SystemCallFilter=~@mount</varname>.</para>
+
+        <para>Please be extra careful when applying these options to API file systems (a list of them could be
+        found in <varname>MountAPIVPS=</varname>), since they may be required for basic system functionalities.
+        Moreover, <filename>/run/</filename> needs to be writable for setting up mount namespace and propagation.</para>
 
         <para>Simple allow-list example using these directives:
         <programlisting>[Service]
@@ -2799,7 +2807,8 @@ SystemCallErrorNumber=EPERM</programlisting>
         input will be connected to the socket the service was activated from, which is primarily useful for
         compatibility with daemons designed for use with the traditional <citerefentry
         project='freebsd'><refentrytitle>inetd</refentrytitle><manvolnum>8</manvolnum></citerefentry> socket activation
-        daemon.</para>
+        daemon (<varname>$LISTEN_FDS</varname> (and related) environment variables are not passed when
+        <option>socket</option> value is configured).</para>
 
         <para>The <option>fd:<replaceable>name</replaceable></option> option connects standard input to a specific,
         named file descriptor provided by a socket unit. The name may be specified as part of this option, following a
@@ -3274,7 +3283,12 @@ StandardInputData=V2XigLJyZSBubyBzdHJhbmdlcnMgdG8gbG92ZQpZb3Uga25vdyB0aGUgcnVsZX
         <varname>ExecStart=</varname> command line use <literal>${CREDENTIALS_DIRECTORY}/mycred</literal>,
         e.g. <literal>ExecStart=cat ${CREDENTIALS_DIRECTORY}/mycred</literal>. In order to reference the path
         a credential may be read from within a <varname>Environment=</varname> line use
-        <literal>%d/mycred</literal>, e.g. <literal>Environment=MYCREDPATH=%d/mycred</literal>.</para>
+        <literal>%d/mycred</literal>, e.g. <literal>Environment=MYCREDPATH=%d/mycred</literal>. For system
+        services the path may also be referenced as
+        <literal>/run/credentials/<replaceable>UNITNAME</replaceable></literal> in cases where no
+        interpolation is possible, e.g. configuration files of software that does not yet support credentials
+        natively. <varname>$CREDENTIALS_DIRECTORY</varname> is considered the primary interface to look for
+        credentials, though, since it also works for user services.</para>
 
         <para>Currently, an accumulated credential size limit of 1 MB per unit is enforced.</para>
 
