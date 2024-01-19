@@ -552,9 +552,10 @@ w- /proc/sys/vm/swappiness - - - - 10</programlisting></para>
       removed unless applied to a directory. This functionality is particularly useful in conjunction with
       <varname>Z</varname>.</para>
 
-      <para>Optionally, if prefixed with <literal>:</literal>, the configured access mode is only used when
-      creating new inodes. If the inode the line refers to already exists, its access mode is left in place
-      unmodified.</para>
+      <para>By default the access mode of listed inodes is set to the specified mode regardless if it is
+      created anew, or already existed. Optionally, if prefixed with <literal>:</literal>, the configured
+      access mode is only applied when creating new inodes, and if the inode the line refers to
+      already exists, its access mode is left in place unmodified.</para>
     </refsect2>
 
     <refsect2>
@@ -577,9 +578,10 @@ w- /proc/sys/vm/swappiness - - - - 10</programlisting></para>
       Resolvability of User and Group Names</ulink> for more information on requirements on system user/group
       definitions.</para>
 
-      <para>Optionally, if prefixed with <literal>:</literal>, the configured user/group information is only
-      used when creating new inodes. If the inode the line refers to already exists, its user/group is left
-      in place unmodified.</para>
+      <para>By default the ownership of listed inodes is set to the specified user/group regardless if it is
+      created anew, or already existed. Optionally, if prefixed with <literal>:</literal>, the configured
+      user/group information is only applied when creating new inodes, and if the inode the line refers to
+      already exists, its user/group is left in place unmodified.</para>
     </refsect2>
 
     <refsect2>
@@ -656,8 +658,8 @@ d /tmp/foo/bar - - - bmA:1h -</programlisting></para>
 
       <para>Note that while the aging algorithm is run an exclusive BSD file lock (see <citerefentry
       project='man-pages'><refentrytitle>flock</refentrytitle><manvolnum>2</manvolnum></citerefentry>) is
-      taken on each directory/file the algorithm decides to remove. If the aging algorithm finds a lock (
-      shared or exclusive) is already taken on some directory/file, it (and everything below it) is skipped.
+      taken on each directory/file the algorithm decides to remove. If the aging algorithm finds a lock
+      (shared or exclusive) is already taken on some directory/file, it (and everything below it) is skipped.
       Applications may use this to temporarily exclude certain directory subtrees from the aging algorithm:
       the applications can take a BSD file lock themselves, and as long as they keep it aging of the
       directory/file and everything below it is disabled.</para>

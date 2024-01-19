@@ -2098,7 +2098,7 @@ int dissected_image_mount(
                                 if (r > 0)
                                         ok = true;
                         }
-                        if (!ok && FLAGS_SET(flags, DISSECT_IMAGE_VALIDATE_OS_EXT)) {
+                        if (!ok && FLAGS_SET(flags, DISSECT_IMAGE_VALIDATE_OS_EXT) && m->image_name) {
                                 r = extension_has_forbidden_content(where);
                                 if (r < 0)
                                         return r;
@@ -2531,7 +2531,7 @@ static int do_crypt_activate_verity(
                 const VeritySettings *verity) {
 
         bool check_signature;
-        int r;
+        int r, k;
 
         assert(cd);
         assert(name);
@@ -2561,20 +2561,23 @@ static int do_crypt_activate_verity(
                 if (r >= 0)
                         return r;
 
-                log_debug("Validation of dm-verity signature failed via the kernel, trying userspace validation instead.");
+                log_debug_errno(r, "Validation of dm-verity signature failed via the kernel, trying userspace validation instead: %m");
 #else
                 log_debug("Activation of verity device with signature requested, but not supported via the kernel by %s due to missing crypt_activate_by_signed_key(), trying userspace validation instead.",
                           program_invocation_short_name);
+                r = 0; /* Set for the propagation below */
 #endif
 
                 /* So this didn't work via the kernel, then let's try userspace validation instead. If that
                  * works we'll try to activate without telling the kernel the signature. */
 
-                r = validate_signature_userspace(verity);
-                if (r < 0)
-                        return r;
-                if (r == 0)
-                        return log_debug_errno(SYNTHETIC_ERRNO(ENOKEY),
+                /* Preferably propagate the original kernel error, so that the fallback logic can work,
+                 * as the device-mapper is finicky around concurrent activations of the same volume */
+                k = validate_signature_userspace(verity);
+                if (k < 0)
+                        return r < 0 ? r : k;
+                if (k == 0)
+                        return log_debug_errno(r < 0 ? r : SYNTHETIC_ERRNO(ENOKEY),
                                                "Activation of signed Verity volume worked neither via the kernel nor in userspace, can't activate.");
         }
 
@@ -3358,6 +3361,9 @@ int dissected_image_acquire_metadata(DissectedImage *m, DissectImageFlags extra_
                         switch (k) {
 
                         case META_EXTENSION_RELEASE: {
+                                if (!m->image_name)
+                                        goto next;
+
                                 /* As per the os-release spec, if the image is an extension it will have a file
                                  * named after the image name in extension-release.d/ - we use the image name
                                  * and try to resolve it with the extension-release helpers, as sometimes
@@ -3407,7 +3413,7 @@ int dissected_image_acquire_metadata(DissectedImage *m, DissectImageFlags extra_
                                 if (r < 0)
                                         goto inner_fail;
 
-                                continue;
+                                goto next;
                         }
 
                         default:
@@ -3420,14 +3426,14 @@ int dissected_image_acquire_metadata(DissectedImage *m, DissectImageFlags extra_
 
                         if (fd < 0) {
                                 log_debug_errno(fd, "Failed to read %s file of image, ignoring: %m", paths[k]);
-                                fds[2*k+1] = safe_close(fds[2*k+1]);
-                                continue;
+                                goto next;
                         }
 
                         r = copy_bytes(fd, fds[2*k+1], UINT64_MAX, 0);
                         if (r < 0)
                                 goto inner_fail;
 
+                next:
                         fds[2*k+1] = safe_close(fds[2*k+1]);
                 }
 
@@ -3541,18 +3547,25 @@ int dissected_image_acquire_metadata(DissectedImage *m, DissectImageFlags extra_
         r = wait_for_terminate_and_check("(sd-dissect)", child, 0);
         child = 0;
         if (r < 0)
-                return r;
+                goto finish;
 
         n = read(error_pipe[0], &v, sizeof(v));
-        if (n < 0)
-                return -errno;
-        if (n == sizeof(v))
-                return v; /* propagate error sent to us from child */
-        if (n != 0)
-                return -EIO;
-
-        if (r != EXIT_SUCCESS)
-                return -EPROTO;
+        if (n < 0) {
+                r = -errno;
+                goto finish;
+        }
+        if (n == sizeof(v)) {
+                r = v; /* propagate error sent to us from child */
+                goto finish;
+        }
+        if (n != 0) {
+                r = -EIO;
+                goto finish;
+        }
+        if (r != EXIT_SUCCESS) {
+                r = -EPROTO;
+                goto finish;
+        }
 
         free_and_replace(m->hostname, hostname);
         m->machine_id = machine_id;

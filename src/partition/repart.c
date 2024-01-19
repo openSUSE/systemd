@@ -1611,10 +1611,10 @@ static int partition_read_definition(Partition *p, const char *path, const char 
                 { "Partition", "Priority",           config_parse_int32,         0, &p->priority             },
                 { "Partition", "Weight",             config_parse_weight,        0, &p->weight               },
                 { "Partition", "PaddingWeight",      config_parse_weight,        0, &p->padding_weight       },
-                { "Partition", "SizeMinBytes",       config_parse_size4096,      1, &p->size_min             },
-                { "Partition", "SizeMaxBytes",       config_parse_size4096,     -1, &p->size_max             },
-                { "Partition", "PaddingMinBytes",    config_parse_size4096,      1, &p->padding_min          },
-                { "Partition", "PaddingMaxBytes",    config_parse_size4096,     -1, &p->padding_max          },
+                { "Partition", "SizeMinBytes",       config_parse_size4096,     -1, &p->size_min             },
+                { "Partition", "SizeMaxBytes",       config_parse_size4096,      1, &p->size_max             },
+                { "Partition", "PaddingMinBytes",    config_parse_size4096,     -1, &p->padding_min          },
+                { "Partition", "PaddingMaxBytes",    config_parse_size4096,      1, &p->padding_max          },
                 { "Partition", "FactoryReset",       config_parse_bool,          0, &p->factory_reset        },
                 { "Partition", "CopyBlocks",         config_parse_copy_blocks,   0, p                        },
                 { "Partition", "Format",             config_parse_fstype,        0, &p->format               },
@@ -4425,6 +4425,17 @@ static int context_mkfs(Context *context) {
                                     extra_mkfs_options);
                 if (r < 0)
                         return r;
+
+                /* The mkfs binary we invoked might have removed our temporary file when we're not operating
+                 * on a loop device, so let's make sure we open the file again to make sure our file
+                 * descriptor points to any potential new file. */
+
+                if (t->fd >= 0 && t->path && !t->loop) {
+                        safe_close(t->fd);
+                        t->fd = open(t->path, O_RDWR|O_CLOEXEC);
+                        if (t->fd < 0)
+                                return log_error_errno(errno, "Failed to reopen temporary file: %m");
+                }
 
                 log_info("Successfully formatted future partition %" PRIu64 ".", p->partno);
 

@@ -22,7 +22,9 @@
 
   <refsynopsisdiv>
     <cmdsynopsis>
-      <command>systemd-cryptenroll <arg choice="opt" rep="repeat">OPTIONS</arg> <arg choice="opt">DEVICE</arg></command>
+      <command>systemd-cryptenroll</command>
+      <arg choice="opt" rep="repeat">OPTIONS</arg>
+      <arg choice="opt">DEVICE</arg>
     </cmdsynopsis>
   </refsynopsisdiv>
 
@@ -231,6 +233,30 @@
     tokens with user verification (UV, usually via biometrics), in which case it will fall back to attempting
     each enrolled token one by one. This will result in multiple prompts for PIN and user verification. This
     limitation does not apply to PKCS#11 tokens.</para>
+  </refsect1>
+
+  <refsect1>
+    <title>Compatibility</title>
+
+    <para>Security technology both in systemd and in the general industry constantly evolves. In order to
+    provide best security guarantees, the way TPM2, FIDO2, PKCS#11 devices are enrolled is regularly updated
+    in newer versions of systemd. Whenever this happens the following compatibility guarantees are given:</para>
+
+    <itemizedlist>
+      <listitem><para>Old enrollments continue to be supported and may be unlocked with newer versions of
+      <citerefentry><refentrytitle>systemd-cryptsetup@.service</refentrytitle><manvolnum>8</manvolnum></citerefentry>.</para></listitem>
+
+      <listitem><para>The opposite is not guaranteed however: it might not be possible to unlock volumes with
+      enrollments done with a newer version of <command>systemd-cryptenroll</command> with an older version
+      of <command>systemd-cryptsetup</command>.</para></listitem>
+    </itemizedlist>
+
+    <para>That said, it is generally recommended to use matching versions of
+    <command>systemd-cryptenroll</command> and <command>systemd-cryptsetup</command>, since this is best
+    tested and supported.</para>
+
+    <para>It might be advisable to re-enroll existing enrollments to take benefit of newer security features,
+    as they are added to systemd.</para>
   </refsect1>
 
   <refsect1>
@@ -504,6 +530,14 @@
     <title>Exit status</title>
 
     <para>On success, 0 is returned, a non-zero failure code otherwise.</para>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+
+    <para><citerefentry><refentrytitle>crypttab</refentrytitle><manvolnum>5</manvolnum></citerefentry> and
+    <citerefentry><refentrytitle>systemd-measure</refentrytitle><manvolnum>1</manvolnum></citerefentry>
+    contain various examples employing <command>systemd-cryptenroll</command>.</para>
   </refsect1>
 
   <refsect1>
