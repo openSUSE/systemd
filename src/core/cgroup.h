@@ -389,5 +389,5 @@ FreezerAction freezer_action_from_string(const char *s) _pure_;
 const char* cgroup_pressure_watch_to_string(CGroupPressureWatch a) _const_;
 CGroupPressureWatch cgroup_pressure_watch_from_string(const char *s) _pure_;
 
-const char* cgroup_limit_type_to_string(CGroupLimitType m) _const_;
-CGroupLimitType cgroup_limit_type_from_string(const char *s) _pure_;
+const char* cgroup_effective_limit_type_to_string(CGroupLimitType m) _const_;
+CGroupLimitType cgroup_effective_limit_type_from_string(const char *s) _pure_;

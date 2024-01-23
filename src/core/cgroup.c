@@ -4471,10 +4471,10 @@ static const char* const cgroup_pressure_watch_table[_CGROUP_PRESSURE_WATCH_MAX]
 
 DEFINE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(cgroup_pressure_watch, CGroupPressureWatch, CGROUP_PRESSURE_WATCH_ON);
 
-static const char *const cgroup_limit_type_table[_CGROUP_LIMIT_TYPE_MAX] = {
+static const char *const cgroup_effective_limit_type_table[_CGROUP_LIMIT_TYPE_MAX] = {
         [CGROUP_LIMIT_MEMORY_MAX]  = "EffectiveMemoryMax",
         [CGROUP_LIMIT_MEMORY_HIGH] = "EffectiveMemoryHigh",
         [CGROUP_LIMIT_TASKS_MAX]   = "EffectiveTasksMax",
 };
 
-DEFINE_STRING_TABLE_LOOKUP(cgroup_limit_type, CGroupLimitType);
+DEFINE_STRING_TABLE_LOOKUP(cgroup_effective_limit_type, CGroupLimitType);
