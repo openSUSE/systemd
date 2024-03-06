@@ -37,6 +37,11 @@ sys.path.append(os.path.dirname(__file__) + '/..')
 import ukify
 
 build_root = os.getenv('PROJECT_BUILD_ROOT')
+try:
+    slow_tests = bool(int(os.getenv('SYSTEMD_SLOW_TESTS', '1')))
+except ValueError:
+    slow_tests = True
+
 arg_tools = ['--tools', build_root] if build_root else []
 
 def systemd_measure():
@@ -526,6 +531,7 @@ def test_uname_scraping(kernel_initrd):
     uname = ukify.Uname.scrape(kernel_initrd[1])
     assert re.match(r'\d+\.\d+\.\d+', uname)
 
+@pytest.mark.skipif(not slow_tests, reason='slow')
 def test_efi_signing_sbsign(kernel_initrd, tmp_path):
     if kernel_initrd is None:
         pytest.skip('linux+initrd not found')
@@ -566,6 +572,7 @@ def test_efi_signing_sbsign(kernel_initrd, tmp_path):
 
     shutil.rmtree(tmp_path)
 
+@pytest.mark.skipif(not slow_tests, reason='slow')
 def test_efi_signing_pesign(kernel_initrd, tmp_path):
     if kernel_initrd is None:
         pytest.skip('linux+initrd not found')
@@ -611,6 +618,7 @@ def test_efi_signing_pesign(kernel_initrd, tmp_path):
 
     shutil.rmtree(tmp_path)
 
+@pytest.mark.skipif(not slow_tests, reason='slow')
 def test_pcr_signing(kernel_initrd, tmp_path):
     if kernel_initrd is None:
         pytest.skip('linux+initrd not found')
@@ -676,6 +684,7 @@ def test_pcr_signing(kernel_initrd, tmp_path):
 
     shutil.rmtree(tmp_path)
 
+@pytest.mark.skipif(not slow_tests, reason='slow')
 def test_pcr_signing2(kernel_initrd, tmp_path):
     if kernel_initrd is None:
         pytest.skip('linux+initrd not found')
@@ -801,7 +810,7 @@ def test_key_cert_generation(tmp_path):
         '-noout',
     ], text = True)
     assert 'Certificate' in out
-    assert re.search('Issuer: CN\s?=\s?SecureBoot signing key on host', out)
+    assert re.search(r'Issuer: CN\s?=\s?SecureBoot signing key on host', out)
 
 if __name__ == '__main__':
     sys.exit(pytest.main(sys.argv))
