@@ -236,6 +236,7 @@ BASICTOOLS=(
     useradd
     userdel
     wc
+    whoami
     xargs
     xzcat
 )
@@ -1084,14 +1085,14 @@ install_fs_tools() {
 install_modules() {
     dinfo "Install modules"
 
-    instmods bridge dummy ipvlan macvlan vfat veth
+    instmods bridge dummy ext4 ipvlan macvlan vfat veth
     instmods loop =block
     instmods nls_ascii =nls
     instmods overlay =overlayfs
     instmods scsi_debug
 
     if get_bool "$LOOKS_LIKE_SUSE"; then
-        instmods ext4 af_packet
+        instmods af_packet
     fi
 }
 
@@ -1312,10 +1313,14 @@ install_debian_systemd() {
 install_suse_systemd() {
     local pkgs
 
+    dinfo "Install basic filesystem structure"
+    install_rpm filesystem
+
     dinfo "Install SUSE systemd"
 
     pkgs=(
         systemd
+        systemd-boot
         systemd-container
         systemd-coredump
         systemd-experimental
@@ -3253,9 +3258,10 @@ test_create_image() {
 }
 
 test_setup() {
-    if get_bool "${TEST_REQUIRE_INSTALL_TESTS:?}" && \
-            command -v meson >/dev/null && \
-            [[ "$(meson configure "${BUILD_DIR:?}" | grep install-tests | awk '{ print $2 }')" != "true" ]]; then
+    if ! get_bool "$NO_BUILD" && \
+         get_bool "${TEST_REQUIRE_INSTALL_TESTS:?}" && \
+         command -v meson >/dev/null && \
+         [[ "$(meson configure "${BUILD_DIR:?}" | grep install-tests | awk '{ print $2 }')" != "true" ]]; then
         dfatal "$BUILD_DIR needs to be built with -Dinstall-tests=true"
         exit 1
     fi

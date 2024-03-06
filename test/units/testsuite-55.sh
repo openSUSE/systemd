@@ -10,15 +10,9 @@ test "$(cat /sys/fs/cgroup/init.scope/memory.high)" != "max"
 
 # Loose checks to ensure the environment has the necessary features for systemd-oomd
 [[ -e /proc/pressure ]] || echo "no PSI" >>/skipped
-cgroup_type="$(stat -fc %T /sys/fs/cgroup/)"
-if [[ "$cgroup_type" != *"cgroup2"* ]] && [[ "$cgroup_type" != *"0x63677270"* ]]; then
-    echo "no cgroup2" >>/skipped
-fi
-if [ ! -f /usr/lib/systemd/systemd-oomd ] && [ ! -f /lib/systemd/systemd-oomd ]; then
-    echo "no oomd" >>/skipped
-fi
-
-if [[ -e /skipped ]]; then
+[[ "$(get_cgroup_hierarchy)" == "unified" ]] || echo "no cgroupsv2" >>/skipped
+[[ -x /usr/lib/systemd/systemd-oomd ]] || echo "no oomd" >>/skipped
+if [[ -s /skipped ]]; then
     exit 0
 fi
 
@@ -26,7 +20,14 @@ rm -rf /run/systemd/system/testsuite-55-testbloat.service.d
 
 # Activate swap file if we are in a VM
 if systemd-detect-virt --vm --quiet; then
-    mkswap /swapfile
+    if [[ "$(findmnt -n -o FSTYPE /)" == btrfs ]]; then
+        btrfs filesystem mkswapfile -s 64M /swapfile
+    else
+        dd if=/dev/zero of=/swapfile bs=1M count=64
+        chmod 0600 /swapfile
+        mkswap /swapfile
+    fi
+
     swapon /swapfile
     swapon --show
 fi
@@ -72,27 +73,16 @@ systemctl start testsuite-55-testchill.service
 systemctl start testsuite-55-testbloat.service
 
 # Verify systemd-oomd is monitoring the expected units
-# Try to avoid racing the oomctl output check by checking in a loop with a timeout
-oomctl_output=$(oomctl)
-timeout="$(date -ud "1 minutes" +%s)"
-while [[ $(date -u +%s) -le $timeout ]]; do
-    if grep "/testsuite-55-workload.slice" <<< "$oomctl_output"; then
-        break
-    fi
-    oomctl_output=$(oomctl)
-    sleep 1
-done
-
-grep "/testsuite-55-workload.slice" <<< "$oomctl_output"
-grep "20.00%" <<< "$oomctl_output"
-grep "Default Memory Pressure Duration: 2s" <<< "$oomctl_output"
+timeout 1m bash -xec 'until oomctl | grep "/testsuite-55-workload.slice"; do sleep 1; done'
+oomctl | grep "/testsuite-55-workload.slice"
+oomctl | grep "20.00%"
+oomctl | grep "Default Memory Pressure Duration: 2s"
 
 systemctl status testsuite-55-testchill.service
 
 # systemd-oomd watches for elevated pressure for 2 seconds before acting.
 # It can take time to build up pressure so either wait 2 minutes or for the service to fail.
-timeout="$(date -ud "2 minutes" +%s)"
-while [[ $(date -u +%s) -le $timeout ]]; do
+for _ in {0..59}; do
     if ! systemctl status testsuite-55-testbloat.service; then
         break
     fi
@@ -105,32 +95,23 @@ if systemctl status testsuite-55-testbloat.service; then exit 42; fi
 if ! systemctl status testsuite-55-testchill.service; then exit 24; fi
 
 # Make sure we also work correctly on user units.
+loginctl enable-linger testuser
 
 systemctl start --machine "testuser@.host" --user testsuite-55-testchill.service
 systemctl start --machine "testuser@.host" --user testsuite-55-testbloat.service
 
 # Verify systemd-oomd is monitoring the expected units
 # Try to avoid racing the oomctl output check by checking in a loop with a timeout
-oomctl_output=$(oomctl)
-timeout="$(date -ud "1 minutes" +%s)"
-while [[ $(date -u +%s) -le $timeout ]]; do
-    if grep -E "/user.slice.*/testsuite-55-workload.slice" <<< "$oomctl_output"; then
-        break
-    fi
-    oomctl_output=$(oomctl)
-    sleep 1
-done
-
-grep -E "/user.slice.*/testsuite-55-workload.slice" <<< "$oomctl_output"
-grep "20.00%" <<< "$oomctl_output"
-grep "Default Memory Pressure Duration: 2s" <<< "$oomctl_output"
+timeout 1m bash -xec 'until oomctl | grep "/testsuite-55-workload.slice"; do sleep 1; done'
+oomctl | grep -E "/user.slice.*/testsuite-55-workload.slice"
+oomctl | grep "20.00%"
+oomctl | grep "Default Memory Pressure Duration: 2s"
 
 systemctl --machine "testuser@.host" --user status testsuite-55-testchill.service
 
 # systemd-oomd watches for elevated pressure for 2 seconds before acting.
 # It can take time to build up pressure so either wait 2 minutes or for the service to fail.
-timeout="$(date -ud "2 minutes" +%s)"
-while [[ $(date -u +%s) -le $timeout ]]; do
+for _ in {0..59}; do
     if ! systemctl --machine "testuser@.host" --user status testsuite-55-testbloat.service; then
         break
     fi
@@ -141,6 +122,8 @@ done
 # testbloat should be killed and testchill should be fine
 if systemctl --machine "testuser@.host" --user status testsuite-55-testbloat.service; then exit 42; fi
 if ! systemctl --machine "testuser@.host" --user status testsuite-55-testchill.service; then exit 24; fi
+
+loginctl disable-linger testuser
 
 # only run this portion of the test if we can set xattrs
 if setfattr -n user.xattr_test -v 1 /sys/fs/cgroup/; then
@@ -157,8 +140,7 @@ EOF
     systemctl start testsuite-55-testmunch.service
     systemctl start testsuite-55-testbloat.service
 
-    timeout="$(date -ud "2 minutes" +%s)"
-    while [[ "$(date -u +%s)" -le "$timeout" ]]; do
+    for _ in {0..59}; do
         if ! systemctl status testsuite-55-testmunch.service; then
             break
         fi
