@@ -1101,6 +1101,22 @@ static int null_conv(
         return PAM_CONV_ERR;
 }
 
+static int pam_close_session_and_delete_credentials(pam_handle_t *handle, int flags) {
+        int r, s;
+
+        assert(handle);
+
+        r = pam_close_session(handle, flags);
+        if (r != PAM_SUCCESS)
+                log_debug("pam_close_session() failed: %s", pam_strerror(handle, r));
+
+        s = pam_setcred(handle, PAM_DELETE_CRED | flags);
+        if (s != PAM_SUCCESS)
+                log_debug("pam_setcred(PAM_DELETE_CRED) failed: %s", pam_strerror(handle, s));
+
+        return r != PAM_SUCCESS ? r : s;
+}
+
 #endif
 
 static int setup_pam(
@@ -1259,13 +1275,9 @@ static int setup_pam(
                         }
                 }
 
-                pam_code = pam_setcred(handle, PAM_DELETE_CRED | flags);
-                if (pam_code != PAM_SUCCESS)
-                        goto child_finish;
-
                 /* If our parent died we'll end the session */
                 if (getppid() != parent_pid) {
-                        pam_code = pam_close_session(handle, flags);
+                        pam_code = pam_close_session_and_delete_credentials(handle, flags);
                         if (pam_code != PAM_SUCCESS)
                                 goto child_finish;
                 }
@@ -1308,7 +1320,7 @@ fail:
 
         if (handle) {
                 if (close_session)
-                        pam_code = pam_close_session(handle, flags);
+                        pam_code = pam_close_session_and_delete_credentials(handle, flags);
 
                 (void) pam_end(handle, pam_code | flags);
         }
@@ -4340,6 +4352,16 @@ int exec_invoke(
 
 #if ENABLE_UTMP
         if (context->utmp_id) {
+                _cleanup_free_ char *username_alloc = NULL;
+
+                if (!username && context->utmp_mode == EXEC_UTMP_USER) {
+                        username_alloc = uid_to_name(uid_is_valid(uid) ? uid : saved_uid);
+                        if (!username_alloc) {
+                                *exit_status = EXIT_USER;
+                                return log_oom();
+                        }
+                }
+
                 const char *line = context->tty_path ?
                         (path_startswith(context->tty_path, "/dev/") ?: context->tty_path) :
                         NULL;
@@ -4348,7 +4370,7 @@ int exec_invoke(
                                       context->utmp_mode == EXEC_UTMP_INIT  ? INIT_PROCESS :
                                       context->utmp_mode == EXEC_UTMP_LOGIN ? LOGIN_PROCESS :
                                       USER_PROCESS,
-                                      username);
+                                      username ?: username_alloc);
         }
 #endif
 
