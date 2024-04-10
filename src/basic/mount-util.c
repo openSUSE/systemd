@@ -514,7 +514,7 @@ int bind_remount_recursive(const char *prefix, bool ro) {
                         (void) get_mount_flags(cleaned, &orig_flags);
                         orig_flags &= ~MS_RDONLY;
 
-                        if (mount(NULL, prefix, NULL, orig_flags|MS_BIND|MS_REMOUNT|(ro ? MS_RDONLY : 0), NULL) < 0)
+                        if (mount(NULL, cleaned, NULL, orig_flags|MS_BIND|MS_REMOUNT|(ro ? MS_RDONLY : 0), NULL) < 0)
                                 return -errno;
 
                         x = strdup(cleaned);
@@ -534,21 +534,33 @@ int bind_remount_recursive(const char *prefix, bool ro) {
                         if (r < 0)
                                 return r;
 
-                        /* Try to reuse the original flag set, but
-                         * don't care for errors, in case of
-                         * obstructed mounts */
+                        /* Deal with mount points that are obstructed by a
+                         * later mount */
+                        r = path_is_mount_point(x, 0);
+                        if (r == -ENOENT || r == 0)
+                                continue;
+                        if (IN_SET(r, -EACCES, -EPERM)) {
+                                /* Even if root user invoke this, submounts under private FUSE or NFS mount points
+                                 * may not be acceessed. E.g.,
+                                 *
+                                 * $ bindfs --no-allow-other ~/mnt/mnt ~/mnt/mnt
+                                 * $ bindfs --no-allow-other ~/mnt ~/mnt
+                                 *
+                                 * Then, root user cannot access the mount point ~/mnt/mnt.
+                                 * In such cases, the submounts are ignored, as we have no way to manage them. */
+                                log_debug_errno(r, "Failed to determine '%s' is mount point or not, ignoring: %m", x);
+                                continue;
+                        }
+                        if (r < 0)
+                                return r;
+
+                        /* Try to reuse the original flag set */
                         orig_flags = 0;
                         (void) get_mount_flags(x, &orig_flags);
                         orig_flags &= ~MS_RDONLY;
 
-                        if (mount(NULL, x, NULL, orig_flags|MS_BIND|MS_REMOUNT|(ro ? MS_RDONLY : 0), NULL) < 0) {
-
-                                /* Deal with mount points that are
-                                 * obstructed by a later mount */
-
-                                if (errno != ENOENT)
-                                        return -errno;
-                        }
+                        if (mount(NULL, x, NULL, orig_flags|MS_BIND|MS_REMOUNT|(ro ? MS_RDONLY : 0), NULL) < 0)
+                                return -errno;
 
                 }
         }
