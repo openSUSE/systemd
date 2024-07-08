@@ -41,6 +41,7 @@
 #include "logarithm.h"
 #include "macro.h"
 #include "mkdir-label.h"
+#include "mountpoint-util.h"
 #include "path-util.h"
 #include "process-util.h"
 #include "rm-rf.h"
@@ -1405,11 +1406,13 @@ int unit_load_fragment_and_dropin(Unit *u, bool fragment_required) {
                 u->load_state = UNIT_LOADED;
         }
 
+        u = unit_follow_merge(u);
+
         /* Load drop-in directory data. If u is an alias, we might be reloading the
          * target unit needlessly. But we cannot be sure which drops-ins have already
          * been loaded and which not, at least without doing complicated book-keeping,
          * so let's always reread all drop-ins. */
-        r = unit_load_dropin(unit_follow_merge(u));
+        r = unit_load_dropin(u);
         if (r < 0)
                 return r;
 
@@ -4233,6 +4236,10 @@ static int unit_verify_contexts(const Unit *u, const ExecContext *ec) {
 
         if (ec->dynamic_user && ec->working_directory_home)
                 return log_unit_error_errno(u, SYNTHETIC_ERRNO(ENOEXEC), "WorkingDirectory=~ is not allowed under DynamicUser=yes. Refusing.");
+
+        if (ec->working_directory && path_below_api_vfs(ec->working_directory) &&
+            exec_needs_mount_namespace(ec, /* params = */ NULL, /* runtime = */ NULL))
+                return log_unit_error_errno(u, SYNTHETIC_ERRNO(ENOEXEC), "WorkingDirectory= may not be below /proc/, /sys/ or /dev/ when using mount namespacing. Refusing.");
 
         return 0;
 }
