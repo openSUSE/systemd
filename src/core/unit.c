@@ -129,9 +129,6 @@ Unit* unit_new(Manager *m, size_t size) {
                 .burst = 16
         };
 
-        unit_reset_memory_accounting_last(u);
-        unit_reset_io_accounting_last(u);
-
         return u;
 }
 
@@ -484,8 +481,8 @@ bool unit_may_gc(Unit *u) {
         /* If the unit has a cgroup, then check whether there's anything in it. If so, we should stay
          * around. Units with active processes should never be collected. */
         r = unit_cgroup_is_empty(u);
-        if (r <= 0 && r != -ENXIO)
-                return false; /* ENXIO means: currently not realized */
+        if (r <= 0 && !IN_SET(r, -ENXIO, -EOWNERDEAD))
+                return false; /* ENXIO/EOWNERDEAD means: currently not realized */
 
         if (!UNIT_VTABLE(u)->may_gc)
                 return true;
@@ -790,7 +787,7 @@ Unit* unit_free(Unit *u) {
         if (u->on_console)
                 manager_unref_console(u->manager);
 
-        unit_release_cgroup(u);
+        unit_release_cgroup(u, /* drop_cgroup_runtime = */ true);
 
         if (!MANAGER_IS_RELOADING(u->manager))
                 unit_unlink_state_files(u);
@@ -3816,8 +3813,6 @@ static bool fragment_mtime_newer(const char *path, usec_t mtime, bool path_maske
 }
 
 bool unit_need_daemon_reload(Unit *u) {
-        _cleanup_strv_free_ char **dropins = NULL;
-
         assert(u);
         assert(u->manager);
 
@@ -3833,15 +3828,19 @@ bool unit_need_daemon_reload(Unit *u) {
         if (fragment_mtime_newer(u->source_path, u->source_mtime, false))
                 return true;
 
-        if (u->load_state == UNIT_LOADED)
-                (void) unit_find_dropin_paths(u, &dropins);
-        if (!strv_equal(u->dropin_paths, dropins))
-                return true;
+        if (u->load_state == UNIT_LOADED) {
+                _cleanup_strv_free_ char **dropins = NULL;
 
-        /* … any drop-ins that are masked are simply omitted from the list. */
-        STRV_FOREACH(path, u->dropin_paths)
-                if (fragment_mtime_newer(*path, u->dropin_mtime, false))
+                (void) unit_find_dropin_paths(u, &dropins);
+
+                if (!strv_equal(u->dropin_paths, dropins))
                         return true;
+
+                /* … any drop-ins that are masked are simply omitted from the list. */
+                STRV_FOREACH(path, u->dropin_paths)
+                        if (fragment_mtime_newer(*path, u->dropin_mtime, false))
+                                return true;
+        }
 
         return false;
 }
