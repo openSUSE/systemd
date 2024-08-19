@@ -403,6 +403,7 @@ possible_common_cc_flags = [
         '-Wstrict-aliasing=2',
         '-Wstrict-prototypes',
         '-Wsuggest-attribute=noreturn',
+        '-Wunterminated-string-initialization',
         '-Wunused-function',
         '-Wwrite-strings',
         '-Wzero-length-bounds',
@@ -415,7 +416,7 @@ possible_common_cc_flags = [
         '-fno-common',
         '-fstack-protector',
         '-fstack-protector-strong',
-        '-fstrict-flex-arrays',
+        '-fstrict-flex-arrays=3',
         '--param=ssp-buffer-size=4',
 ]
 
