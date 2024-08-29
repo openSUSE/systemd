@@ -106,7 +106,7 @@
 #include <sanitizer/lsan_interface.h>
 #endif
 
-#define DEFAULT_TASKS_MAX ((TasksMax) { 15U, 100U }) /* 15% */
+#define DEFAULT_TASKS_MAX ((CGroupTasksMax) { 15U, 100U }) /* 15% */
 
 static enum {
         ACTION_RUN,
@@ -166,7 +166,7 @@ static bool arg_default_ip_accounting;
 static bool arg_default_blockio_accounting;
 static bool arg_default_memory_accounting;
 static bool arg_default_tasks_accounting;
-static TasksMax arg_default_tasks_max;
+static CGroupTasksMax arg_default_tasks_max;
 static usec_t arg_default_memory_pressure_threshold_usec;
 static CGroupPressureWatch arg_default_memory_pressure_watch;
 static sd_id128_t arg_machine_id;

@@ -375,7 +375,7 @@ struct Manager {
         bool default_tasks_accounting;
         bool default_ip_accounting;
 
-        TasksMax default_tasks_max;
+        CGroupTasksMax default_tasks_max;
         usec_t default_timer_accuracy_usec;
 
         OOMPolicy default_oom_policy;

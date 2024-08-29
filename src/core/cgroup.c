@@ -51,7 +51,7 @@
  * out specific attributes from us. */
 #define LOG_LEVEL_CGROUP_WRITE(r) (IN_SET(abs(r), ENOENT, EROFS, EACCES, EPERM) ? LOG_DEBUG : LOG_WARNING)
 
-uint64_t tasks_max_resolve(const TasksMax *tasks_max) {
+uint64_t cgroup_tasks_max_resolve(const CGroupTasksMax *tasks_max) {
         if (tasks_max->scale == 0)
                 return tasks_max->value;
 
@@ -171,7 +171,7 @@ void cgroup_context_init(CGroupContext *c) {
                 .blockio_weight = CGROUP_BLKIO_WEIGHT_INVALID,
                 .startup_blockio_weight = CGROUP_BLKIO_WEIGHT_INVALID,
 
-                .tasks_max = TASKS_MAX_UNSET,
+                .tasks_max = CGROUP_TASKS_MAX_UNSET,
 
                 .moom_swap = MANAGED_OOM_AUTO,
                 .moom_mem_pressure = MANAGED_OOM_AUTO,
@@ -563,7 +563,7 @@ void cgroup_context_dump(Unit *u, FILE* f, const char *prefix) {
                 prefix, c->memory_zswap_max, format_cgroup_memory_limit_comparison(cdj, sizeof(cdj), u, "MemoryZSwapMax"),
                 prefix, c->startup_memory_zswap_max, format_cgroup_memory_limit_comparison(cdk, sizeof(cdk), u, "StartupMemoryZSwapMax"),
                 prefix, c->memory_limit,
-                prefix, tasks_max_resolve(&c->tasks_max),
+                prefix, cgroup_tasks_max_resolve(&c->tasks_max),
                 prefix, cgroup_device_policy_to_string(c->device_policy),
                 prefix, strempty(disable_controllers_str),
                 prefix, delegate_str,
@@ -1761,9 +1761,9 @@ static void cgroup_context_apply(
                          * which is desirable so that there's an official way to release control of the sysctl from
                          * systemd: set the limit to unbounded and reload. */
 
-                        if (tasks_max_isset(&c->tasks_max)) {
+                        if (cgroup_tasks_max_isset(&c->tasks_max)) {
                                 u->manager->sysctl_pid_max_changed = true;
-                                r = procfs_tasks_set_limit(tasks_max_resolve(&c->tasks_max));
+                                r = procfs_tasks_set_limit(cgroup_tasks_max_resolve(&c->tasks_max));
                         } else if (u->manager->sysctl_pid_max_changed)
                                 r = procfs_tasks_set_limit(TASKS_MAX);
                         else
@@ -1776,10 +1776,10 @@ static void cgroup_context_apply(
                 /* The attribute itself is not available on the host root cgroup, and in the container case we want to
                  * leave it for the container manager. */
                 if (!is_local_root) {
-                        if (tasks_max_isset(&c->tasks_max)) {
+                        if (cgroup_tasks_max_isset(&c->tasks_max)) {
                                 char buf[DECIMAL_STR_MAX(uint64_t) + 1];
 
-                                xsprintf(buf, "%" PRIu64 "\n", tasks_max_resolve(&c->tasks_max));
+                                xsprintf(buf, "%" PRIu64 "\n", cgroup_tasks_max_resolve(&c->tasks_max));
                                 (void) set_attribute_and_warn(u, "pids", "pids.max", buf);
                         } else
                                 (void) set_attribute_and_warn(u, "pids", "pids.max", "max\n");
@@ -1895,7 +1895,7 @@ static CGroupMask unit_get_cgroup_mask(Unit *u) {
                 mask |= CGROUP_MASK_DEVICES | CGROUP_MASK_BPF_DEVICES;
 
         if (c->tasks_accounting ||
-            tasks_max_isset(&c->tasks_max))
+            cgroup_tasks_max_isset(&c->tasks_max))
                 mask |= CGROUP_MASK_PIDS;
 
         return CGROUP_MASK_EXTEND_JOINED(mask);
@@ -4001,6 +4001,57 @@ int unit_get_ip_accounting(
         return r;
 }
 
+static uint64_t unit_get_effective_limit_one(Unit *u, CGroupLimitType type) {
+        CGroupContext *cc;
+
+        assert(u);
+        assert(UNIT_HAS_CGROUP_CONTEXT(u));
+
+        if (unit_has_name(u, SPECIAL_ROOT_SLICE))
+                switch (type) {
+                        case CGROUP_LIMIT_MEMORY_MAX:
+                        case CGROUP_LIMIT_MEMORY_HIGH:
+                                return physical_memory();
+                        case CGROUP_LIMIT_TASKS_MAX:
+                                return system_tasks_max();
+                        default:
+                                assert_not_reached();
+                }
+
+        cc = unit_get_cgroup_context(u);
+        switch (type) {
+                /* Note: on legacy/hybrid hierarchies memory_max stays CGROUP_LIMIT_MAX unless configured
+                 * explicitly. Effective value of MemoryLimit= (cgroup v1) is not implemented. */
+                case CGROUP_LIMIT_MEMORY_MAX:
+                        return cc->memory_max;
+                case CGROUP_LIMIT_MEMORY_HIGH:
+                        return cc->memory_high;
+                case CGROUP_LIMIT_TASKS_MAX:
+                        return cgroup_tasks_max_resolve(&cc->tasks_max);
+                default:
+                        assert_not_reached();
+        }
+}
+
+int unit_get_effective_limit(Unit *u, CGroupLimitType type, uint64_t *ret) {
+        uint64_t infimum;
+
+        assert(u);
+        assert(ret);
+        assert(type >= 0);
+        assert(type < _CGROUP_LIMIT_TYPE_MAX);
+
+        if (!UNIT_HAS_CGROUP_CONTEXT(u))
+                return -EINVAL;
+
+        infimum = unit_get_effective_limit_one(u, type);
+        for (Unit *slice = UNIT_GET_SLICE(u); slice; slice = UNIT_GET_SLICE(slice))
+                infimum = MIN(infimum, unit_get_effective_limit_one(slice, type));
+
+        *ret = infimum;
+        return 0;
+}
+
 static int unit_get_io_accounting_raw(Unit *u, uint64_t ret[static _CGROUP_IO_ACCOUNTING_METRIC_MAX]) {
         static const char *const field_names[_CGROUP_IO_ACCOUNTING_METRIC_MAX] = {
                 [CGROUP_IO_READ_BYTES]       = "rbytes=",
@@ -4419,3 +4470,11 @@ static const char* const cgroup_pressure_watch_table[_CGROUP_PRESSURE_WATCH_MAX]
 };
 
 DEFINE_STRING_TABLE_LOOKUP_WITH_BOOLEAN(cgroup_pressure_watch, CGroupPressureWatch, CGROUP_PRESSURE_WATCH_ON);
+
+static const char *const cgroup_effective_limit_type_table[_CGROUP_LIMIT_TYPE_MAX] = {
+        [CGROUP_LIMIT_MEMORY_MAX]  = "EffectiveMemoryMax",
+        [CGROUP_LIMIT_MEMORY_HIGH] = "EffectiveMemoryHigh",
+        [CGROUP_LIMIT_TASKS_MAX]   = "EffectiveTasksMax",
+};
+
+DEFINE_STRING_TABLE_LOOKUP(cgroup_effective_limit_type, CGroupLimitType);
