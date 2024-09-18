@@ -76,6 +76,7 @@ void test_setup_logging(int level);
 int write_tmpfile(char *pattern, const char *contents);
 
 bool have_namespaces(void);
+bool userns_has_single_user(void);
 
 /* We use the small but non-trivial limit here */
 #define CAN_MEMLOCK_SIZE (512 * 1024U)
@@ -213,6 +214,39 @@ static inline int run_test_table(void) {
                 if (_result < 0) {                                                                              \
                         log_error_errno(_result, "%s:%i: Assertion failed: expected \"%s\" to succeed but got the following error: %m", \
                                         PROJECT_FILE, __LINE__, #expr);                                         \
+                        abort();                                                                                \
+                }                                                                                               \
+         })
+
+/* For funtions that return a boolean on success and a negative errno on failure. */
+#define ASSERT_OK_POSITIVE(expr)                                                                                \
+        ({                                                                                                      \
+                typeof(expr) _result = (expr);                                                                  \
+                if (_result < 0) {                                                                              \
+                        log_error_errno(_result, "%s:%i: Assertion failed: expected \"%s\" to succeed but got the following error: %m", \
+                                        PROJECT_FILE, __LINE__, #expr);                                         \
+                        abort();                                                                                \
+                }                                                                                               \
+                if (_result == 0) {                                                                             \
+                        log_error("%s:%i: Assertion failed: expected \"%s\" to be positive, but it is zero.",   \
+                                  PROJECT_FILE, __LINE__, #expr);                                               \
+                        abort();                                                                                \
+                }                                                                                               \
+         })
+
+#define ASSERT_OK_ZERO(expr)                                                                                    \
+        ({                                                                                                      \
+                typeof(expr) _result = (expr);                                                                  \
+                if (_result < 0) {                                                                              \
+                        log_error_errno(_result, "%s:%i: Assertion failed: expected \"%s\" to succeed but got the following error: %m", \
+                                        PROJECT_FILE, __LINE__, #expr);                                         \
+                        abort();                                                                                \
+                }                                                                                               \
+                if (_result != 0) {                                                                             \
+                        char _sexpr[DECIMAL_STR_MAX(typeof(expr))];                                             \
+                        xsprintf(_sexpr, DECIMAL_STR_FMT(_result), _result);                                    \
+                        log_error("%s:%i: Assertion failed: expected \"%s\" to be zero, but it is %s.",         \
+                                  PROJECT_FILE, __LINE__, #expr, _sexpr);                                       \
                         abort();                                                                                \
                 }                                                                                               \
          })
