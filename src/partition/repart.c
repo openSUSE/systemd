@@ -704,7 +704,7 @@ static uint64_t partition_min_size(const Context *context, const Partition *p) {
                 return p->current_size;
         }
 
-        if (p->verity == VERITY_SIG)
+        if (IN_SET(p->type.designator, PARTITION_ROOT_VERITY_SIG, PARTITION_USR_VERITY_SIG))
                 return VERITY_SIG_SIZE;
 
         sz = p->current_size != UINT64_MAX ? p->current_size : HARD_MIN_SIZE;
@@ -3912,6 +3912,8 @@ static int partition_target_sync(Context *context, Partition *p, PartitionTarget
 
         assert_se((whole_fd = fdisk_get_devfd(context->fdisk_context)) >= 0);
 
+        log_info("Syncing future partition %"PRIu64" contents to disk.", p->partno);
+
         if (t->decrypted && fsync(t->decrypted->fd) < 0)
                 return log_error_errno(errno, "Failed to sync changes to '%s': %m", t->decrypted->volume);
 
@@ -4839,6 +4841,45 @@ static usec_t epoch_or_infinity(void) {
         return (cache = USEC_INFINITY);
 }
 
+static int file_is_denylisted(const char *source, Hashmap *denylist) {
+        _cleanup_close_ int pfd = -EBADF;
+        struct stat st, rst;
+        int r;
+
+        r = chase_and_stat(source, arg_copy_source, CHASE_PREFIX_ROOT, /*ret_path=*/ NULL, &st);
+        if (r < 0)
+                return log_error_errno(r, "Failed to stat source file '%s/%s': %m", strempty(arg_copy_source), source);
+
+        if (PTR_TO_INT(hashmap_get(denylist, &st)) == DENY_INODE)
+                return 1;
+
+        if (stat(empty_to_root(arg_copy_source), &rst) < 0)
+                return log_error_errno(errno, "Failed to stat '%s': %m", empty_to_root(arg_copy_source));
+
+        pfd = chase_and_open_parent(source, arg_copy_source, CHASE_PREFIX_ROOT, /*ret_filename=*/ NULL);
+        if (pfd < 0)
+                return log_error_errno(pfd, "Failed to chase '%s/%s': %m", strempty(arg_copy_source), source);
+
+        for (;;) {
+                if (fstat(pfd, &st) < 0)
+                        return log_error_errno(errno, "Failed to stat parent: %m");
+
+                if (PTR_TO_INT(hashmap_get(denylist, &st)) != DENY_DONT)
+                        return 1;
+
+                if (stat_inode_same(&st, &rst))
+                        break;
+
+                _cleanup_close_ int new_pfd = openat(pfd, "..", O_DIRECTORY|O_RDONLY);
+                if (new_pfd < 0)
+                        return log_error_errno(errno, "Failed to open parent directory: %m");
+
+                close_and_replace(pfd, new_pfd);
+        }
+
+        return 0;
+}
+
 static int do_copy_files(Context *context, Partition *p, const char *root) {
         int r;
 
@@ -4860,6 +4901,8 @@ static int do_copy_files(Context *context, Partition *p, const char *root) {
                         return -errno;
 
                 sfd = chase_and_open(*source, arg_copy_source, CHASE_PREFIX_ROOT, O_PATH|O_DIRECTORY|O_CLOEXEC|O_NOCTTY, NULL);
+                if (sfd == -ENOTDIR)
+                        continue;
                 if (sfd < 0)
                         return log_error_errno(sfd, "Failed to open source file '%s%s': %m", strempty(arg_copy_source), *source);
 
@@ -4941,6 +4984,14 @@ static int do_copy_files(Context *context, Partition *p, const char *root) {
                         _cleanup_free_ char *dn = NULL, *fn = NULL;
 
                         /* We are looking at a regular file */
+
+                        r = file_is_denylisted(*source, denylist);
+                        if (r < 0)
+                                return r;
+                        if (r > 0) {
+                                log_debug("%s is in the denylist, ignoring", *source);
+                                continue;
+                        }
 
                         r = path_extract_filename(*target, &fn);
                         if (r == -EADDRNOTAVAIL || r == O_DIRECTORY)
@@ -8236,17 +8287,17 @@ static int run(int argc, char *argv[]) {
                         return r;
         }
 
-        /* Make sure each partition has a unique UUID and unique label */
-        r = context_acquire_partition_uuids_and_labels(context);
-        if (r < 0)
-                return r;
-
         /* Open all files to copy blocks from now, since we want to take their size into consideration */
         r = context_open_copy_block_paths(
                         context,
                         loop_device ? loop_device->devno :         /* if --image= is specified, only allow partitions on the loopback device */
                                       arg_root && !arg_image ? 0 : /* if --root= is specified, don't accept any block device */
                                       (dev_t) -1);                 /* if neither is specified, make no restrictions */
+        if (r < 0)
+                return r;
+
+        /* Make sure each partition has a unique UUID and unique label */
+        r = context_acquire_partition_uuids_and_labels(context);
         if (r < 0)
                 return r;
 
