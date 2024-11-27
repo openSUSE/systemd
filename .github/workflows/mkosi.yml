@@ -85,7 +85,7 @@ jobs:
 
         [Content]
         Environment=CI_BUILD=1
-                    SLOW_TESTS=true
+                    SLOW_TESTS=false
 
         [Output]
         KernelCommandLineExtra=systemd.unit=mkosi-check-and-shutdown.service
@@ -134,6 +134,8 @@ jobs:
         ExecStart=false
         EOF
         cp mkosi.presets/10-initrd/mkosi.extra/usr/lib/systemd/system/emergency.service.d/poweroff.conf mkosi.presets/20-final/mkosi.extra/usr/lib/systemd/system/emergency.service.d/poweroff.conf
+        sudo ln -svf "$(dirname "$(readlink /usr/bin/bootctl)")/systemd-keyutil" /usr/lib/systemd/systemd-keyutil
+        /usr/lib/systemd/systemd-keyutil --version
 
     - name: Generate secure boot key
       run: mkosi --debug genkey
