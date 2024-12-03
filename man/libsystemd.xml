@@ -36,7 +36,7 @@
 #include &lt;systemd/sd-login.h&gt;
 #include &lt;systemd/sd-messages.h&gt;
 #include &lt;systemd/sd-path.h&gt;
-    </programlisting>
+</programlisting>
 
     <cmdsynopsis>
       <command>pkg-config --cflags --libs libsystemd</command>
@@ -80,7 +80,7 @@
     <title>See Also</title>
     <para><simplelist type="inline">
       <member><citerefentry><refentrytitle>systemd</refentrytitle><manvolnum>1</manvolnum></citerefentry></member>
-      <member><citerefentry><refentrytitle>libudev</refentrytitle><manvolnum>1</manvolnum></citerefentry></member>
+      <member><citerefentry><refentrytitle>libudev</refentrytitle><manvolnum>3</manvolnum></citerefentry></member>
       <member><citerefentry project='die-net'><refentrytitle>pkg-config</refentrytitle><manvolnum>1</manvolnum></citerefentry></member>
       <member><ulink url="https://systemd.io/PORTABILITY_AND_STABILITY/">Interface Portability and Stability Promise</ulink></member>
     </simplelist></para>

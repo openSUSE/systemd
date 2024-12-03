@@ -875,8 +875,6 @@ CapabilityBoundingSet=~CAP_B CAP_C</programlisting>
   <refsect1>
     <title>Mandatory Access Control</title>
 
-    <xi:include href="system-only.xml" xpointer="plural"/>
-
     <variablelist class='unit-directives'>
 
       <varlistentry>
@@ -903,6 +901,8 @@ CapabilityBoundingSet=~CAP_B CAP_C</programlisting>
         prefixed by <literal>-</literal>, all errors will be ignored. This setting has no effect if AppArmor
         is not enabled. This setting does not affect commands prefixed with <literal>+</literal>.</para>
 
+        <xi:include href="system-only.xml" xpointer="singular"/>
+
         <xi:include href="version-info.xml" xpointer="v210"/>
         </listitem>
       </varlistentry>
@@ -920,6 +920,8 @@ CapabilityBoundingSet=~CAP_B CAP_C</programlisting>
         <para>The value may be prefixed by <literal>-</literal>, in which case all errors will be ignored. An empty
         value may be specified to unset previous assignments. This does not affect commands prefixed with
         <literal>+</literal>.</para>
+
+        <xi:include href="system-only.xml" xpointer="singular"/>
 
         <xi:include href="version-info.xml" xpointer="v218"/></listitem>
       </varlistentry>
@@ -1412,6 +1414,10 @@ CapabilityBoundingSet=~CAP_B CAP_C</programlisting>
         <varname>ProtectSystem=</varname>. This setting is implied if <varname>DynamicUser=</varname> is
         set. This setting cannot ensure protection in all cases. In general it has the same limitations as
         <varname>ReadOnlyPaths=</varname>, see below. Defaults to off.</para>
+
+        <para>Note that if <varname>ProtectSystem=</varname> is set to <literal>strict</literal> and
+        <varname>PrivateTmp=</varname> is enabled, then <filename>/tmp/</filename> and
+        <filename>/var/tmp/</filename> will be writable.</para>
 
         <xi:include href="version-info.xml" xpointer="v214"/></listitem>
       </varlistentry>
@@ -4594,7 +4600,7 @@ OnFailure=myhandler.service
 
 [Service]
 ExecStart=/bin/myprogram
-        </programlisting>
+</programlisting>
 
         <para>A service <filename index="false">mysuccess.service</filename> which can trigger an
         <varname>OnSuccess=</varname> dependency.</para>
@@ -4606,7 +4612,7 @@ OnSuccess=myhandler.service
 
 [Service]
 ExecStart=/bin/mysecondprogram
-        </programlisting>
+</programlisting>
 
         <para>A service <filename index="false">myhandler.service</filename> which can be triggered
         by any of the above services.</para>
@@ -4617,7 +4623,7 @@ Description=Acts on service failing or succeeding
 
 [Service]
 ExecStart=/bin/bash -c "echo $MONITOR_SERVICE_RESULT $MONITOR_EXIT_CODE $MONITOR_EXIT_STATUS $MONITOR_INVOCATION_ID $MONITOR_UNIT"
-        </programlisting>
+</programlisting>
 
         <para>If <filename index="false">myfailer.service</filename> were to run and exit in failure,
         then <filename index="false">myhandler.service</filename> would be triggered and the
@@ -4629,7 +4635,7 @@ MONITOR_EXIT_CODE=exited
 MONITOR_EXIT_STATUS=1
 MONITOR_INVOCATION_ID=cc8fdc149b2b4ca698d4f259f4054236
 MONITOR_UNIT=myfailer.service
-        </programlisting>
+</programlisting>
 
         <para>If <filename index="false">mysuccess.service</filename> were to run and exit in success,
         then <filename index="false">myhandler.service</filename> would be triggered and the
@@ -4641,7 +4647,7 @@ MONITOR_EXIT_CODE=exited
 MONITOR_EXIT_STATUS=0
 MONITOR_INVOCATION_ID=6ab9af147b8c4a3ebe36e7a5f8611697
 MONITOR_UNIT=mysuccess.service
-        </programlisting>
+</programlisting>
 
     </example>
 

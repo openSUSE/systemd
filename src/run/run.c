@@ -850,7 +850,8 @@ static int parse_argv_sudo_mode(int argc, char *argv[]) {
                         break;
 
                 case 'D':
-                        r = parse_path_argument(optarg, true, &arg_working_directory);
+                        /* Root will be manually suppressed later. */
+                        r = parse_path_argument(optarg, /* suppress_root= */ false, &arg_working_directory);
                         if (r < 0)
                                 return r;
 
@@ -889,6 +890,10 @@ static int parse_argv_sudo_mode(int argc, char *argv[]) {
                         if (r < 0)
                                 return log_error_errno(r, "Failed to get current working directory: %m");
                 }
+        } else {
+                /* Root was not suppressed earlier, to allow the above check to work properly. */
+                if (empty_or_root(arg_working_directory))
+                        arg_working_directory = mfree(arg_working_directory);
         }
 
         arg_service_type = "exec";
@@ -2081,7 +2086,8 @@ static int start_transient_scope(sd_bus *bus) {
                 uid_t uid;
                 gid_t gid;
 
-                r = get_user_creds(&arg_exec_user, &uid, &gid, &home, &shell, USER_CREDS_CLEAN|USER_CREDS_PREFER_NSS);
+                r = get_user_creds(&arg_exec_user, &uid, &gid, &home, &shell,
+                                   USER_CREDS_CLEAN|USER_CREDS_SUPPRESS_PLACEHOLDER|USER_CREDS_PREFER_NSS);
                 if (r < 0)
                         return log_error_errno(r, "Failed to resolve user %s: %m", arg_exec_user);
 
@@ -2365,10 +2371,12 @@ static int run(int argc, char* argv[]) {
 
                 _cleanup_free_ char *command = NULL;
                 r = find_executable(arg_cmdline[0], &command);
-                if (r < 0)
+                if (ERRNO_IS_NEG_PRIVILEGE(r))
+                        log_debug_errno(r, "Failed to find executable '%s' due to permission problems, leaving path as is: %m", arg_cmdline[0]);
+                else if (r < 0)
                         return log_error_errno(r, "Failed to find executable %s: %m", arg_cmdline[0]);
-
-                free_and_replace(arg_cmdline[0], command);
+                else
+                        free_and_replace(arg_cmdline[0], command);
         }
 
         if (!arg_description) {
@@ -2405,7 +2413,7 @@ static int run(int argc, char* argv[]) {
         else
                 r = bus_connect_transport_systemd(arg_transport, arg_host, arg_runtime_scope, &bus);
         if (r < 0)
-                return bus_log_connect_error(r, arg_transport);
+                return bus_log_connect_error(r, arg_transport, arg_runtime_scope);
 
         if (arg_scope)
                 return start_transient_scope(bus);

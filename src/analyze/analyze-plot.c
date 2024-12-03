@@ -166,7 +166,9 @@ static void plot_tooltip(const UnitTimes *ut) {
         assert(ut->name);
 
         svg("%s:\n", ut->name);
-
+        svg("Activating: %"PRI_USEC".%.3"PRI_USEC"\n", ut->activating / USEC_PER_SEC, ut->activating % USEC_PER_SEC);
+        svg("Activated: %"PRI_USEC".%.3"PRI_USEC"\n", ut->activated / USEC_PER_SEC, ut->activated % USEC_PER_SEC);
+        
         UnitDependency i;
         FOREACH_ARGUMENT(i, UNIT_AFTER, UNIT_BEFORE, UNIT_REQUIRES, UNIT_REQUISITE, UNIT_WANTS, UNIT_CONFLICTS, UNIT_UPHOLDS)
                 if (!strv_isempty(ut->deps[i])) {
@@ -468,7 +470,7 @@ int verb_plot(int argc, char *argv[], void *userdata) {
 
         r = acquire_bus(&bus, &use_full_bus);
         if (r < 0)
-                return bus_log_connect_error(r, arg_transport);
+                return bus_log_connect_error(r, arg_transport, arg_runtime_scope);
 
         n = acquire_boot_times(bus, /* require_finished = */ true, &boot);
         if (n < 0)

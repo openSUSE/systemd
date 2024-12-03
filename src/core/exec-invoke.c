@@ -858,9 +858,6 @@ static int get_fixed_user(
         assert(user_or_uid);
         assert(ret_username);
 
-        /* Note that we don't set $HOME or $SHELL if they are not particularly enlightening anyway
-         * (i.e. are "/" or "/bin/nologin"). */
-
         r = get_user_creds(&user_or_uid, ret_uid, ret_gid, ret_home, ret_shell, USER_CREDS_CLEAN);
         if (r < 0)
                 return r;
@@ -1886,7 +1883,10 @@ static int build_environment(
                 }
         }
 
-        if (home && set_user_login_env) {
+        /* Note that we don't set $HOME or $SHELL if they are not particularly enlightening anyway
+         * (i.e. are "/" or "/bin/nologin"). */
+
+        if (home && set_user_login_env && !empty_or_root(home)) {
                 x = strjoin("HOME=", home);
                 if (!x)
                         return -ENOMEM;
@@ -1895,7 +1895,7 @@ static int build_environment(
                 our_env[n_env++] = x;
         }
 
-        if (shell && set_user_login_env) {
+        if (shell && set_user_login_env && !shell_is_placeholder(shell)) {
                 x = strjoin("SHELL=", shell);
                 if (!x)
                         return -ENOMEM;
@@ -3298,20 +3298,16 @@ static int apply_working_directory(
                 const ExecContext *context,
                 const ExecParameters *params,
                 ExecRuntime *runtime,
-                const char *home,
-                int *exit_status) {
+                const char *home) {
 
         const char *wd;
         int r;
 
         assert(context);
-        assert(exit_status);
 
         if (context->working_directory_home) {
-                if (!home) {
-                        *exit_status = EXIT_CHDIR;
+                if (!home)
                         return -ENXIO;
-                }
 
                 wd = home;
         } else
@@ -3330,13 +3326,7 @@ static int apply_working_directory(
                 if (r >= 0)
                         r = RET_NERRNO(fchdir(dfd));
         }
-
-        if (r < 0 && !context->working_directory_missing_ok) {
-                *exit_status = EXIT_CHDIR;
-                return r;
-        }
-
-        return 0;
+        return context->working_directory_missing_ok ? 0 : r;
 }
 
 static int apply_root_directory(
@@ -3609,7 +3599,7 @@ static int acquire_home(const ExecContext *c, const char **home, char **ret_buf)
         if (!c->working_directory_home)
                 return 0;
 
-        if (c->dynamic_user)
+        if (c->dynamic_user || (c->user && is_this_me(c->user) <= 0))
                 return -EADDRNOTAVAIL;
 
         r = get_home_dir(ret_buf);
@@ -4041,7 +4031,7 @@ int exec_invoke(
         int r, ngids = 0;
         _cleanup_free_ gid_t *supplementary_gids = NULL;
         const char *username = NULL, *groupname = NULL;
-        _cleanup_free_ char *home_buffer = NULL, *memory_pressure_path = NULL;
+        _cleanup_free_ char *home_buffer = NULL, *memory_pressure_path = NULL, *own_user = NULL;
         const char *home = NULL, *shell = NULL;
         char **final_argv = NULL;
         dev_t journal_stream_dev = 0;
@@ -4270,8 +4260,23 @@ int exec_invoke(
                         username = runtime->dynamic_creds->user->name;
 
         } else {
-                if (context->user) {
-                        r = get_fixed_user(context->user, &username, &uid, &gid, &home, &shell);
+                const char *u;
+
+                if (context->user)
+                        u = context->user;
+                else if (context->pam_name) {
+                        /* If PAM is enabled but no user name is explicitly selected, then use our own one. */
+                        own_user = getusername_malloc();
+                        if (!own_user) {
+                                *exit_status = EXIT_USER;
+                                return log_exec_error_errno(context, params, r, "Failed to determine my own user ID: %m");
+                        }
+                        u = own_user;
+                } else
+                        u = NULL;
+
+                if (u) {
+                        r = get_fixed_user(u, &username, &uid, &gid, &home, &shell);
                         if (r < 0) {
                                 *exit_status = EXIT_USER;
                                 return log_exec_error_errno(context, params, r, "Failed to determine user credentials: %m");
@@ -4306,7 +4311,7 @@ int exec_invoke(
         r = acquire_home(context, &home, &home_buffer);
         if (r < 0) {
                 *exit_status = EXIT_CHDIR;
-                return log_exec_error_errno(context, params, r, "Failed to determine $HOME for user: %m");
+                return log_exec_error_errno(context, params, r, "Failed to determine $HOME for the invoking user: %m");
         }
 
         /* If a socket is connected to STDIN/STDOUT/STDERR, we must drop O_NONBLOCK */
@@ -4949,7 +4954,7 @@ int exec_invoke(
 #if ENABLE_SMACK
                 /* LSM Smack needs the capability CAP_MAC_ADMIN to change the current execution security context of the
                  * process. This is the latest place before dropping capabilities. Other MAC context are set later. */
-                if (use_smack && context->smack_process_label) {
+                if (use_smack) {
                         r = setup_smack(params, context, executable_fd);
                         if (r < 0 && !context->smack_process_label_ignore) {
                                 *exit_status = EXIT_SMACK_PROCESS_LABEL;
@@ -5068,9 +5073,11 @@ int exec_invoke(
          * running this service might have the correct privilege to change to the working directory. Also, it
          * is absolutely 💣 crucial 💣 we applied all mount namespacing rearrangements before this, so that
          * the cwd cannot be used to pin directories outside of the sandbox. */
-        r = apply_working_directory(context, params, runtime, home, exit_status);
-        if (r < 0)
+        r = apply_working_directory(context, params, runtime, home);
+        if (r < 0) {
+                *exit_status = EXIT_CHDIR;
                 return log_exec_error_errno(context, params, r, "Changing to the requested working directory failed: %m");
+        }
 
         if (needs_sandboxing) {
                 /* Apply other MAC contexts late, but before seccomp syscall filtering, as those should really be last to

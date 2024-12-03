@@ -236,12 +236,27 @@ if [[ -e /usr/lib/pam.d/systemd-run0 ]] || [[ -e /etc/pam.d/systemd-run0 ]]; the
     run0 ls /
     assert_eq "$(run0 echo foo)" "foo"
     # Check if we set some expected environment variables
-    for arg in "" "--user=root" "--user=testuser"; do
+    for arg in "" "--user=root" "--user=0" "--user=testuser"; do
         assert_eq "$(run0 ${arg:+"$arg"} bash -c 'echo $SUDO_USER')" "$USER"
         assert_eq "$(run0 ${arg:+"$arg"} bash -c 'echo $SUDO_UID')" "$(id -u "$USER")"
         assert_eq "$(run0 ${arg:+"$arg"} bash -c 'echo $SUDO_GID')" "$(id -u "$USER")"
+
+        # Validate that we actually went properly through PAM (XDG_SESSION_TYPE is set by pam_systemd)
+        assert_eq "$(run0 ${arg:+"$arg"} bash -c 'echo $XDG_SESSION_TYPE')" "unspecified"
     done
     # Let's chain a couple of run0 calls together, for fun
     readarray -t cmdline < <(printf "%.0srun0\n" {0..31})
     assert_eq "$("${cmdline[@]}" bash -c 'echo $SUDO_USER')" "$USER"
+
+    # Tests for working directory, especially for specifying "/" (see PR #34771).
+    cd /
+    assert_eq "$(run0 pwd)" "/"
+    assert_eq "$(run0 -D /tmp pwd)" "/tmp"
+    assert_eq "$(run0 --user=testuser pwd)" "/home/testuser"
+    assert_eq "$(run0 -D /tmp --user=testuser pwd)" "/tmp"
+    cd /tmp
+    assert_eq "$(run0 pwd)" "/tmp"
+    assert_eq "$(run0 -D / pwd)" "/"
+    assert_eq "$(run0 --user=testuser pwd)" "/home/testuser"
+    assert_eq "$(run0 -D / --user=testuser pwd)" "/"
 fi

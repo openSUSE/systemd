@@ -511,13 +511,19 @@ static int append_extensions(
                               &pick_filter_image_raw,
                               PICK_ARCHITECTURE|PICK_TRIES,
                               &result);
+                if (r == -ENOENT && m->ignore_enoent)
+                        continue;
                 if (r < 0)
                         return r;
-                if (!result.path)
+                if (!result.path) {
+                        if (m->ignore_enoent)
+                                continue;
+
                         return log_debug_errno(
                                         SYNTHETIC_ERRNO(ENOENT),
                                         "No matching entry in .v/ directory %s found.",
                                         m->source);
+                }
 
                 if (asprintf(&mount_point, "%s/%zu", extension_dir, i) < 0)
                         return -ENOMEM;
@@ -555,10 +561,6 @@ static int append_extensions(
                 const char *e = *extension_directory;
                 bool ignore_enoent = false;
 
-                /* Pick up the counter where the ExtensionImages left it. */
-                if (asprintf(&mount_point, "%s/%zu", extension_dir, n++) < 0)
-                        return -ENOMEM;
-
                 /* Look for any prefixes */
                 if (startswith(e, "-")) {
                         e++;
@@ -574,13 +576,22 @@ static int append_extensions(
                               &pick_filter_image_dir,
                               PICK_ARCHITECTURE|PICK_TRIES,
                               &result);
+                if (r == -ENOENT && ignore_enoent)
+                        continue;
                 if (r < 0)
                         return r;
-                if (!result.path)
+                if (!result.path) {
+                        if (ignore_enoent)
+                                continue;
+
                         return log_debug_errno(
                                         SYNTHETIC_ERRNO(ENOENT),
                                         "No matching entry in .v/ directory %s found.",
                                         e);
+                }
+                /* Pick up the counter where the ExtensionImages left it. */
+                if (asprintf(&mount_point, "%s/%zu", extension_dir, n++) < 0)
+                        return -ENOMEM;
 
                 for (size_t j = 0; hierarchies && hierarchies[j]; ++j) {
                         char *prefixed_hierarchy = path_join(mount_point, hierarchies[j]);
@@ -682,11 +693,16 @@ static int append_static_mounts(MountList *ml, const MountEntry *mounts, size_t 
                 if (!me)
                         return log_oom_debug();
 
-                *me = (MountEntry) {
-                        .path_const = mount_entry_path(m),
-                        .mode = m->mode,
-                        .ignore = m->ignore || ignore_protect,
-                };
+                /* No dynamic values allowed. */
+                assert(m->path_const);
+                assert(!m->path_malloc);
+                assert(!m->unprefixed_path_malloc);
+                assert(!m->source_malloc);
+                assert(!m->options_malloc);
+                assert(!m->overlay_layers);
+
+                *me = *m;
+                me->ignore = me->ignore || ignore_protect;
         }
 
         return 0;

@@ -295,9 +295,17 @@ sensor:modalias:acpi:MXC6655*:dmi:*:svnCHUWIInnovationAndTechnology*:pnHi10X:*
 sensor:modalias:acpi:KIOX000A*:dmi:*:svnCHUWIInnovationAndTechnology*:pnHi10X:*
  ACCEL_MOUNT_MATRIX=0, -1, 0; -1, 0, 0; 0, 0, 1
 
+# Chuwi Hi10 X1
+sensor:modalias:acpi:NSA2513*:dmi:*:svnCHUWIInnovationAndTechnology*:pnHi10X1:*
+ ACCEL_MOUNT_MATRIX=0, 1, 0; -1, 0, 0; 0, 0, 1
+
 # Chuwi Hi10 Go
 sensor:modalias:acpi:MXC6655*:dmi:*:svnCHUWIINNOVATIONLIMITED:pnHi10Go:*
  ACCEL_MOUNT_MATRIX=-1, 0, 0; 0,-1, 0; 0, 0, 1
+
+# Chuwi Hi10 Max
+sensor:modalias:acpi:MXC6655*:dmi:*:svnCHUWIInnovationAndTechnology*:pnHi10Max:*
+ ACCEL_MOUNT_MATRIX=0, 1, 0; 1, 0, 0; 0, 0, 1
 
 # Chuwi Hi12
 sensor:modalias:acpi:BOSC0200*:dmi:*:svnHampoo:pnP02BD6_HI-122LP:*
@@ -372,11 +380,12 @@ sensor:modalias:acpi:KIOX000A*:dmi:*:svncube:pni1-TF:*
 sensor:modalias:acpi:SMO8500*:dmi:*:svncube:pni7:*
  ACCEL_MOUNT_MATRIX=1, 0, 0; 0, -1, 0; 0, 0, 1
 
-# Cube i7 Stylus, i7 Stylus I8L Model, i7 Book (i16) and Mix Plus (i18B)
+# Cube i7 Stylus, i7 Stylus I8L Model, i7 Book (i16) and Mix Plus (i18B/i18D)
 sensor:modalias:acpi:KIOX000A*:dmi:*:svnCube:pni7Stylus:*
 sensor:modalias:acpi:KIOX000A*:dmi:*:svnCube:pni8-L:*
 sensor:modalias:acpi:KIOX000A*:dmi:*:svnCube:pni16:*
 sensor:modalias:acpi:KIOX000A*:dmi:*:svnCube:pni18B:*
+sensor:modalias:acpi:KIOX000A*:dmi:*:svnALLDOCUBE:pni18D:*
  ACCEL_MOUNT_MATRIX=-1, 0, 0; 0, 1, 0; 0, 0, 1
 
 # Cube iWork 10 Flagship
@@ -604,6 +613,15 @@ sensor:modalias:i2c:bmc150_accel:dmi:*:svnHewlett-Packard:pnHPProTablet408:*:rn8
  ACCEL_MOUNT_MATRIX=0, 1, 0; -1, 0, 0; 0, 0, 1
 
 #########################################
+# HUAWEI
+#########################################
+
+# HUAWEI MateBook D 15 AMD
+sensor:modalias:acpi:SMO8840*:dmi:*:svnHUAWEI:pnBOHK-WAX9X:*
+ ACCEL_MOUNT_MATRIX=0, 1, 0; 1, 0, 0; 0, 0, 1
+ ACCEL_LOCATION=base
+
+#########################################
 # I.T.Works
 #########################################
 
@@ -747,8 +765,9 @@ sensor:modalias:i2c:bmc150_accel:dmi:*:svnLENOVO:*:pvrLenovoYoga300-11IBR:*
 sensor:modalias:acpi:ACCL0001*:dmi:*:svnLENOVO:pn60072:pvr851*:*
  ACCEL_MOUNT_MATRIX=0, 1, 0; -1, 0, 0; 0, 0, 1
 
-# IdeaPad Duet 3 10IGL5 (82AT)
+# IdeaPad Duet 3 10IGL5 (82AT) and 10IGL5-LTE (82HK)
 sensor:modalias:acpi:SMO8B30*:dmi:*:svnLENOVO*:pn82AT:*
+sensor:modalias:acpi:SMO8B30*:dmi:*:svnLENOVO*:pn82HK:*
  ACCEL_MOUNT_MATRIX=0, 1, 0; -1, 0, 0; 0, 0, 1
 
 #########################################
@@ -937,6 +956,15 @@ sensor:modalias:acpi:MXC6655*:dmi:*:svnDefaultstring*:pnP612F:*
 #########################################
 sensor:modalias:acpi:SMO8500*:dmi:*:svnPEAQ:pnPEAQPMMC1010MD99187:*
  ACCEL_MOUNT_MATRIX=-1, 0, 0; 0, 1, 0; 0, 0, 1
+
+#########################################
+# Pine64
+#########################################
+
+# PineTab2
+
+sensor:modalias:of:NaccelerometerT_null_Csilan,sc7a20:*
+ ACCEL_MOUNT_MATRIX=0, 0, -1; 1, 0, 0; 0, -1, 0
 
 #########################################
 # Pipo
