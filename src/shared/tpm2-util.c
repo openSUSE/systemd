@@ -3979,6 +3979,9 @@ int tpm2_policy_pcr(
                         ESYS_TR_NONE,
                         NULL,
                         pcr_selection);
+        if (rc == TPM2_RC_PCR_CHANGED)
+                return log_debug_errno(SYNTHETIC_ERRNO(EUCLEAN),
+                                       "Failed to add PCR policy to TPM: %s", sym_Tss2_RC_Decode(rc));
         if (rc != TSS2_RC_SUCCESS)
                 return log_debug_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE),
                                        "Failed to add PCR policy to TPM: %s", sym_Tss2_RC_Decode(rc));
@@ -5744,6 +5747,8 @@ int tpm2_unseal(Tpm2Context *c,
                                 !!pin,
                                 pcrlock_policy,
                                 &policy_digest);
+                if (r == -EUCLEAN && i > 0)
+                        goto retry_after_pcr_changed;
                 if (r < 0)
                         return r;
 
@@ -5783,6 +5788,8 @@ int tpm2_unseal(Tpm2Context *c,
                 if (rc != TPM2_RC_PCR_CHANGED || i == 0)
                         return log_debug_errno(SYNTHETIC_ERRNO(ENOTRECOVERABLE),
                                                "Failed to unseal HMAC key in TPM: %s", sym_Tss2_RC_Decode(rc));
+
+retry_after_pcr_changed:
                 log_debug("A PCR value changed during the TPM2 policy session, restarting HMAC key unsealing (%u tries left).", i);
         }
 
