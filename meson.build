@@ -692,17 +692,20 @@ endif
 
 #####################################################################
 
-sh = find_program('sh')
-echo = find_program('echo')
-sed = find_program('sed')
 awk = find_program('awk')
-stat = find_program('stat')
-ln = find_program('ln')
-git = find_program('git', required : false)
-env = find_program('env')
-rsync = find_program('rsync', required : false)
 diff = find_program('diff')
+echo = find_program('echo')
+env = find_program('env')
 find = find_program('find')
+getent = find_program('getent', required : false)
+git = find_program('git', required : false)
+gperf = find_program('gperf')
+id = find_program('id', required : false)
+ln = find_program('ln')
+rsync = find_program('rsync', required : false)
+sed = find_program('sed')
+sh = find_program('sh')
+stat = find_program('stat')
 
 ln_s = ln.full_path() + ' -frsT -- "${DESTDIR:-}@0@" "${DESTDIR:-}@1@"'
 
@@ -739,8 +742,6 @@ if run_command(ln, '--relative', '--help', check : false).returncode() != 0
 endif
 
 #####################################################################
-
-gperf = find_program('gperf')
 
 gperf_test_format = '''
 #include <string.h>
@@ -890,41 +891,49 @@ nobody_user = get_option('nobody-user')
 nobody_group = get_option('nobody-group')
 
 if not meson.is_cross_build()
-        getent_result = run_command('getent', 'passwd', '65534', check : false)
-        if getent_result.returncode() == 0
-                name = getent_result.stdout().split(':')[0]
-                if name != nobody_user
-                        warning('\n' +
-                                'The local user with the UID 65534 does not match the configured user name "@0@" of the nobody user (its name is @1@).\n'.format(nobody_user, name) +
-                                'Your build will result in an user table setup that is incompatible with the local system.')
+        if getent.found()
+                ret = run_command(getent, 'passwd', '65534', check : false)
+                if ret.returncode() == 0
+                        name = ret.stdout().split(':')[0]
+                        if name != nobody_user
+                                warning('\n' +
+                                        'The local user with the UID 65534 does not match the configured user name "@0@" of the nobody user (its name is @1@).\n'.format(nobody_user, name) +
+                                        'Your build will result in an user table setup that is incompatible with the local system.')
+                        endif
                 endif
         endif
-        id_result = run_command('id', '-u', nobody_user, check : false)
-        if id_result.returncode() == 0
-                id = id_result.stdout().strip().to_int()
-                if id != 65534
-                        warning('\n' +
-                                'The local user with the configured user name "@0@" of the nobody user does not have UID 65534 (it has @1@).\n'.format(nobody_user, id) +
-                                'Your build will result in an user table setup that is incompatible with the local system.')
+        if id.found()
+                ret = run_command(id, '-u', nobody_user, check : false)
+                if ret.returncode() == 0
+                        uid = ret.stdout().strip().to_int()
+                        if uid != 65534
+                                warning('\n' +
+                                        'The local user with the configured user name "@0@" of the nobody user does not have UID 65534 (it has @1@).\n'.format(nobody_user, uid) +
+                                        'Your build will result in an user table setup that is incompatible with the local system.')
+                        endif
                 endif
         endif
 
-        getent_result = run_command('getent', 'group', '65534', check : false)
-        if getent_result.returncode() == 0
-                name = getent_result.stdout().split(':')[0]
-                if name != nobody_group
-                        warning('\n' +
-                                'The local group with the GID 65534 does not match the configured group name "@0@" of the nobody group (its name is @1@).\n'.format(nobody_group, name) +
-                                'Your build will result in an group table setup that is incompatible with the local system.')
+        if getent.found()
+                ret = run_command(getent, 'group', '65534', check : false)
+                if ret.returncode() == 0
+                        name = ret.stdout().split(':')[0]
+                        if name != nobody_group
+                                warning('\n' +
+                                        'The local group with the GID 65534 does not match the configured group name "@0@" of the nobody group (its name is @1@).\n'.format(nobody_group, name) +
+                                        'Your build will result in an group table setup that is incompatible with the local system.')
+                        endif
                 endif
         endif
-        id_result = run_command('id', '-g', nobody_group, check : false)
-        if id_result.returncode() == 0
-                id = id_result.stdout().strip().to_int()
-                if id != 65534
-                        warning('\n' +
-                                'The local group with the configured group name "@0@" of the nobody group does not have GID 65534 (it has @1@).\n'.format(nobody_group, id) +
-                                'Your build will result in an group table setup that is incompatible with the local system.')
+        if id.found()
+                ret = run_command(id, '-g', nobody_group, check : false)
+                if ret.returncode() == 0
+                        gid = ret.stdout().strip().to_int()
+                        if gid != 65534
+                                warning('\n' +
+                                        'The local group with the configured group name "@0@" of the nobody group does not have GID 65534 (it has @1@).\n'.format(nobody_group, gid) +
+                                        'Your build will result in an group table setup that is incompatible with the local system.')
+                        endif
                 endif
         endif
 endif
@@ -978,6 +987,16 @@ conf.set10('DEV_KVM_UACCESS', dev_kvm_mode != '0666')
 group_render_mode = get_option('group-render-mode')
 conf.set_quoted('GROUP_RENDER_MODE', group_render_mode)
 conf.set10('GROUP_RENDER_UACCESS', group_render_mode != '0666')
+tty_mode = get_option('tty-mode')
+# The setting is used as both octal integer and string through STRINGIFY().
+# Here, only check if the value starts with '06', and further check will be done in terminal-util.h.
+if not tty_mode.startswith('06')
+        error('Unexpected access mode "@0@" is specified for TTY/PTS device nodes, it must be "06xx".'.format(tty_mode))
+elif tty_mode != '0600' and tty_mode != '0620'
+        warning('Unexpected access mode "@0@" is specified for TTY/PTS device nodes, typically it should be "0600" or "0620", proceeding anyway.'.format(tty_mode))
+endif
+# Do not use set_quoted() here, so that the value is available as an integer.
+conf.set('TTY_MODE', tty_mode)
 
 kill_user_processes = get_option('default-kill-user-processes')
 conf.set10('KILL_USER_PROCESSES', kill_user_processes)

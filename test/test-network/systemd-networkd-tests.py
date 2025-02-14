@@ -3722,6 +3722,22 @@ class NetworkdNetworkTests(unittest.TestCase, Utilities):
         print(output)
         self.assertIn('104:	from 10.1.0.0/16 iif test1 lookup 12 nop', output)
 
+        output = check_output('ip rule list to 192.0.2.0/26')
+        print(output)
+        self.assertIn('to 192.0.2.0/26 lookup 1001', output)
+
+        output = check_output('ip rule list to 192.0.2.64/26')
+        print(output)
+        self.assertIn('to 192.0.2.64/26 lookup 1001', output)
+
+        output = check_output('ip rule list to 192.0.2.128/26')
+        print(output)
+        self.assertIn('to 192.0.2.128/26 lookup 1001', output)
+
+        output = check_output('ip rule list to 192.0.2.192/26')
+        print(output)
+        self.assertIn('to 192.0.2.192/26 lookup 1001', output)
+
     def check_routing_policy_rule_dummy98(self):
         print('### Checking routing policy rules requested by dummy98')
 
@@ -3857,6 +3873,45 @@ class NetworkdNetworkTests(unittest.TestCase, Utilities):
         output = check_output('ip -6 rule list table 1011')
         print(output)
         self.assertIn('10113:	from all iif test1 lookup 1011', output)
+
+    def test_routing_policy_rule_manual(self):
+        # For issue #36244.
+        copy_network_unit(
+            '11-dummy.netdev',
+            '25-routing-policy-rule-manual.network')
+        start_networkd()
+        self.wait_operstate('test1', operstate='off', setup_state='configuring', setup_timeout=20)
+
+        check_output('ip link add test2 type dummy')
+        self.wait_operstate('test2', operstate='off', setup_state='configuring', setup_timeout=20)
+
+        networkctl('up', 'test2')
+        self.wait_online('test2:degraded')
+
+        # The request for the routing policy rules are bound to test1. Hence, we need to wait for the rules
+        # being configured explicitly.
+        for _ in range(20):
+            time.sleep(0.5)
+
+            output = check_output('ip -4 rule list table 51819')
+            if output != '10:	from all lookup 51819 suppress_prefixlength 0 proto static':
+                continue
+
+            output = check_output('ip -6 rule list table 51819')
+            if output != '10:	from all lookup 51819 suppress_prefixlength 0 proto static':
+                continue
+
+            output = check_output('ip -4 rule list table 51820')
+            if output != '11:	not from all fwmark 0x38f lookup 51820 proto static':
+                continue
+
+            output = check_output('ip -6 rule list table 51820')
+            if output != '11:	not from all fwmark 0x38f lookup 51820 proto static':
+                continue
+
+            break
+        else:
+            self.assertFalse(True)
 
     @expectedFailureIfRoutingPolicyPortRangeIsNotAvailable()
     def test_routing_policy_rule_port_range(self):

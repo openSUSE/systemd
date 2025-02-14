@@ -2553,7 +2553,7 @@ static int create_interactively(void) {
                         continue;
                 };
 
-                if (available) {
+                if (!strv_isempty(available)) {
                         r = safe_atou(s, &u);
                         if (r >= 0) {
                                 if (u <= 0 || u > strv_length(available)) {
@@ -2591,7 +2591,7 @@ static int create_interactively(void) {
                         return log_oom();
         }
 
-        if (groups) {
+        if (!strv_isempty(groups)) {
                 strv_sort_uniq(groups);
 
                 r = sd_json_variant_set_field_strv(&arg_identity_extra, "memberOf", groups);
@@ -2630,7 +2630,7 @@ static int create_interactively(void) {
                 log_notice("Specified shell '%s' is not installed, try another one.", shell);
         }
 
-        if (shell) {
+        if (!isempty(shell)) {
                 log_info("Selected %s as the shell for user %s", shell, username);
 
                 r = sd_json_variant_set_field_string(&arg_identity_extra, "shell", shell);
@@ -2804,7 +2804,7 @@ static int help(int argc, char *argv[], void *userdata) {
                "     --enforce-password-policy=BOOL\n"
                "                               Control whether to enforce system's password\n"
                "                               policy for this user\n"
-               "  -P                           Same as --enforce-password-password=no\n"
+               "  -P                           Same as --enforce-password-policy=no\n"
                "     --password-change-now=BOOL\n"
                "                               Require the password to be changed on next login\n"
                "     --password-change-min=TIME\n"

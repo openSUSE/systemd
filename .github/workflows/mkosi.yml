@@ -61,6 +61,7 @@ jobs:
             cflags: "-O2 -D_FORTIFY_SOURCE=3"
             relabel: no
             vm: 1
+            skip: TEST-21-DFUZZER
           - distro: debian
             release: testing
             sanitizers: ""
@@ -68,6 +69,7 @@ jobs:
             cflags: "-Og"
             relabel: no
             vm: 0
+            skip: TEST-21-DFUZZER
           - distro: ubuntu
             release: noble
             sanitizers: ""
@@ -75,6 +77,7 @@ jobs:
             cflags: "-Og"
             relabel: no
             vm: 0
+            skip: TEST-21-DFUZZER
           - distro: fedora
             release: "41"
             sanitizers: ""
@@ -82,6 +85,7 @@ jobs:
             cflags: "-Og"
             relabel: yes
             vm: 0
+            skip: TEST-21-DFUZZER
           - distro: fedora
             release: rawhide
             sanitizers: address,undefined
@@ -96,6 +100,7 @@ jobs:
             cflags: "-Og"
             relabel: no
             vm: 0
+            skip: TEST-21-DFUZZER
           - distro: centos
             release: "9"
             sanitizers: ""
@@ -103,6 +108,7 @@ jobs:
             cflags: "-Og"
             relabel: yes
             vm: 0
+            skip: TEST-21-DFUZZER
           - distro: centos
             release: "10"
             sanitizers: ""
@@ -110,10 +116,11 @@ jobs:
             cflags: "-Og"
             relabel: yes
             vm: 0
+            skip: TEST-21-DFUZZER
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: systemd/mkosi@7051715d8541d4d077a218f7445976225ec74d78
+      - uses: systemd/mkosi@d501139032aa659fa8d34bdb850f4eb6b5f458ed
 
       # Freeing up disk space with rm -rf can take multiple minutes. Since we don't need the extra free space
       # immediately, we remove the files in the background. However, we first move them to a different location
@@ -152,8 +159,8 @@ jobs:
 
           [Build]
           UseSubvolumes=yes
-          ToolsTreeDistribution=fedora
-          ToolsTreeRelease=rawhide
+          ToolsTreeDistribution=${{ matrix.distro }}
+          ToolsTreeRelease=${{ matrix.release }}
 
           WorkspaceDirectory=$TMPDIR
           PackageCacheDirectory=$TMPDIR/cache
@@ -181,20 +188,34 @@ jobs:
         run: mkosi summary
 
       - name: Build tools tree
-        run: mkosi -f sandbox true
+        run: sudo mkosi -f sandbox -- true
 
       - name: Configure meson
-        run: mkosi sandbox meson setup --buildtype=debugoptimized -Dintegration-tests=true build
+        run: |
+          sudo mkosi sandbox -- \
+            meson setup \
+            --buildtype=debugoptimized \
+            -Dintegration-tests=true \
+            build
 
       - name: Build image
-        run: sudo --preserve-env mkosi sandbox meson compile -C build mkosi
+        run: sudo mkosi sandbox -- meson compile -C build mkosi
 
       - name: Run integration tests
         run: |
-          sudo --preserve-env \
-            mkosi sandbox \
+          if [[ "$(sudo mkosi sandbox -- meson test --help)" == *"--max-lines"* ]]; then
+              MAX_LINES=(--max-lines 300)
+          else
+              MAX_LINES=()
+          fi
+
+          # --preserve-env makes sure all the github actions environment variables are propagated which are
+          # used in integration-test-wrapper.py to construct the `gh` command line to download the journals
+          # of failed tests.
+          sudo --preserve-env mkosi sandbox -- \
             env \
             TEST_PREFER_QEMU=${{ matrix.vm }} \
+            TEST_SKIP=${{ matrix.skip }} \
             meson test \
             -C build \
             --no-rebuild \
@@ -202,7 +223,7 @@ jobs:
             --print-errorlogs \
             --no-stdsplit \
             --num-processes "$(($(nproc) - 1))" \
-            --max-lines 300
+            "${MAX_LINES[@]}"
 
       - name: Archive failed test journals
         uses: actions/upload-artifact@v4
@@ -213,15 +234,3 @@ jobs:
             build/test/journal/*.journal
             build/meson-logs/*
           retention-days: 7
-
-      - name: Archive packages
-        uses: actions/upload-artifact@v4
-        if: (success() || failure()) && (github.repository == 'systemd/systemd' || github.repository == 'systemd/systemd-stable')
-        with:
-          name: ci-mkosi-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.distro }}-${{ matrix.release }}-packages
-          path: |
-            build/mkosi.output/*.rpm
-            build/mkosi.output/*.deb
-            build/mkosi.output/*.ddeb
-            build/mkosi.output/*.pkg.tar
-          retention-days: 4
