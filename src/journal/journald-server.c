@@ -41,6 +41,7 @@
 #include "journald-stream.h"
 #include "journald-syslog.h"
 #include "log.h"
+#include "memory-util.h"
 #include "missing_audit.h"
 #include "mkdir.h"
 #include "parse-util.h"
@@ -1273,6 +1274,10 @@ int server_flush_to_var(Server *s, bool require_flag_file) {
         if (!s->system_journal)
                 return 0;
 
+        /* Reset current seqnum data to avoid unnecessary rotation when switching to system journal.
+         * See issue #30092. */
+        zero(*s->seqnum);
+
         log_debug("Flushing to %s...", s->system_storage.path);
 
         start = now(CLOCK_MONOTONIC);
@@ -1346,12 +1351,15 @@ finish:
         if (s->system_journal)
                 journal_file_post_change(s->system_journal->file);
 
+        /* First, close all runtime journals opened in the above. */
+        sd_journal_close(j);
+
+        /* Offline and close the 'main' runtime journal file. */
         s->runtime_journal = managed_journal_file_close(s->runtime_journal);
 
+        /* Remove the runtime directory if the all entries are successfully flushed to /var/. */
         if (r >= 0)
                 (void) rm_rf(s->runtime_storage.path, REMOVE_ROOT);
-
-        sd_journal_close(j);
 
         server_driver_message(s, 0, NULL,
                               LOG_MESSAGE("Time spent on flushing to %s is %s for %u entries.",
