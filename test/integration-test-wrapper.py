@@ -6,6 +6,7 @@
 import argparse
 import base64
 import dataclasses
+import datetime
 import json
 import os
 import re
@@ -43,6 +44,7 @@ class Summary:
     release: str
     architecture: str
     builddir: Path
+    buildsubdir: Path
     environment: dict[str, str]
 
     @classmethod
@@ -65,6 +67,7 @@ class Summary:
             release=j['Images'][-1]['Release'],
             architecture=j['Images'][-1]['Architecture'],
             builddir=Path(j['Images'][-1]['BuildDirectory']),
+            buildsubdir=Path(j['Images'][-1]['BuildSubdirectory']),
             environment=j['Images'][-1]['Environment'],
         )
 
@@ -298,7 +301,7 @@ def process_coverage(args: argparse.Namespace, summary: Summary, name: str, jour
                     '--include=*/',
                     '--include=*.gcno',
                     '--exclude=*',
-                    f'{os.fspath(args.meson_build_dir / summary.builddir)}/',
+                    f'{os.fspath(summary.builddir / summary.buildsubdir)}/',
                     os.fspath(Path(tmp) / 'work/build'),
                 ],
                 check=True,
@@ -361,6 +364,7 @@ def main() -> None:
     parser.add_argument('--exit-code', required=True, type=int)
     parser.add_argument('--coredump-exclude-regex', required=True)
     parser.add_argument('--sanitizer-exclude-regex', required=True)
+    parser.add_argument('--rtc', action=argparse.BooleanOptionalAction)
     parser.add_argument('mkosi_args', nargs='*')
     args = parser.parse_args()
 
@@ -391,7 +395,7 @@ def main() -> None:
     shell = bool(int(os.getenv('TEST_SHELL', '0')))
     summary = Summary.get(args)
 
-    if shell and not sys.stderr.isatty():
+    if shell and not sys.stdin.isatty():
         print(
             '--interactive must be passed to meson test to use TEST_SHELL=1',
             file=sys.stderr,
@@ -439,7 +443,7 @@ def main() -> None:
 
     journal_file.unlink(missing_ok=True)
 
-    if not sys.stderr.isatty():
+    if not sys.stdin.isatty():
         dropin += textwrap.dedent(
             """
             [Unit]
@@ -450,11 +454,22 @@ def main() -> None:
         dropin += textwrap.dedent(
             """
             [Unit]
-            Wants=multi-user.target
+            Wants=multi-user.target getty-pre.target
+            Before=getty-pre.target
+
+            [Service]
+            StandardInput=tty
+            StandardOutput=inherit
+            StandardError=inherit
+            TTYReset=yes
+            TTYVHangup=yes
+            IgnoreSIGPIPE=no
+            # bash ignores SIGTERM
+            KillSignal=SIGHUP
             """
         )
 
-    if sys.stderr.isatty():
+    if sys.stdin.isatty():
         dropin += textwrap.dedent(
             """
             [Service]
@@ -464,25 +479,34 @@ def main() -> None:
             """
         )
 
+    if args.rtc:
+        if sys.version_info >= (3, 12):
+            now = datetime.datetime.now(datetime.UTC)
+        else:
+            now = datetime.datetime.utcnow()
+
+        rtc = datetime.datetime.strftime(now, r'%Y-%m-%dT%H:%M:%S')
+    else:
+        rtc = None
+
     cmd = [
         args.mkosi,
         '--directory', os.fspath(args.meson_source_dir),
-        '--output-dir', os.fspath(args.meson_build_dir / 'mkosi.output'),
-        '--extra-search-path', os.fspath(args.meson_build_dir),
         '--machine', name,
-        '--ephemeral',
+        '--ephemeral=yes',
         *(['--forward-journal', journal_file] if journal_file else []),
         *(
             [
                 '--credential', f'systemd.extra-unit.emergency-exit.service={shlex.quote(EMERGENCY_EXIT_SERVICE)}',  # noqa: E501
                 '--credential', f'systemd.unit-dropin.emergency.target={shlex.quote(EMERGENCY_EXIT_DROPIN)}',
             ]
-            if not sys.stderr.isatty()
+            if not sys.stdin.isatty()
             else []
         ),
         '--credential', f'systemd.unit-dropin.{args.unit}={shlex.quote(dropin)}',
         '--runtime-network=none',
         '--runtime-scratch=no',
+        *([f'--qemu-args=-rtc base={rtc}'] if rtc else []),
         *args.mkosi_args,
         '--firmware', args.firmware,
         *(['--kvm', 'no'] if int(os.getenv('TEST_NO_KVM', '0')) else []),
@@ -501,13 +525,13 @@ def main() -> None:
                         'systemd.crash_action=poweroff',
                         'loglevel=6',
                     ]
-                    if not sys.stderr.isatty()
+                    if not sys.stdin.isatty()
                     else []
                 ),
             ]
         ),
-        '--credential', f"journal.storage={'persistent' if sys.stderr.isatty() else args.storage}",
-        *(['--runtime-build-sources=no', '--register=no'] if not sys.stderr.isatty() else []),
+        '--credential', f"journal.storage={'persistent' if sys.stdin.isatty() else args.storage}",
+        *(['--runtime-build-sources=no', '--register=no'] if not sys.stdin.isatty() else []),
         'vm' if args.vm or os.getuid() != 0 or os.getenv('TEST_PREFER_QEMU', '0') == '1' else 'boot',
     ]  # fmt: skip
 

@@ -1409,7 +1409,7 @@ bool route_can_update(const Route *existing, const Route *requesting) {
                         return false;
                 if (existing->type != requesting->type)
                         return false;
-                if (existing->flags != requesting->flags)
+                if ((existing->flags & ~RTNH_COMPARE_MASK) != (requesting->flags & ~RTNH_COMPARE_MASK))
                         return false;
                 if (!in6_addr_equal(&existing->prefsrc.in6, &requesting->prefsrc.in6))
                         return false;
@@ -1481,6 +1481,9 @@ int link_drop_routes(Link *link, bool only_static) {
                                 continue;
 
                         if (route->source == NETWORK_CONFIG_SOURCE_FOREIGN && link->network) {
+                                if (FLAGS_SET(link->network->keep_configuration, KEEP_CONFIGURATION_YES))
+                                        continue;
+
                                 if (route->protocol == RTPROT_STATIC &&
                                     FLAGS_SET(link->network->keep_configuration, KEEP_CONFIGURATION_STATIC))
                                         continue;
