@@ -46,7 +46,7 @@ permissions:
 
 jobs:
   ci:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     concurrency:
       group: ${{ github.workflow }}-${{ matrix.distro }}-${{ matrix.release }}-${{ github.ref }}
       cancel-in-progress: true
@@ -74,6 +74,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9
+
+    - name: Build dependencies
+      run: sudo apt install --yes makepkg
+
     - uses: systemd/mkosi@5866c0ff3b36d350c943016e5a3b115f7a95d37f
 
     - name: Configure
@@ -138,16 +142,16 @@ jobs:
         /usr/lib/systemd/systemd-keyutil --version
 
     - name: Generate secure boot key
-      run: mkosi --debug genkey
+      run: sudo mkosi --debug genkey
 
     - name: Show ${{ matrix.distro }} image summary
-      run: mkosi summary
+      run: sudo mkosi summary
 
     - name: Build ${{ matrix.distro }}
-      run: mkosi --debug
+      run: sudo env -u SUDO_USER -u SUDO_UID -u SUDO_GID mkosi --debug --repository-key-check=false
 
     - name: Boot ${{ matrix.distro }} systemd-nspawn
       run: test "$(sudo mkosi --debug boot 1>&2; echo $?)" -eq 123
 
     - name: Boot ${{ matrix.distro }} QEMU
-      run: timeout -k 30 10m test "$(mkosi --debug qemu 1>&2; echo $?)" -eq 123
+      run: timeout -k 30 10m test "$(sudo mkosi --debug qemu 1>&2; echo $?)" -eq 123

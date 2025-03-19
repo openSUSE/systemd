@@ -152,9 +152,9 @@ def get_zboot_kernel(f):
         raise NotImplementedError('lzo decompression not implemented')
     elif comp_type.startswith(b'xzkern'):
         raise NotImplementedError('xzkern decompression not implemented')
-    elif comp_type.startswith(b'zstd22'):
-        zstd = try_import('zstd')
-        return zstd.uncompress(f.read(size))
+    elif comp_type.startswith(b'zstd'):
+        zstd = try_import('zstandard')
+        return cast(bytes, zstd.ZstdDecompressor().stream_reader(f.read(size)).read())
     else:
         raise NotImplementedError(f'unknown compressed type: {comp_type}')
 
@@ -183,8 +183,8 @@ def maybe_decompress(filename):
         return gzip.open(f).read()
 
     if start.startswith(b'\x28\xb5\x2f\xfd'):
-        zstd = try_import('zstd')
-        return zstd.uncompress(f.read())
+        zstd = try_import('zstandard')
+        return cast(bytes, zstd.ZstdDecompressor().stream_reader(f.read()).read())
 
     if start.startswith(b'\x02\x21\x4c\x18'):
         lz4 = try_import('lz4.frame', 'lz4')
@@ -580,8 +580,14 @@ def pe_add_sections(uki: UKI, output: str):
     pe.OPTIONAL_HEADER.SizeOfHeaders = round_up(pe.OPTIONAL_HEADER.SizeOfHeaders, pe.OPTIONAL_HEADER.FileAlignment)
     pe = pefile.PE(data=pe.write(), fast_load=True)
 
+    # pefile has an hardcoded limit of 256MB, which is not enough when building an initrd with large firmware
+    # files and all kernel modules. See: https://github.com/erocarrera/pefile/issues/396
     warnings = pe.get_warnings()
-    if warnings:
+    for w in warnings:
+        if 'VirtualSize is extremely large' in w:
+            continue
+        if 'VirtualAddress is beyond' in w:
+            continue
         raise PEError(f'pefile warnings treated as errors: {warnings}')
 
     security = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_SECURITY']]
@@ -1203,7 +1209,7 @@ CONFIG_ITEMS = [
     ConfigItem(
         '--efi-arch',
         metavar = 'ARCH',
-        choices = ('ia32', 'x64', 'arm', 'aa64', 'riscv64'),
+        choices = ('ia32', 'x64', 'arm', 'aa64', 'riscv32', 'riscv64', 'loongarch32', 'loongarch64'),
         help = 'target EFI architecture',
         config_key = 'UKI/EFIArch',
     ),
