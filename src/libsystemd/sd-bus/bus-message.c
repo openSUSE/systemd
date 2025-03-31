@@ -107,19 +107,38 @@ static void message_reset_parts(sd_bus_message *m) {
         m->cached_rindex_part_begin = 0;
 }
 
-static void message_reset_containers(sd_bus_message *m) {
-        unsigned i;
-
+static struct bus_container *message_get_container(sd_bus_message *m) {
         assert(m);
 
-        for (i = 0; i < m->n_containers; i++) {
-                free(m->containers[i].signature);
-                free(m->containers[i].offsets);
-        }
+        if (m->n_containers == 0)
+                return &m->root_container;
+
+        assert(m->containers);
+        return m->containers + m->n_containers - 1;
+}
+
+static void message_free_last_container(sd_bus_message *m) {
+        struct bus_container *c;
+
+        c = message_get_container(m);
+
+        free(c->signature);
+        free(c->peeked_signature);
+        free(c->offsets);
+
+        /* Move to previous container, but not if we are on root container */
+        if (m->n_containers > 0)
+                m->n_containers--;
+}
+
+static void message_reset_containers(sd_bus_message *m) {
+        assert(m);
+
+        while (m->n_containers > 0)
+                message_free_last_container(m);
 
         m->containers = mfree(m->containers);
-
-        m->n_containers = m->containers_allocated = 0;
+        m->containers_allocated = 0;
         m->root_container.index = 0;
 }
 
@@ -149,10 +168,8 @@ static void message_free(sd_bus_message *m) {
 
         m->destination_ptr = mfree(m->destination_ptr);
         message_reset_containers(m);
-        free(m->root_container.signature);
-        free(m->root_container.offsets);
-
-        free(m->root_container.peeked_signature);
+        assert(m->n_containers == 0);
+        message_free_last_container(m);
 
         bus_creds_done(&m->creds);
         free(m);
@@ -715,6 +732,7 @@ static int message_new_reply(
                 sd_bus_message **m) {
 
         sd_bus_message *t;
+        uint64_t cookie;
         int r;
 
         assert_return(call, -EINVAL);
@@ -723,15 +741,16 @@ static int message_new_reply(
         assert_return(call->bus->state != BUS_UNSET, -ENOTCONN);
         assert_return(m, -EINVAL);
 
+        cookie = BUS_MESSAGE_COOKIE(call);
+        if (cookie == 0)
+                return -EOPNOTSUPP;
+
         t = message_new(call->bus, type);
         if (!t)
                 return -ENOMEM;
 
         t->header->flags |= BUS_MESSAGE_NO_REPLY_EXPECTED;
-        t->reply_cookie = BUS_MESSAGE_COOKIE(call);
-        if (t->reply_cookie == 0)
-                return -EOPNOTSUPP;
-
+        t->reply_cookie = cookie;
         r = message_append_reply_cookie(t, t->reply_cookie);
         if (r < 0)
                 goto fail;
@@ -1161,16 +1180,6 @@ _public_ int sd_bus_message_set_allow_interactive_authorization(sd_bus_message *
                 m->header->flags &= ~BUS_MESSAGE_ALLOW_INTERACTIVE_AUTHORIZATION;
 
         return 0;
-}
-
-static struct bus_container *message_get_container(sd_bus_message *m) {
-        assert(m);
-
-        if (m->n_containers == 0)
-                return &m->root_container;
-
-        assert(m->containers);
-        return m->containers + m->n_containers - 1;
 }
 
 struct bus_body_part *message_append_part(sd_bus_message *m) {
@@ -2040,7 +2049,7 @@ _public_ int sd_bus_message_open_container(
                 char type,
                 const char *contents) {
 
-        struct bus_container *c, *w;
+        struct bus_container *c;
         uint32_t *array_size = NULL;
         char *signature;
         size_t before, begin = 0;
@@ -2088,16 +2097,14 @@ _public_ int sd_bus_message_open_container(
         }
 
         /* OK, let's fill it in */
-        w = m->containers + m->n_containers++;
-        w->enclosing = type;
-        w->signature = signature;
-        w->index = 0;
-        w->array_size = array_size;
-        w->before = before;
-        w->begin = begin;
-        w->n_offsets = w->offsets_allocated = 0;
-        w->offsets = NULL;
-        w->need_offsets = need_offsets;
+        m->containers[m->n_containers++] = (struct bus_container) {
+                .enclosing = type,
+                .signature = signature,
+                .array_size = array_size,
+                .before = before,
+                .begin = begin,
+                .need_offsets = need_offsets,
+        };
 
         return 0;
 }
@@ -4064,10 +4071,10 @@ static int bus_message_enter_dict_entry(
 _public_ int sd_bus_message_enter_container(sd_bus_message *m,
                                             char type,
                                             const char *contents) {
-        struct bus_container *c, *w;
+        struct bus_container *c;
         uint32_t *array_size = NULL;
         char *signature;
-        size_t before;
+        size_t before, end;
         size_t *offsets = NULL;
         size_t n_offsets = 0, item_size = 0;
         int r;
@@ -4150,28 +4157,26 @@ _public_ int sd_bus_message_enter_container(sd_bus_message *m,
         }
 
         /* OK, let's fill it in */
-        w = m->containers + m->n_containers++;
-        w->enclosing = type;
-        w->signature = signature;
-        w->peeked_signature = NULL;
-        w->index = 0;
-
-        w->before = before;
-        w->begin = m->rindex;
-
-        /* Unary type has fixed size of 1, but virtual size of 0 */
         if (BUS_MESSAGE_IS_GVARIANT(m) &&
             type == SD_BUS_TYPE_STRUCT &&
             isempty(signature))
-                w->end = m->rindex + 0;
+                end = m->rindex + 0;
         else
-                w->end = m->rindex + c->item_size;
+                end = m->rindex + c->item_size;
 
-        w->array_size = array_size;
-        w->item_size = item_size;
-        w->offsets = offsets;
-        w->n_offsets = n_offsets;
-        w->offset_index = 0;
+        m->containers[m->n_containers++] = (struct bus_container) {
+                 .enclosing = type,
+                 .signature = signature,
+
+                 .before = before,
+                 .begin = m->rindex,
+                 /* Unary type has fixed size of 1, but virtual size of 0 */
+                 .end = end,
+                 .array_size = array_size,
+                 .item_size = item_size,
+                 .offsets = offsets,
+                 .n_offsets = n_offsets,
+        };
 
         return 1;
 }
@@ -4204,13 +4209,9 @@ _public_ int sd_bus_message_exit_container(sd_bus_message *m) {
                         return -EBUSY;
         }
 
-        free(c->signature);
-        free(c->peeked_signature);
-        free(c->offsets);
-        m->n_containers--;
+        message_free_last_container(m);
 
         c = message_get_container(m);
-
         saved = c->index;
         c->index = c->saved_index;
         r = container_next_item(m, c, &m->rindex);
@@ -4228,16 +4229,13 @@ static void message_quit_container(sd_bus_message *m) {
         assert(m->sealed);
         assert(m->n_containers > 0);
 
-        c = message_get_container(m);
-
         /* Undo seeks */
+        c = message_get_container(m);
         assert(m->rindex >= c->before);
         m->rindex = c->before;
 
         /* Free container */
-        free(c->signature);
-        free(c->offsets);
-        m->n_containers--;
+        message_free_last_container(m);
 
         /* Correct index of new top-level container */
         c = message_get_container(m);
