@@ -39,7 +39,8 @@ chance that your distribution's packaged version of mkosi will be too old.
 Then, you can build and run systemd executables as follows:
 
 ```sh
-$ mkosi -f sandbox -- meson setup build
+$ mkosi -f genkey                                  # Generate signing keys once.
+$ mkosi -f sandbox -- meson setup -Dbpf-framework=disabled build # bpftool detection inside mkosi sandbox is broken on Ubuntu Noble and older
 $ mkosi -f sandbox -- meson compile -C build
 $ mkosi -f sandbox -- build/systemctl --version
 ```
@@ -47,7 +48,6 @@ $ mkosi -f sandbox -- build/systemctl --version
 To build and boot an OS image with the latest systemd installed:
 
 ```sh
-$ mkosi -f genkey                                  # Generate signing keys once.
 $ mkosi -f sandbox -- meson compile -C build mkosi # (re-)build the OS image
 $ mkosi boot                                       # Boot the image with systemd-nspawn.
 $ mkosi vm                                         # Boot the image with qemu.
@@ -63,8 +63,8 @@ $ git clone https://github.com/systemd/systemd.git
 $ cd systemd
 $ git checkout -b <BRANCH>                         # where BRANCH is the name of the branch
 $ $EDITOR src/core/main.c                          # or wherever you'd like to make your changes
-$ mkosi -f sandbox -- meson setup build            # Set up meson
 $ mkosi -f genkey                                  # Generate signing keys once.
+$ mkosi -f sandbox -- meson setup build            # Set up meson
 $ mkosi -f sandbox -- meson compile -C build mkosi # (re-)build the test image
 $ mkosi vm                                         # Boot the image in qemu
 $ git add -p                                       # interactively put together your patch
@@ -85,7 +85,7 @@ not required to write basic patches.
 
 By default, `mkosi` will first build a tools tree and use it build the image and
 provide the environment for `mkosi sandbox`. To disable the tools tree and use
-binaries from your host instead, write the following to `mkosi.local.conf`:
+binaries from your host instead, write the following to `mkosi/mkosi.local.conf`:
 
 ```conf
 [Build]
@@ -377,6 +377,6 @@ VScode, you'd have to add the following to the VSCode workspace settings of the 
 
 ```json
 {
-    "clangd.path": "<path-to-systemd-repository>/mkosi.clangd",
+    "clangd.path": "<path-to-systemd-repository>/mkosi/mkosi.clangd",
 }
 ```
