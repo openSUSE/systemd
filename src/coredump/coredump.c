@@ -80,7 +80,7 @@
  * size. See DATA_SIZE_MAX in journal-importer.h. */
 assert_cc(JOURNAL_SIZE_MAX <= DATA_SIZE_MAX);
 
-enum {
+typedef enum {
         /* We use these as array indexes for our process metadata cache.
          *
          * The first indices of the cache stores the same metadata as the ones passed by
@@ -93,7 +93,12 @@ enum {
         META_ARGV_SIGNAL,       /* %s: number of signal causing dump */
         META_ARGV_TIMESTAMP,    /* %t: time of dump, expressed as seconds since the Epoch (we expand this to μs granularity) */
         META_ARGV_RLIMIT,       /* %c: core file size soft resource limit */
-        META_ARGV_HOSTNAME,     /* %h: hostname */
+        _META_ARGV_REQUIRED,
+        /* The fields below were added to kernel/core_pattern at later points, so they might be missing. */
+        META_ARGV_HOSTNAME = _META_ARGV_REQUIRED,  /* %h: hostname */
+        META_ARGV_DUMPABLE,     /* %d: as set by the kernel */
+        /* If new fields are added, they should be added here, to maintain compatibility
+         * with callers which don't know about the new fields. */
         _META_ARGV_MAX,
 
         /* The following indexes are cached for a couple of special fields we use (and
@@ -102,16 +107,15 @@ enum {
          * environment. */
 
         META_COMM = _META_ARGV_MAX,
-        _META_MANDATORY_MAX,
 
         /* The rest are similar to the previous ones except that we won't fail if one of
-         * them is missing. */
+         * them is missing in a message sent over the socket. */
 
-        META_EXE = _META_MANDATORY_MAX,
+        META_EXE,
         META_UNIT,
         META_PROC_AUXV,
         _META_MAX
-};
+} meta_argv_t;
 
 static const char * const meta_field_names[_META_MAX] = {
         [META_ARGV_PID]       = "COREDUMP_PID=",
@@ -121,6 +125,7 @@ static const char * const meta_field_names[_META_MAX] = {
         [META_ARGV_TIMESTAMP] = "COREDUMP_TIMESTAMP=",
         [META_ARGV_RLIMIT]    = "COREDUMP_RLIMIT=",
         [META_ARGV_HOSTNAME]  = "COREDUMP_HOSTNAME=",
+        [META_ARGV_DUMPABLE]  = "COREDUMP_DUMPABLE=",
         [META_COMM]           = "COREDUMP_COMM=",
         [META_EXE]            = "COREDUMP_EXE=",
         [META_UNIT]           = "COREDUMP_UNIT=",
@@ -131,6 +136,7 @@ typedef struct Context {
         const char *meta[_META_MAX];
         size_t meta_size[_META_MAX];
         pid_t pid;
+        unsigned dumpable;
         bool is_pid1;
         bool is_journald;
 } Context;
@@ -392,14 +398,16 @@ static int grant_user_access(int core_fd, const Context *context) {
         if (r < 0)
                 return r;
 
-        /* We allow access if we got all the data and at_secure is not set and
-         * the uid/gid matches euid/egid. */
+        /* We allow access if dumpable on the command line was exactly 1, we got all the data,
+         * at_secure is not set, and the uid/gid match euid/egid. */
         bool ret =
+                context->dumpable == 1 &&
                 at_secure == 0 &&
                 uid != UID_INVALID && euid != UID_INVALID && uid == euid &&
                 gid != GID_INVALID && egid != GID_INVALID && gid == egid;
-        log_debug("Will %s access (uid="UID_FMT " euid="UID_FMT " gid="GID_FMT " egid="GID_FMT " at_secure=%s)",
+        log_debug("Will %s access (dumpable=%u uid="UID_FMT " euid="UID_FMT " gid="GID_FMT " egid="GID_FMT " at_secure=%s)",
                   ret ? "permit" : "restrict",
+                  context->dumpable,
                   uid, euid, gid, egid, yes_no(at_secure));
         return ret;
 }
@@ -1015,7 +1023,6 @@ static int save_context(Context *context, const struct iovec_wrapper *iovw) {
 
         assert(context);
         assert(iovw);
-        assert(iovw->count >= _META_ARGV_MAX);
 
         /* The context does not allocate any memory on its own */
 
@@ -1044,6 +1051,16 @@ static int save_context(Context *context, const struct iovec_wrapper *iovw) {
         r = parse_pid(context->meta[META_ARGV_PID], &context->pid);
         if (r < 0)
                 return log_error_errno(r, "Failed to parse PID \"%s\": %m", context->meta[META_ARGV_PID]);
+
+        /* The value is set to contents of /proc/sys/fs/suid_dumpable, which we set to 2,
+         * if the process is marked as not dumpable, see PR_SET_DUMPABLE(2const). */
+        if (context->meta[META_ARGV_DUMPABLE]) {
+                r = safe_atou(context->meta[META_ARGV_DUMPABLE], &context->dumpable);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to parse dumpable field \"%s\": %m", context->meta[META_ARGV_DUMPABLE]);
+                if (context->dumpable > 2)
+                        log_notice("Got unexpected %%d/dumpable value %u.", context->dumpable);
+        }
 
         unit = context->meta[META_UNIT];
         context->is_pid1 = streq(context->meta[META_ARGV_PID], "1") || streq_ptr(unit, SPECIAL_INIT_SCOPE);
@@ -1134,12 +1151,24 @@ static int process_socket(int fd) {
         if (r < 0)
                 goto finish;
 
-        /* Make sure we received at least all fields we need. */
-        for (int i = 0; i < _META_MANDATORY_MAX; i++)
+        /* Make sure we received all the expected fields. We support being called by an *older*
+         * systemd-coredump from the outside, so we require only the basic set of fields that
+         * was being sent when the support for sending to containers over a socket was added
+         * in a108c43e36d3ceb6e34efe37c014fc2cda856000. */
+        meta_argv_t i;
+        VA_ARGS_FOREACH(i,
+                        META_ARGV_PID,
+                        META_ARGV_UID,
+                        META_ARGV_GID,
+                        META_ARGV_SIGNAL,
+                        META_ARGV_TIMESTAMP,
+                        META_ARGV_RLIMIT,
+                        META_ARGV_HOSTNAME,
+                        META_COMM)
                 if (!context.meta[i]) {
                         r = log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                            "A mandatory argument (%i) has not been sent, aborting.",
-                                            i);
+                                            "Mandatory argument %s not received on socket, aborting.",
+                                            meta_field_names[i]);
                         goto finish;
                 }
 
@@ -1220,14 +1249,17 @@ static int gather_pid_metadata_from_argv(
         char *t;
 
         /* We gather all metadata that were passed via argv[] into an array of iovecs that
-         * we'll forward to the socket unit */
+         * we'll forward to the socket unit.
+         *
+         * We require at least _META_ARGV_REQUIRED args, but will accept more.
+         * We know how to parse _META_ARGV_MAX args. The rest will be ignored. */
 
-        if (argc < _META_ARGV_MAX)
+        if (argc < _META_ARGV_REQUIRED)
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                       "Not enough arguments passed by the kernel (%i, expected %i).",
-                                       argc, _META_ARGV_MAX);
+                                       "Not enough arguments passed by the kernel (%i, expected between %i and %i).",
+                                       argc, _META_ARGV_REQUIRED, _META_ARGV_MAX);
 
-        for (int i = 0; i < _META_ARGV_MAX; i++) {
+        for (int i = 0; i < MIN(argc, _META_ARGV_MAX); i++) {
 
                 t = argv[i];
 

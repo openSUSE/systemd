@@ -3954,7 +3954,7 @@ class NetworkdTCTests(unittest.TestCase, Utilities):
         output = check_output('tc qdisc show dev dummy98')
         print(output)
         self.assertRegex(output, 'qdisc tbf 35: root')
-        self.assertRegex(output, 'rate 1Gbit burst 5000b peakrate 100Gbit minburst 987500b lat 70(.0)?ms')
+        self.assertRegex(output, 'rate 1Gbit burst 5000b peakrate 100Gbit minburst (987500b|999200b) lat 70(.0)?ms')
 
     @expectedFailureIfModuleIsNotAvailable('sch_teql')
     def test_qdisc_teql(self):
@@ -6159,6 +6159,10 @@ if __name__ == '__main__':
         systemd_source_dir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../"))
     if not os.path.exists(os.path.join(systemd_source_dir, "meson_options.txt")):
         raise RuntimeError(f"{systemd_source_dir} doesn't appear to be a systemd source tree")
+
+    if networkd_bin is None or resolved_bin is None or timesyncd_bin is None:
+        print("networkd tests require networkd/resolved/timesyncd to be enabled")
+        sys.exit(77)
 
     use_valgrind = ns.use_valgrind
     enable_debug = ns.enable_debug

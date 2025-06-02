@@ -2073,7 +2073,7 @@ static int invoke_main_loop(
 
                         log_notice("Reexecuting.");
 
-                        *ret_retval = EXIT_SUCCESS;
+                        *ret_retval = EXIT_FAILURE;
                         *ret_switch_root_dir = *ret_switch_root_init = NULL;
 
                         return objective;
@@ -2096,7 +2096,7 @@ static int invoke_main_loop(
 
                         log_notice("Switching root.");
 
-                        *ret_retval = EXIT_SUCCESS;
+                        *ret_retval = EXIT_FAILURE;
 
                         /* Steal the switch root parameters */
                         *ret_switch_root_dir = TAKE_PTR(m->switch_root);
@@ -2116,7 +2116,7 @@ static int invoke_main_loop(
 
                         log_notice("Soft-rebooting.");
 
-                        *ret_retval = EXIT_SUCCESS;
+                        *ret_retval = EXIT_FAILURE;
                         *ret_switch_root_dir = TAKE_PTR(m->switch_root);
                         *ret_switch_root_init = NULL;
 
@@ -2844,7 +2844,7 @@ static int save_env(void) {
 
         l = strv_copy(environ);
         if (!l)
-                return -ENOMEM;
+                return log_oom();
 
         strv_free_and_replace(saved_env, l);
         return 0;
@@ -2958,7 +2958,8 @@ int main(int argc, char *argv[]) {
                                         goto finish;
                         }
 
-                        if (mac_init() < 0) {
+                        r = mac_init();
+                        if (r < 0) {
                                 error_message = "Failed to initialize MAC support";
                                 goto finish;
                         }
@@ -3031,7 +3032,8 @@ int main(int argc, char *argv[]) {
                  * operate. */
                 capability_ambient_set_apply(0, /* also_inherit= */ false);
 
-                if (mac_init() < 0) {
+                r = mac_init();
+                if (r < 0) {
                         error_message = "Failed to initialize MAC support";
                         goto finish;
                 }
