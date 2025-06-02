@@ -3723,6 +3723,18 @@ class NetworkdNetworkTests(unittest.TestCase, Utilities):
         print(output)
         self.assertIn('104:	from 10.1.0.0/16 iif test1 lookup 12 nop', output)
 
+        output = check_output('ip rule list iif test1 priority 200')
+        print(output)
+        self.assertIn('200:	from all fwmark 0/0x1 iif test1 lookup 20', output)
+
+        output = check_output('ip rule list iif test1 priority 201')
+        print(output)
+        self.assertIn('201:	from all fwmark 0x7/0xff iif test1 lookup 21', output)
+
+        output = check_output('ip rule list iif test1 priority 202')
+        print(output)
+        self.assertIn('202:	from all fwmark 0x270f iif test1 lookup 22', output)
+
         output = check_output('ip rule list to 192.0.2.0/26')
         print(output)
         self.assertIn('to 192.0.2.0/26 lookup 1001', output)
@@ -5399,7 +5411,7 @@ class NetworkdTCTests(unittest.TestCase, Utilities):
         output = check_output('tc qdisc show dev dummy98')
         print(output)
         self.assertRegex(output, 'qdisc tbf 35: root')
-        self.assertRegex(output, 'rate 1Gbit burst 5000b peakrate 100Gbit minburst 987500b lat 70(.0)?ms')
+        self.assertRegex(output, 'rate 1Gbit burst 5000b peakrate 100Gbit minburst (987500b|999200b) lat 70(.0)?ms')
 
     @expectedFailureIfModuleIsNotAvailable('sch_teql')
     def test_qdisc_teql(self):

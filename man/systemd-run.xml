@@ -318,7 +318,7 @@
 
         <para>This option will result in <command>systemd-run</command> synchronously waiting for
         the transient service to terminate, similar to specifying <option>--wait</option>. If specified
-        along with <option>--wait</option>, <command>systemd-run</command> won't exit when manually disconnecting
+        along with <option>--wait</option>, <command>systemd-run</command> will not exit when manually disconnecting
         from the pseudo TTY device.</para>
 
         <para>Note that
@@ -464,9 +464,10 @@
         start request for the transient unit is verified, enqueued, and waited for. Subsequently the invoked unit is
         monitored, and it is waited until it is deactivated again (most likely because the specified command
         completed). On exit, terse information about the unit's runtime is shown, including total runtime (as well as
-        CPU usage, if <option>--property=CPUAccounting=1</option> was set) and the exit code and status of the main
-        process. This output may be suppressed with <option>--quiet</option>. This option may not be combined with
-        <option>--no-block</option>, <option>--scope</option> or the various path, socket, or timer options.</para>
+        CPU, memory, IO, and IP accounting data, if the corresponding cgroup accounting settings are enabled)
+        and the exit code and status of the main process. This output may be suppressed with <option>--quiet</option>.
+        This option may not be combined with <option>--no-block</option>, <option>--scope</option> or the various
+        path, socket, or timer options.</para>
 
         <xi:include href="version-info.xml" xpointer="v232"/></listitem>
       </varlistentry>
@@ -656,7 +657,7 @@ There is a screen on:
       <literal>&lt;></literal>, <literal>&lt;${INVOCATION_ID}></literal>] as the argument array, and then
       <citerefentry><refentrytitle>systemd</refentrytitle><manvolnum>1</manvolnum></citerefentry>
       generates <varname>${INVOCATION_ID}</varname> and substitutes it in the command-line. This substitution
-      could not be done on the client side, because the target ID that will be set for the service isn't
+      could not be done on the client side, because the target ID that will be set for the service is not
       known before the call is made.</para>
     </example>
 
@@ -679,7 +680,7 @@ There is a screen on:
       <citerefentry project='man-pages'><refentrytitle>bash</refentrytitle><manvolnum>1</manvolnum></citerefentry>
       shell which is started by the service unit. The shell expands <literal>$SHELL</literal> to the path of
       the shell, and <literal>$$</literal> to its process number, and then those strings are passed to the
-      <command>echo</command> built-in and printed to standard output (which in this case is connected to the
+      <command>echo</command> built-in and printed to standard output (which, in this case, is connected to the
       calling terminal).</para>
     </example>
 
