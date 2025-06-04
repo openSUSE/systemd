@@ -102,16 +102,6 @@
       </varlistentry>
 
       <varlistentry>
-        <term><option>systemd-efi-options</option> <optional><replaceable>STRING</replaceable></optional></term>
-
-        <listitem><para>When called without the optional argument, prints the current value of the
-        <literal>SystemdOptions</literal> EFI variable. When called with an argument, sets the
-        variable to that value. See
-        <citerefentry><refentrytitle>systemd</refentrytitle><manvolnum>1</manvolnum></citerefentry>
-        for the meaning of that variable.</para></listitem>
-      </varlistentry>
-
-      <varlistentry>
         <term><option>reboot-to-firmware</option> <optional><replaceable>BOOL</replaceable></optional></term>
 
         <listitem><para>Query or set the "Reboot-Into-Firmware-Setup" flag of the EFI firmware. Takes a

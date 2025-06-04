@@ -1045,8 +1045,6 @@ static int help(int argc, char *argv[], void *userdata) {
                "  remove              Remove systemd-boot from the ESP and EFI variables\n"
                "  is-installed        Test whether systemd-boot is installed in the ESP\n"
                "  random-seed         Initialize random seed in ESP and EFI variables\n"
-               "  systemd-efi-options [STRING]\n"
-               "                      Query or set system options string in EFI variable\n"
                "  reboot-to-firmware [BOOL]\n"
                "                      Query or set reboot-to-firmware EFI flag\n"
                "\nBoot Loader Entries Commands:\n"
@@ -1775,6 +1773,10 @@ static int verb_random_seed(int argc, char *argv[], void *userdata) {
 
 static int verb_systemd_efi_options(int argc, char *argv[], void *userdata) {
         int r;
+
+        /* This is obsolete and subject to removal */
+
+        log_notice("Use of the SystemdOptions EFI variable is deprecated.");
 
         if (argc == 1) {
                 _cleanup_free_ char *line = NULL;
