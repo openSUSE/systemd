@@ -3,7 +3,6 @@
 #include <errno.h>
 #include <sys/stat.h>
 
-#include "env-file-label.h"
 #include "env-file.h"
 #include "env-util.h"
 #include "errno-util.h"
@@ -208,7 +207,12 @@ int locale_context_save(LocaleContext *c, char ***ret_set, char ***ret_unset) {
                 return 0;
         }
 
-        r = write_env_file_label(AT_FDCWD, "/etc/locale.conf", NULL, set);
+        r = write_env_file(
+                        AT_FDCWD,
+                        "/etc/locale.conf",
+                        /* headers= */ NULL,
+                        set,
+                        WRITE_ENV_FILE_LABEL);
         if (r < 0)
                 return r;
 

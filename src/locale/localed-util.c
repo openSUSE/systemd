@@ -7,7 +7,6 @@
 
 #include "bus-polkit.h"
 #include "copy.h"
-#include "env-file-label.h"
 #include "env-file.h"
 #include "env-util.h"
 #include "fd-util.h"
@@ -531,7 +530,7 @@ int vconsole_write_data(Context *c) {
                 return 0;
         }
 
-        r = write_vconsole_conf_label(l);
+        r = write_vconsole_conf(AT_FDCWD, "/etc/vconsole.conf", l);
         if (r < 0)
                 return r;
 
