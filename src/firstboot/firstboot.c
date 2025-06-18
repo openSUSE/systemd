@@ -27,6 +27,7 @@
 #include "glyph-util.h"
 #include "hostname-util.h"
 #include "kbd-util.h"
+#include "label.h"
 #include "libcrypt-util.h"
 #include "locale-util.h"
 #include "lock-util.h"
@@ -582,7 +583,7 @@ static int process_timezone(int rfd) {
                         if (r < 0)
                                 return log_error_errno(r, "Failed to read host's /etc/localtime: %m");
 
-                        r = symlinkat_atomic_full(s, pfd, f, /* make_relative= */ false);
+                        r = symlinkat_atomic_full(s, pfd, f, SYMLINK_LABEL);
                         if (r < 0)
                                 return log_error_errno(r, "Failed to create /etc/localtime symlink: %m");
 
@@ -600,7 +601,7 @@ static int process_timezone(int rfd) {
 
         e = strjoina("../usr/share/zoneinfo/", arg_timezone);
 
-        r = symlinkat_atomic_full(e, pfd, f, /* make_relative= */ false);
+        r = symlinkat_atomic_full(e, pfd, f, SYMLINK_LABEL);
         if (r < 0)
                 return log_error_errno(r, "Failed to create /etc/localtime symlink: %m");
 
