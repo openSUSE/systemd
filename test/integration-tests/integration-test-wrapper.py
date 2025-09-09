@@ -537,15 +537,9 @@ def main() -> None:
     else:
         rtc = None
 
-    # mkosi will use the UEFI secure boot firmware by default on UEFI platforms. However, this breaks on
-    # Github Actions in combination with KVM because of a HyperV bug so make sure we use the non secure
-    # boot firmware on Github Actions.
-    # TODO: Drop after the HyperV bug that breaks secure boot KVM guests is solved
-    if args.firmware == 'auto' and os.getenv('GITHUB_ACTIONS'):
-        firmware = 'uefi'
     # Whenever possible, boot without an initrd. This requires the target distribution kernel to have the
     # necessary modules (virtio-blk, ext4) builtin.
-    elif args.firmware == 'linux-noinitrd' and (summary.distribution, summary.release) not in (
+    if args.firmware == 'linux-noinitrd' and (summary.distribution, summary.release) not in (
         ('fedora', 'rawhide'),
         ('arch', 'rolling'),
     ):
@@ -637,10 +631,15 @@ def main() -> None:
     elif os.getenv('TEST_JOURNAL_USE_TMP', '0') == '1' and journal_file.exists():
         dst = args.meson_build_dir / f'test/journal/{name}.journal'
         dst.parent.mkdir(parents=True, exist_ok=True)
-        journal_file = shutil.move(journal_file, dst)
+        journal_file = Path(shutil.move(journal_file, dst))
 
     if shell or (result.returncode in (args.exit_code, 77) and not coredumps and not sanitizer):
-        exit(0 if shell or result.returncode == args.exit_code else 77)
+        exit_code = 0 if shell or result.returncode == args.exit_code else 77
+        exit_str = 'succeeded' if exit_code == 0 else 'skipped'
+    else:
+        # 0 also means we failed so translate that to a non-zero exit code to mark the test as failed.
+        exit_code = result.returncode or 1
+        exit_str = 'failed'
 
     if journal_file.exists():
         ops = []
@@ -655,10 +654,11 @@ def main() -> None:
 
         ops += [f'journalctl --file {journal_file} --no-hostname -o short-monotonic -u {args.unit} -p info']
 
-        print(f'Test failed, relevant logs can be viewed with: \n\n{(" && ".join(ops))}\n', file=sys.stderr)
+        print(
+            f'Test {exit_str}, relevant logs can be viewed with: \n\n{(" && ".join(ops))}\n', file=sys.stderr
+        )
 
-    # 0 also means we failed so translate that to a non-zero exit code to mark the test as failed.
-    exit(result.returncode or 1)
+    exit(exit_code)
 
 
 if __name__ == '__main__':

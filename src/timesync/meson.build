@@ -12,7 +12,6 @@ systemd_timesyncd_sources = files(
 )
 
 sources += custom_target(
-        'timesyncd-gperf.c',
         input : 'timesyncd-gperf.gperf',
         output : 'timesyncd-gperf.c',
         command : [gperf, '@INPUT@', '--output-file', '@OUTPUT@'])
@@ -60,7 +59,6 @@ executables += [
 ]
 
 custom_target(
-        'timesyncd.conf',
         input : 'timesyncd.conf.in',
         output : 'timesyncd.conf',
         command : [jinja2_cmdline, '@INPUT@', '@OUTPUT@'],
@@ -68,12 +66,16 @@ custom_target(
         install_dir : pkgconfigfiledir)
 
 if conf.get('ENABLE_TIMESYNCD') == 1
-        install_data('org.freedesktop.timesync1.conf',
-                     install_dir : dbuspolicydir)
-        install_data('org.freedesktop.timesync1.service',
-                     install_dir : dbussystemservicedir)
-        install_data('80-systemd-timesync.list',
-                     install_dir : ntpservicelistdir)
-        install_data('org.freedesktop.timesync1.policy',
-                     install_dir : polkitpolicydir)
+        install_data(
+                'org.freedesktop.timesync1.conf',
+                install_dir : dbuspolicydir)
+        install_data(
+                'org.freedesktop.timesync1.service',
+                install_dir : dbussystemservicedir)
+        install_data(
+                '80-systemd-timesync.list',
+                install_dir : ntpservicelistdir)
+        install_data(
+                'org.freedesktop.timesync1.policy',
+                install_dir : polkitpolicydir)
 endif

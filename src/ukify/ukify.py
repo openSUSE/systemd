@@ -164,20 +164,24 @@ def get_zboot_kernel(f: IO[bytes]) -> bytes:
     f.seek(start)
     if comp_type.startswith(b'gzip'):
         gzip = try_import('gzip')
-        return cast(bytes, gzip.open(f).read(size))
+        data = f.read(size)
+        return cast(bytes, gzip.decompress(data))
     elif comp_type.startswith(b'lz4'):
         lz4 = try_import('lz4.frame', 'lz4')
-        return cast(bytes, lz4.frame.decompress(f.read(size)))
+        data = f.read(size)
+        return cast(bytes, lz4.frame.decompress(data))
     elif comp_type.startswith(b'lzma'):
         lzma = try_import('lzma')
-        return cast(bytes, lzma.open(f).read(size))
+        data = f.read(size)
+        return cast(bytes, lzma.decompress(data))
     elif comp_type.startswith(b'lzo'):
         raise NotImplementedError('lzo decompression not implemented')
     elif comp_type.startswith(b'xzkern'):
         raise NotImplementedError('xzkern decompression not implemented')
     elif comp_type.startswith(b'zstd'):
         zstd = try_import('zstandard')
-        return cast(bytes, zstd.ZstdDecompressor().stream_reader(f.read(size)).read())
+        data = f.read(size)
+        return cast(bytes, zstd.ZstdDecompressor().stream_reader(data).read())
 
     raise NotImplementedError(f'unknown compressed type: {comp_type!r}')
 
@@ -285,7 +289,7 @@ class UkifyConfig:
 class Uname:
     # This class is here purely as a namespace for the functions
 
-    VERSION_PATTERN = r'(?P<version>[a-z0-9._-]+) \([^ )]+\) (?:#.*)'
+    VERSION_PATTERN = r'(?P<version>[a-z0-9._+-]+) \([^ )]+\) (?:#.*)'
 
     NOTES_PATTERN = r'^\s+Linux\s+0x[0-9a-f]+\s+OPEN\n\s+description data: (?P<version>[0-9a-f ]+)\s*$'
 
@@ -463,7 +467,7 @@ class SignTool:
         raise NotImplementedError()
 
     @staticmethod
-    def verify(opts: UkifyConfig) -> bool:
+    def verify(input_f: Path, opts: UkifyConfig) -> bool:
         raise NotImplementedError()
 
     @staticmethod
@@ -499,11 +503,11 @@ class PeSign(SignTool):
         subprocess.check_call(cmd)
 
     @staticmethod
-    def verify(opts: UkifyConfig) -> bool:
-        assert opts.linux is not None
+    def verify(input_f: Path, opts: UkifyConfig) -> bool:
+        assert input_f is not None
 
         tool = find_tool('pesign', opts=opts)
-        cmd = [tool, '-i', opts.linux, '-S']
+        cmd = [tool, '-i', input_f, '-S']
 
         print('+', shell_join(cmd), file=sys.stderr)
         info = subprocess.check_output(cmd, text=True)
@@ -531,11 +535,11 @@ class SbSign(SignTool):
         subprocess.check_call(cmd)
 
     @staticmethod
-    def verify(opts: UkifyConfig) -> bool:
-        assert opts.linux is not None
+    def verify(input_f: Path, opts: UkifyConfig) -> bool:
+        assert input_f is not None
 
         tool = find_tool('sbverify', opts=opts)
-        cmd = [tool, '--list', opts.linux]
+        cmd = [tool, '--list', input_f]
 
         print('+', shell_join(cmd), file=sys.stderr)
         info = subprocess.check_output(cmd, text=True)
@@ -583,7 +587,7 @@ class SystemdSbSign(SignTool):
         subprocess.check_call(cmd)
 
     @staticmethod
-    def verify(opts: UkifyConfig) -> bool:
+    def verify(input_f: Path, opts: UkifyConfig) -> bool:
         raise NotImplementedError('systemd-sbsign cannot yet verify if existing PE binaries are signed')
 
 
@@ -941,6 +945,19 @@ def pe_add_sections(uki: UKI, output: str) -> None:
         if section.name == '.linux':
             # Old kernels that use EFI handover protocol will be executed inline.
             new_section.IMAGE_SCN_CNT_CODE = True
+
+            # Check if the kernel PE has the NX_COMPAT flag set, if not strip it from the UKI as they need
+            # to have the same value, otherwise when firmwares start enforcing it, booting will fail.
+            # https://microsoft.github.io/mu/WhatAndWhy/enhancedmemoryprotection/
+            # https://www.kraxel.org/blog/2023/12/uefi-nx-linux-boot/
+            try:
+                inner_pe = pefile.PE(data=data, fast_load=True)
+                nxbit = pefile.DLL_CHARACTERISTICS['IMAGE_DLLCHARACTERISTICS_NX_COMPAT']
+                if not inner_pe.OPTIONAL_HEADER.DllCharacteristics & nxbit:
+                    pe.OPTIONAL_HEADER.DllCharacteristics &= ~nxbit
+            except pefile.PEFormatError:
+                # Unit tests build images with bogus data
+                print(f'{section.name} in {uki.executable} is not a valid PE, ignoring', file=sys.stderr)
         else:
             new_section.IMAGE_SCN_CNT_INITIALIZED_DATA = True
 
@@ -952,14 +969,13 @@ def pe_add_sections(uki: UKI, output: str) -> None:
                 if new_section.Misc_VirtualSize > s.SizeOfRawData:
                     raise PEError(f'Not enough space in existing section {section.name} to append new data.')
 
-                padding = bytes(new_section.SizeOfRawData - new_section.Misc_VirtualSize)
+                padding = bytes(s.SizeOfRawData - new_section.Misc_VirtualSize)
                 pe.__data__ = (
                     pe.__data__[: s.PointerToRawData]
                     + data
                     + padding
                     + pe.__data__[pe.sections[i + 1].PointerToRawData :]
                 )
-                s.SizeOfRawData = new_section.SizeOfRawData
                 s.Misc_VirtualSize = new_section.Misc_VirtualSize
                 break
         else:
@@ -1058,7 +1074,7 @@ def pack_strings(strings: set[str], base: int) -> tuple[bytes, dict[str, int]]:
 
 
 def parse_hwid_dir(path: Path) -> bytes:
-    hwid_files = path.rglob('*.json')
+    hwid_files = sorted(path.rglob('*.json'))
 
     strings: set[str] = set()
     devices: collections.defaultdict[tuple[str, str], set[uuid.UUID]] = collections.defaultdict(set)
@@ -1131,7 +1147,7 @@ def make_uki(opts: UkifyConfig) -> None:
 
         if sign_kernel is None:
             # figure out if we should sign the kernel
-            sign_kernel = signtool.verify(opts)
+            sign_kernel = signtool.verify(linux, opts)
 
         if sign_kernel:
             linux_signed = tempfile.NamedTemporaryFile(prefix='linux-signed')
@@ -1464,7 +1480,7 @@ def inspect_section(
 
     if ttype == 'text':
         try:
-            struct['text'] = data.decode()
+            struct['text'] = data.rstrip(b'\0').replace(b'\0', b'\\0').decode()
         except UnicodeDecodeError as e:
             print(f'Section {name!r} is not valid text: {e}', file=sys.stderr)
             struct['text'] = '(not valid UTF-8)'

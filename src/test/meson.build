@@ -2,7 +2,6 @@
 
 awkscript = 'test-hashmap-ordered.awk'
 test_hashmap_ordered_c = custom_target(
-        'test-hashmap-ordered.c',
         input : [awkscript, 'test-hashmap-plain.c'],
         output : 'test-hashmap-ordered.c',
         command : [awk, '-f', '@INPUT0@', '@INPUT1@'],
@@ -10,15 +9,14 @@ test_hashmap_ordered_c = custom_target(
         build_by_default : want_tests != 'false')
 
 path = run_command(sh, '-c', 'echo "$PATH"', check: true).stdout().strip()
-test_env = environment()
-test_env.set('SYSTEMD_LANGUAGE_FALLBACK_MAP', language_fallback_map)
-test_env.set('PATH', meson.project_build_root() + ':' + path)
-test_env.set('PROJECT_BUILD_ROOT', meson.project_build_root())
-test_env.set('SYSTEMD_SLOW_TESTS', want_slow_tests ? '1' : '0')
-test_env.set('PYTHONDONTWRITEBYTECODE', '1')
-
-if efi_addon != ''
-        test_env.set('EFI_ADDON', efi_addon)
+test_env = {
+        'PATH' : meson.project_build_root() + ':' + path,
+        'PROJECT_BUILD_ROOT' : meson.project_build_root(),
+        'SYSTEMD_SLOW_TESTS' : want_slow_tests ? '1' : '0',
+        'PYTHONDONTWRITEBYTECODE' : '1',
+}
+if conf.get('ENABLE_LOCALED') == 1
+        test_env += {'SYSTEMD_LANGUAGE_FALLBACK_MAP' : language_fallback_map}
 endif
 
 ############################################################
@@ -26,7 +24,6 @@ endif
 generate_sym_test_py = find_program('generate-sym-test.py')
 
 test_libsystemd_sym_c = custom_target(
-        'test-libsystemd-sym.c',
         input : [libsystemd_sym_path] + systemd_headers + libsystemd_sources,
         output : 'test-libsystemd-sym.c',
         command : [generate_sym_test_py, libsystemd_sym_path, libsystemd_dir_path] + systemd_headers,
@@ -34,7 +31,6 @@ test_libsystemd_sym_c = custom_target(
         build_by_default : want_tests != 'false')
 
 test_libudev_sym_c = custom_target(
-        'test-libudev-sym.c',
         input : [libudev_sym_path, libudev_h_path] + libudev_sources,
         output : 'test-libudev-sym.c',
         command : [generate_sym_test_py, libudev_sym_path, libudev_dir_path, libudev_h_path],

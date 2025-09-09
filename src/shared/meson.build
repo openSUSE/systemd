@@ -215,7 +215,6 @@ endif
 generate_syscall_list = find_program('generate-syscall-list.py')
 fname = 'syscall-list.h'
 syscall_list_h = custom_target(
-        fname,
         input : syscall_list_txt,
         output : fname,
         command : [generate_syscall_list,
@@ -257,14 +256,12 @@ endif
 
 generate_ip_protocol_list = find_program('generate-ip-protocol-list.sh')
 ip_protocol_list_txt = custom_target(
-        'ip-protocol-list.txt',
         output : 'ip-protocol-list.txt',
         command : [generate_ip_protocol_list, cpp],
         capture : true)
 
 fname = 'ip-protocol-from-name.gperf'
 gperf_file = custom_target(
-        fname,
         input : ip_protocol_list_txt,
         output : fname,
         command : [generate_gperfs, 'ip_protocol', 'IPPROTO_', '@INPUT@'],
@@ -272,7 +269,6 @@ gperf_file = custom_target(
 
 fname = 'ip-protocol-from-name.h'
 target1 = custom_target(
-        fname,
         input : gperf_file,
         output : fname,
         command : [gperf,
@@ -286,7 +282,6 @@ target1 = custom_target(
 fname = 'ip-protocol-to-name.h'
 awkscript = 'ip-protocol-to-name.awk'
 target2 = custom_target(
-        fname,
         input : [awkscript, ip_protocol_list_txt],
         output : fname,
         command : [awk, '-f', '@INPUT0@', '@INPUT1@'],
@@ -297,7 +292,6 @@ shared_sources += shared_generated_gperf_headers
 
 fname = 'ethtool-link-mode.h'
 ethtool_link_mode_h = custom_target(
-        fname,
         input : ['ethtool-link-mode.py', '../basic/linux/ethtool.h'],
         output : fname,
         command : [python, '@INPUT0@', '--header', cpp, '@INPUT1@'],
@@ -306,7 +300,6 @@ shared_sources += ethtool_link_mode_h
 
 fname = 'ethtool-link-mode.xml'
 ethtool_link_mode_xml = custom_target(
-        fname,
         input : ['ethtool-link-mode.py', '../basic/linux/ethtool.h'],
         output : fname,
         command : [python, '@INPUT0@', '--xml', cpp, '@INPUT1@'],

@@ -408,6 +408,12 @@ static void service_extend_timeout(Service *s, usec_t extend_timeout_usec) {
 static void service_reset_watchdog(Service *s) {
         assert(s);
 
+        if (freezer_state_finish(UNIT(s)->freezer_state) != FREEZER_RUNNING) {
+                log_unit_debug(UNIT(s), "Service is currently %s, skipping resetting watchdog.",
+                               freezer_state_to_string(UNIT(s)->freezer_state));
+                return;
+        }
+
         dual_timestamp_now(&s->watchdog_timestamp);
         service_start_watchdog(s);
 }
@@ -1215,11 +1221,13 @@ static int service_load_pid_file(Service *s, bool may_warn) {
                 if (fstat(fileno(f), &st) < 0)
                         return log_unit_error_errno(UNIT(s), errno, "Failed to fstat() PID file '%s': %m", s->pid_file);
 
-                if (st.st_uid != 0)
+                if (st.st_uid != getuid())
                         return log_unit_error_errno(UNIT(s), SYNTHETIC_ERRNO(EPERM),
-                                                    "New main PID "PID_FMT" from PID file does not belong to service, and PID file is not owned by root. Refusing.", pidref.pid);
+                                                    "New main PID "PID_FMT" from PID file does not belong to service, and PID file is owned by "UID_FMT" (must be owned by "UID_FMT"). Refusing.",
+                                                    pidref.pid, st.st_uid, getuid());
 
-                log_unit_debug(UNIT(s), "New main PID "PID_FMT" does not belong to service, accepting anyway since PID file is owned by root.", pidref.pid);
+                log_unit_debug(UNIT(s), "New main PID "PID_FMT" does not belong to service, accepting anyway since PID file is owned by "UID_FMT".",
+                               pidref.pid, st.st_uid);
         }
 
         if (s->main_pid_known) {
@@ -1430,7 +1438,8 @@ static int service_coldplug(Unit *u) {
                 (void) unit_setup_exec_runtime(u);
         }
 
-        if (IN_SET(s->deserialized_state, SERVICE_START_POST, SERVICE_RUNNING, SERVICE_RELOAD, SERVICE_RELOAD_SIGNAL, SERVICE_RELOAD_NOTIFY, SERVICE_MOUNTING))
+        if (IN_SET(s->deserialized_state, SERVICE_START_POST, SERVICE_RUNNING, SERVICE_RELOAD, SERVICE_RELOAD_SIGNAL, SERVICE_RELOAD_NOTIFY, SERVICE_MOUNTING) &&
+            freezer_state_finish(u->freezer_state) == FREEZER_RUNNING)
                 service_start_watchdog(s);
 
         if (UNIT_ISSET(s->accept_socket)) {
@@ -5516,6 +5525,22 @@ int service_determine_exec_selinux_label(Service *s, char **ret) {
         return 0;
 }
 
+static int service_cgroup_freezer_action(Unit *u, FreezerAction action) {
+        Service *s = ASSERT_PTR(SERVICE(u));
+        int r;
+
+        r = unit_cgroup_freezer_action(u, action);
+        if (r <= 0)
+                return r;
+
+        if (action == FREEZER_FREEZE)
+                service_stop_watchdog(s);
+        else if (action == FREEZER_THAW)
+                service_reset_watchdog(s);
+
+        return r;
+}
+
 static const char* const service_restart_table[_SERVICE_RESTART_MAX] = {
         [SERVICE_RESTART_NO]          = "no",
         [SERVICE_RESTART_ON_SUCCESS]  = "on-success",
@@ -5653,7 +5678,7 @@ const UnitVTable service_vtable = {
         .live_mount = service_live_mount,
         .can_live_mount = service_can_live_mount,
 
-        .freezer_action = unit_cgroup_freezer_action,
+        .freezer_action = service_cgroup_freezer_action,
 
         .serialize = service_serialize,
         .deserialize_item = service_deserialize_item,

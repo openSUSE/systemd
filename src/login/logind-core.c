@@ -359,6 +359,29 @@ int manager_process_button_device(Manager *m, sd_device *d) {
 
 int manager_get_session_by_pidref(Manager *m, const PidRef *pid, Session **ret) {
         _cleanup_free_ char *unit = NULL;
+        Session *s = NULL;
+        int r;
+
+        assert(m);
+
+        if (!pidref_is_set(pid))
+                return -EINVAL;
+
+        r = manager_get_session_by_leader(m, pid, ret);
+        if (r != 0)
+                return r;
+
+        r = cg_pidref_get_unit(pid, &unit);
+        if (r >= 0)
+                s = hashmap_get(m->session_units, unit);
+
+        if (ret)
+                *ret = s;
+
+        return !!s;
+}
+
+int manager_get_session_by_leader(Manager *m, const PidRef *pid, Session **ret) {
         Session *s;
         int r;
 
@@ -372,10 +395,6 @@ int manager_get_session_by_pidref(Manager *m, const PidRef *pid, Session **ret) 
                 r = pidref_verify(pid);
                 if (r < 0)
                         return r;
-        } else {
-                r = cg_pidref_get_unit(pid, &unit);
-                if (r >= 0)
-                        s = hashmap_get(m->session_units, unit);
         }
 
         if (ret)
@@ -741,7 +760,7 @@ int manager_read_utmp(Manager *m) {
                 if (!pid_is_valid(u->ut_pid))
                         continue;
 
-                t = strndup(u->ut_line, sizeof(u->ut_line));
+                t = memdup_suffix0(u->ut_line, sizeof(u->ut_line));
                 if (!t)
                         return log_oom();
 
@@ -755,7 +774,10 @@ int manager_read_utmp(Manager *m) {
                 if (isempty(t))
                         continue;
 
-                if (manager_get_session_by_pidref(m, &PIDREF_MAKE_FROM_PID(u->ut_pid), &s) <= 0)
+                if (manager_get_session_by_leader(m, &PIDREF_MAKE_FROM_PID(u->ut_pid), &s) <= 0)
+                        continue;
+
+                if (s->type != SESSION_TTY)
                         continue;
 
                 if (s->tty_validity == TTY_FROM_UTMP && !streq_ptr(s->tty, t)) {

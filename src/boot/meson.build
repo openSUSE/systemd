@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 efi_config_h_dir = meson.current_build_dir()
-efi_addon = ''
+efi_addon = []
 
 libefitest = static_library(
         'efitest',
@@ -393,7 +393,6 @@ foreach efi_elf_binary : efi_elf_binaries
         endif
 
         exe = custom_target(
-                name,
                 output : name,
                 input : efi_elf_binary,
                 install : true,
@@ -418,12 +417,12 @@ foreach efi_elf_binary : efi_elf_binaries
 
         # This is supposed to match exactly one time
         if name == 'addon@0@.efi.stub'.format(efi_arch)
-                efi_addon = exe.full_path()
+                efi_addon = [exe]
         endif
 
         test('check-alignment-@0@'.format(name),
              check_efi_alignment_py,
-             args : exe.full_path(),
+             args : exe,
              suite : 'boot')
 endforeach
 

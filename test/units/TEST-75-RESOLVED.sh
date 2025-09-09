@@ -134,7 +134,7 @@ EOF
         echo "FallbackDNS="
         echo "DNSSEC=allow-downgrade"
         echo "DNSOverTLS=opportunistic"
-    } >/run/systemd/resolved.conf.d/test.conf
+    } >/run/systemd/resolved.conf.d/10-test.conf
     ln -svf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
     # Override the default NTA list, which turns off DNSSEC validation for (among
     # others) the test. domain
@@ -231,7 +231,6 @@ manual_testcase_01_resolvectl() {
     # Cleanup
     # shellcheck disable=SC2317
     cleanup() {
-        rm -f /run/systemd/resolved.conf.d/mdns-llmnr.conf
         ip link del hoge
         ip link del hoge.foo
     }
@@ -319,7 +318,7 @@ manual_testcase_02_mdns_llmnr() {
 
     # Cleanup
     cleanup() {
-        rm -f /run/systemd/resolved.conf.d/mdns-llmnr.conf
+        rm -f /run/systemd/resolved.conf.d/90-mdns-llmnr.conf
         ip link del hoge
         ip link del hoge.foo
     }
@@ -331,7 +330,7 @@ manual_testcase_02_mdns_llmnr() {
         echo "[Resolve]"
         echo "MulticastDNS=no"
         echo "LLMNR=no"
-    } >/run/systemd/resolved.conf.d/mdns-llmnr.conf
+    } >/run/systemd/resolved.conf.d/90-mdns-llmnr.conf
     restart_resolved
     # make sure networkd is not running.
     systemctl stop systemd-networkd.service
@@ -342,7 +341,7 @@ manual_testcase_02_mdns_llmnr() {
         echo "[Resolve]"
         echo "MulticastDNS=yes"
         echo "LLMNR=yes"
-    } >/run/systemd/resolved.conf.d/mdns-llmnr.conf
+    } >/run/systemd/resolved.conf.d/90-mdns-llmnr.conf
     systemctl reload systemd-resolved.service
     # defaults to yes (both the global and per-link settings are yes)
     assert_in 'yes' "$(resolvectl mdns hoge)"
@@ -366,7 +365,7 @@ manual_testcase_02_mdns_llmnr() {
         echo "[Resolve]"
         echo "MulticastDNS=resolve"
         echo "LLMNR=resolve"
-    } >/run/systemd/resolved.conf.d/mdns-llmnr.conf
+    } >/run/systemd/resolved.conf.d/90-mdns-llmnr.conf
     systemctl reload systemd-resolved.service
     # set per-link setting
     resolvectl mdns hoge yes
@@ -386,7 +385,7 @@ manual_testcase_02_mdns_llmnr() {
         echo "[Resolve]"
         echo "MulticastDNS=no"
         echo "LLMNR=no"
-    } >/run/systemd/resolved.conf.d/mdns-llmnr.conf
+    } >/run/systemd/resolved.conf.d/90-mdns-llmnr.conf
     systemctl reload systemd-resolved.service
     (! lsof -p "$(systemctl show --property MainPID --value systemd-resolved.service)" | grep -q ":mdns\|:5353")
     # set per-link setting
@@ -790,10 +789,62 @@ testcase_08_resolved() {
 }
 
 testcase_09_resolvectl_showcache() {
+    # Cleanup
+    # shellcheck disable=SC2317
+    cleanup() {
+        rm -f /run/systemd/resolved.conf.d/90-resolved.conf
+        rm -f /run/systemd/network/10-dns2.netdev
+        rm -f /run/systemd/network/10-dns2.network
+        networkctl reload
+        systemctl reload systemd-resolved.service
+        resolvectl revert dns0
+    }
+
+    trap cleanup RETURN
+
     ### Test resolvectl show-cache
     run resolvectl show-cache
     run resolvectl show-cache --json=short
     run resolvectl show-cache --json=pretty
+
+    # Use resolvectl show-cache to check that reloding resolved updates scope
+    # DNSSEC and DNSOverTLS modes.
+    {
+        echo "[NetDev]"
+        echo "Name=dns2"
+        echo "Kind=dummy"
+    } > /run/systemd/network/10-dns2.netdev
+    {
+        echo "[Match]"
+        echo "Name=dns2"
+        echo "[Network]"
+        echo "IPv6AcceptRA=no"
+        echo "Address=10.123.0.1/24"
+        echo "DNS=10.0.0.1"
+    } > /run/systemd/network/10-dns2.network
+    networkctl reload
+    networkctl reconfigure dns2
+
+    mkdir -p /run/systemd/resolved.conf.d/
+    {
+        echo "[Resolve]"
+        echo "DNSSEC=no"
+        echo "DNSOverTLS=no"
+    } > /run/systemd/resolved.conf.d/90-resolved.conf
+    systemctl reload systemd-resolved.service
+
+    test "$(resolvectl show-cache --json=short | jq -rc '.[] | select(.ifname == "dns2" and .protocol == "dns") | .dnssec')" == 'no'
+    test "$(resolvectl show-cache --json=short | jq -rc '.[] | select(.ifname == "dns2" and .protocol == "dns") | .dnsOverTLS')" == 'no'
+
+    {
+        echo "[Resolve]"
+        echo "DNSSEC=allow-downgrade"
+        echo "DNSOverTLS=opportunistic"
+    } > /run/systemd/resolved.conf.d/90-resolved.conf
+    systemctl reload systemd-resolved.service
+
+    test "$(resolvectl show-cache --json=short | jq -rc '.[] | select(.ifname == "dns2" and .protocol == "dns") | .dnssec')" == 'allow-downgrade'
+    test "$(resolvectl show-cache --json=short | jq -rc '.[] | select(.ifname == "dns2" and .protocol == "dns") | .dnsOverTLS')" == 'opportunistic'
 }
 
 testcase_10_resolvectl_json() {
@@ -855,7 +906,7 @@ testcase_11_nft() {
     {
         echo "[Resolve]"
         echo "StaleRetentionSec=1d"
-    } >/run/systemd/resolved.conf.d/test.conf
+    } >/run/systemd/resolved.conf.d/10-test.conf
     ln -svf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
     systemctl reload systemd-resolved.service
 
@@ -947,7 +998,7 @@ testcase_12_resolvectl2() {
     # Cleanup
     # shellcheck disable=SC2317
     cleanup() {
-        rm -f /run/systemd/resolved.conf.d/reload.conf
+        rm -f /run/systemd/resolved.conf.d/90-reload.conf
         systemctl reload systemd-resolved.service
     }
 
@@ -1001,7 +1052,7 @@ testcase_12_resolvectl2() {
         echo "[Resolve]"
         echo "DNS=8.8.8.8"
         echo "DNSStubListenerExtra=127.0.0.153"
-    } >/run/systemd/resolved.conf.d/reload.conf
+    } >/run/systemd/resolved.conf.d/90-reload.conf
     resolvectl dns dns0 1.1.1.1
     systemctl reload systemd-resolved.service
     resolvectl status
@@ -1019,7 +1070,7 @@ testcase_12_resolvectl2() {
         echo "[Resolve]"
         echo "DNS=8.8.4.4"
         echo "DNSStubListenerExtra=127.0.0.154"
-    } >/run/systemd/resolved.conf.d/reload.conf
+    } >/run/systemd/resolved.conf.d/90-reload.conf
     systemctl reload systemd-resolved.service
     resolvectl status
 

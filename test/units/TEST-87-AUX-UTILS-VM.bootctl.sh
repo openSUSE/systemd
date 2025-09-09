@@ -21,7 +21,42 @@ fi
 
 (! systemd-detect-virt -cq)
 
+restore_esp() {
+    if [ ! -d /tmp/esp.bak ]; then
+        return
+    fi
+
+    if [ -d /tmp/esp.bak/EFI/ ]; then
+        cp -r /tmp/esp.bak/EFI/* "$(bootctl --print-esp-path)/EFI/"
+    fi
+    if [ -d /tmp/esp.bak/loader/ ]; then
+        cp -r /tmp/esp.bak/loader/* "$(bootctl --print-esp-path)/loader/"
+    fi
+    rm -rf /tmp/esp.bak
+}
+
+backup_esp() {
+    if [ -d /tmp/esp.bak ]; then
+        return
+    fi
+
+    if [[ -d "$(bootctl --print-esp-path)/EFI" ]]; then
+        mkdir -p /tmp/esp.bak
+        cp -r "$(bootctl --print-esp-path)/EFI/" /tmp/esp.bak/
+    fi
+    if [[ -d "$(bootctl --print-esp-path)/loader" ]]; then
+        mkdir -p /tmp/esp.bak
+        cp -r "$(bootctl --print-esp-path)/loader/" /tmp/esp.bak/
+    fi
+}
+
 basic_tests() {
+    # Ensure the system's ESP (no --image/--root args) is still available for the next tests
+    if [ $# -eq 0 ]; then
+        backup_esp
+        trap restore_esp RETURN ERR
+    fi
+
     bootctl "$@" --help
     bootctl "$@" --version
 
@@ -77,7 +112,7 @@ cleanup_image() (
         unset LOOPDEV
     fi
 
-    udevadm settle
+    udevadm settle --timeout=30
 
     rm -rf "${IMAGE_DIR}"
     unset IMAGE_DIR
@@ -101,7 +136,7 @@ EOF
     LOOPDEV="$(losetup --show -P -f "${IMAGE_DIR}/image")"
     sfdisk "$LOOPDEV" <"${IMAGE_DIR}/partscript"
 
-    udevadm settle
+    udevadm settle --timeout=30
 
     mkfs.vfat -n esp  "${LOOPDEV}p1"
     mkfs.ext4 -L root "${LOOPDEV}p2"
@@ -158,7 +193,7 @@ cleanup_raid() (
         mdadm --misc --force --zero-superblock "${LOOPDEV2}p2"
     fi
 
-    udevadm settle
+    udevadm settle --timeout=30
 
     if [[ -n "${LOOPDEV1:-}" ]]; then
         mdadm --misc --force --zero-superblock "${LOOPDEV1}p1"
@@ -174,7 +209,7 @@ cleanup_raid() (
         unset LOOPDEV2
     fi
 
-    udevadm settle
+    udevadm settle --timeout=30
 
     rm -rf "${IMAGE_DIR}"
 
@@ -210,7 +245,7 @@ EOF
     sfdisk "$LOOPDEV1" <"${IMAGE_DIR}/partscript"
     sfdisk "$LOOPDEV2" <"${IMAGE_DIR}/partscript"
 
-    udevadm settle
+    udevadm settle --timeout=30
 
     printf 'y\ny\n' | mdadm --create /dev/md/raid-esp --name "raid-esp" "${LOOPDEV1}p1" "${LOOPDEV2}p1" -v -f --level=1 --raid-devices=2
     mkfs.vfat /dev/md/raid-esp
@@ -274,6 +309,10 @@ testcase_bootctl_varlink() {
 }
 
 testcase_bootctl_secure_boot_auto_enroll() {
+    # mkosi can also add keys here, so back them up and restored them
+    backup_esp
+    trap restore_esp RETURN ERR
+
     cat >/tmp/openssl.conf <<EOF
 [ req ]
 prompt = no
@@ -293,11 +332,31 @@ EOF
             -x509 -sha256 -nodes -days 365 -newkey rsa:4096 \
             -keyout /tmp/sb.key -out /tmp/sb.crt
 
+    # This will fail if there are already keys in the ESP, so we remove them first
+    rm -rf "$(bootctl --print-esp-path)/loader/keys/auto"
+
     bootctl install --make-entry-directory=yes --secure-boot-auto-enroll=yes --certificate /tmp/sb.crt --private-key /tmp/sb.key
     for var in PK KEK db; do
         test -f "$(bootctl --print-esp-path)/loader/keys/auto/$var.auth"
     done
     bootctl remove
+}
+
+testcase_secureboot() {
+    if [ ! -d /sys/firmware/efi ]; then
+        echo "Not booted with EFI, skipping secureboot tests."
+        return 0
+    fi
+
+    # Ensure secure boot is enabled and not in setup mode
+    cmp /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c <(printf '\6\0\0\0\1')
+    cmp /sys/firmware/efi/efivars/SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c <(printf '\6\0\0\0\0')
+    bootctl status | grep -q "Secure Boot: enabled"
+
+    # Ensure the addon is fully loaded and parsed
+    bootctl status | grep -q "global-addon: loader/addons/test.addon.efi"
+    bootctl status | grep "cmdline" | grep -q addonfoobar
+    grep -q addonfoobar /proc/cmdline
 }
 
 run_testcases

@@ -27,6 +27,7 @@ PACKAGES=(
     isc-dhcp-client
     itstool
     kbd
+    libarchive-dev
     libblkid-dev
     libbpf-dev
     libcap-dev
@@ -43,7 +44,6 @@ PACKAGES=(
     libqrencode-dev
     libssl-dev
     libtss2-dev
-    libxen-dev
     libxkbcommon-dev
     libxtables-dev
     libzstd-dev
@@ -69,6 +69,10 @@ COMPILER_VERSION="${COMPILER_VERSION:?}"
 LINKER="${LINKER:?}"
 CRYPTOLIB="${CRYPTOLIB:?}"
 RELEASE="$(lsb_release -cs)"
+
+if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "x86_64" ]; then
+    PACKAGES+=(libxen-dev)
+fi
 
 # Note: As we use postfixed clang/gcc binaries, we need to override $AR
 #       as well, otherwise meson falls back to ar from binutils which
@@ -96,7 +100,7 @@ if [[ "$COMPILER" == clang ]]; then
             sudo tee /etc/apt/sources.list.d/llvm-toolchain.list
     fi
 
-    PACKAGES+=("clang-$COMPILER_VERSION" "lldb-$COMPILER_VERSION" "python3-lldb-$COMPILER_VERSION" "lld-$COMPILER_VERSION" "clangd-$COMPILER_VERSION")
+    PACKAGES+=("clang-$COMPILER_VERSION" "lldb-$COMPILER_VERSION" "python3-lldb-$COMPILER_VERSION" "lld-$COMPILER_VERSION" "clangd-$COMPILER_VERSION" "llvm-$COMPILER_VERSION")
 elif [[ "$COMPILER" == gcc ]]; then
     CC="gcc-$COMPILER_VERSION"
     CXX="g++-$COMPILER_VERSION"
@@ -110,17 +114,26 @@ elif [[ "$COMPILER" == gcc ]]; then
         sudo add-apt-repository -y --no-update ppa:ubuntu-toolchain-r/test
     fi
 
-    PACKAGES+=("gcc-$COMPILER_VERSION" "gcc-$COMPILER_VERSION-multilib")
+    PACKAGES+=("gcc-$COMPILER_VERSION")
+    if [ "$(uname -m)" = "x86_64" ]; then
+        # Only needed for ia32 EFI builds
+        PACKAGES+=("gcc-$COMPILER_VERSION-multilib")
+    fi
 else
     fatal "Unknown compiler: $COMPILER"
 fi
 
 # This is added by default, and it is often broken, but we don't need anything from it
 sudo rm -f /etc/apt/sources.list.d/microsoft-prod.{list,sources}
-# add-apt-repository --enable-source does not work on deb822 style sources.
-for f in /etc/apt/sources.list.d/*.sources; do
-    sudo sed -i "s/Types: deb/Types: deb deb-src/g" "$f"
-done
+if grep -q 'VERSION_CODENAME=jammy' /usr/lib/os-release; then
+    sudo add-apt-repository -y --no-update ppa:upstream-systemd-ci/systemd-ci
+    sudo add-apt-repository -y --no-update --enable-source
+else
+    # add-apt-repository --enable-source does not work on deb822 style sources.
+    for f in /etc/apt/sources.list.d/*.sources; do
+        sudo sed -i "s/Types: deb/Types: deb deb-src/g" "$f"
+    done
+fi
 sudo apt-get -y update
 sudo apt-get -y build-dep systemd
 sudo apt-get -y install "${PACKAGES[@]}"
@@ -130,6 +143,11 @@ sudo apt-get -y install "${PACKAGES[@]}"
 # locally and add the local bin directory to the $PATH.
 pip3 install --user -r .github/workflows/requirements.txt --require-hashes --break-system-packages
 export PATH="$HOME/.local/bin:$PATH"
+
+if [[ -n "$CUSTOM_PYTHON" ]]; then
+    # If CUSTOM_PYTHON is set we need to pull jinja2 from pip, as a local interpreter is used
+    pip3 install --user --break-system-packages jinja2
+fi
 
 $CC --version
 meson --version

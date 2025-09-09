@@ -45,10 +45,8 @@ TEST(cg_create) {
         int r;
 
         r = cg_unified_cached(false);
-        if (IN_SET(r, -ENOMEDIUM, -ENOENT)) {
-                log_tests_skipped("cgroupfs is not mounted");
-                return;
-        }
+        if (IN_SET(r, -ENOMEDIUM, -ENOENT))
+                return (void) log_tests_skipped("cgroupfs is not mounted");
         ASSERT_OK(r);
 
         _cleanup_free_ char *here = NULL;
@@ -62,12 +60,12 @@ TEST(cg_create) {
 
         log_info("Paths for test:\n%s\n%s", test_a, test_b);
 
-        /* Possibly clean up left-overs from aboted previous runs */
+        /* Possibly clean up left-overs from aborted previous runs */
         (void) cg_trim(SYSTEMD_CGROUP_CONTROLLER, test_a, /* delete_root= */ true);
         (void) cg_trim(SYSTEMD_CGROUP_CONTROLLER, test_b, /* delete_root= */ true);
 
         r = cg_create(SYSTEMD_CGROUP_CONTROLLER, test_a);
-        if (IN_SET(r, -EPERM, -EACCES, -EROFS)) {
+        if (IN_SET(r, -EPERM, -EACCES, -EROFS, -ENOENT)) {
                 log_info_errno(r, "Skipping %s: %m", __func__);
                 return;
         }
@@ -123,6 +121,9 @@ TEST(cg_create) {
         ASSERT_OK_ZERO(cg_kill_recursive(test_b, 0, 0, NULL, NULL, NULL));
 
         ASSERT_OK(cg_trim(SYSTEMD_CGROUP_CONTROLLER, test_b, true));
+
+        ASSERT_OK_ZERO(cg_attach(SYSTEMD_CGROUP_CONTROLLER, here, 0));
+        ASSERT_OK(cg_trim(SYSTEMD_CGROUP_CONTROLLER, test_b, true));
 }
 
 TEST(id) {
@@ -132,14 +133,10 @@ TEST(id) {
         int r;
 
         r = cg_all_unified();
-        if (r == 0) {
-                log_tests_skipped("skipping cgroupid test, not running in unified mode");
-                return;
-        }
-        if (IN_SET(r, -ENOMEDIUM, -ENOENT)) {
-                log_tests_skipped("cgroupfs is not mounted");
-                return;
-        }
+        if (IN_SET(r, -ENOMEDIUM, -ENOENT))
+                return (void) log_tests_skipped("cgroupfs is not mounted");
+        if (r == 0)
+                return (void) log_tests_skipped("skipping cgroupid test, not running in unified mode");
         ASSERT_OK_POSITIVE(r);
 
         fd = cg_path_open(SYSTEMD_CGROUP_CONTROLLER, "/");

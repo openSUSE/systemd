@@ -131,6 +131,10 @@ that make use of `run_testcases`.
 
 `TEST_SKIP_TESTCASE=testcase`: takes a space separated list of testcases to skip.
 
+`TEST_SAVE_JOURNAL=0|1|fail`: When `0`, journal file will be removed on exit.
+When `1`, journal file will be saved at `$BUILD_DIR/test/journal`. When `fail`,
+journal file will be saved only when the test is failed. Defaults to `fail`.
+
 `TEST_JOURNAL_USE_TMP=1`: Write test journal to `/tmp` while the test is in
 progress and only move the journal to its final location in the build directory
 (`$BUILD_DIR/test/journal`) when the test is finished.
@@ -263,8 +267,9 @@ $ ./mark-suite-dirty -A ppa:upstream-systemd-ci/ubuntu/systemd-ci -s noble
 
 will create an empty 'noble' repository that can be used for 'noble' CI jobs.
 
-For infrastructure help, reaching out to 'qa-help' via the #ubuntu-quality
-channel on libera.chat is an effective way to receive support in general.
+For infrastructure help (e.g.: Github token refresh) a bug can be filed at:
+https://launchpad.net/auto-package-testing or an email can be sent to the
+ubuntu-quality mailing list: https://lists.ubuntu.com/mailman/listinfo/ubuntu-quality
 
 Given access to the shared secret, tests can be re-run using the generic
 retry-github-test tool:

@@ -394,7 +394,7 @@ testcase_nspawn_settings() {
     for dev in sd-host-only sd-shared{1,2,3} sd-macvlan{1,2} sd-macvlanloong sd-ipvlan{1,2} sd-ipvlanlooong; do
         ip link add "$dev" type dummy
     done
-    udevadm settle
+    udevadm settle --timeout=30
     ip link property add dev sd-shared3 altname sd-altname3 altname sd-altname-tooooooooooooo-long
     ip link
     trap nspawn_settings_cleanup RETURN
@@ -796,7 +796,7 @@ EOF
 
 testcase_machinectl_bind() {
     local service_path service_name root container_name ec
-    local cmd='for i in $(seq 1 20); do if test -f /tmp/marker; then exit 0; fi; sleep .5; done; exit 1;'
+    local cmd="timeout 10 bash -c 'until [[ -f /tmp/marker ]]; do sleep .5; done'; sleep 3"
 
     root="$(mktemp -d /var/lib/machines/TEST-13-NSPAWN.machinectl-bind.XXX)"
     create_dummy_container "$root"
@@ -995,7 +995,10 @@ testcase_check_os_release() {
     base="$(mktemp -d /var/lib/machines/TEST-13-NSPAWN.check_os_release_base.XXX)"
     root="$(mktemp -d /var/lib/machines/TEST-13-NSPAWN.check_os_release.XXX)"
     create_dummy_container "$base"
-    cp -d "$base"/{bin,sbin,lib,lib64} "$root/"
+    cp -d "$base"/{bin,sbin,lib} "$root/"
+    if [ -d "$base"/lib64 ]; then
+        cp -d "$base"/lib64 "$root/"
+    fi
     common_opts=(
         --boot
         --register=no
@@ -1134,9 +1137,9 @@ testcase_unpriv() {
     create_dummy_ddi "$tmpdir" "$name"
     chown --recursive testuser: "$tmpdir"
 
-    systemd-run \
+    run0 --pipe -u testuser systemd-run \
+        --user \
         --pipe \
-        --uid=testuser \
         --property=Delegate=yes \
         -- \
         systemd-nspawn --pipe --private-network --register=no --keep-unit --image="$tmpdir/$name.raw" echo hello >"$tmpdir/stdout.txt"
@@ -1203,9 +1206,9 @@ testcase_unpriv_fuse() {
     create_dummy_ddi "$tmpdir" "$name"
     chown --recursive testuser: "$tmpdir"
 
-    [[ "$(systemd-run \
+    [[ "$(run0 -u testuser --pipe systemd-run \
+              --user \
               --pipe \
-              --uid=testuser \
               --property=Delegate=yes \
               --setenv=SYSTEMD_LOG_LEVEL \
               --setenv=SYSTEMD_LOG_TARGET \
@@ -1262,6 +1265,30 @@ testcase_dev_net_tun() {
     test_tun 0 1 --ephemeral --directory="$root" --private-users=no   --private-network
     test_tun 0 1 --ephemeral --directory="$root" --private-users=yes  --private-network
     test_tun 1 0 --ephemeral --directory="$root" --private-users=pick --private-network
+
+    rm -fr "$root"
+}
+
+testcase_link_journa_hostl() {
+    local root hoge i
+
+    root="$(mktemp -d /var/lib/machines/TEST-13-NSPAWN.link-journal.XXX)"
+    create_dummy_container "$root"
+
+    systemd-id128 new > "$root"/etc/machine-id
+
+    mkdir -p /var/log/journal
+
+    hoge="/var/log/journal/$(cat "$root"/etc/machine-id)/hoge"
+
+    for i in no yes pick; do
+        systemd-nspawn \
+            --directory="$root" --private-users="$i" --link-journal=host \
+            bash -xec 'p="/var/log/journal/$(cat /etc/machine-id)"; mountpoint "$p"; [[ "$(stat "$p" --format=%u)" == 0 ]]; touch "$p/hoge"'
+
+        [[ "$(stat "$hoge" --format=%u)" == 0 ]]
+        rm "$hoge"
+    done
 
     rm -fr "$root"
 }

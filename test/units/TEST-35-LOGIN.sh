@@ -207,7 +207,7 @@ EOF
     input_name=${input_name%/device/name}
     lid_dev=/dev/${input_name#/sys/class/}
     udevadm info --wait-for-initialization=10s "$lid_dev"
-    udevadm settle
+    udevadm settle --timeout=30
 
     # close lid
     evemu-event "$lid_dev" --sync --type 5 --code 0 --value 1
@@ -298,7 +298,7 @@ teardown_session() (
 
     rm -f /run/udev/rules.d/70-logindtest-scsi_debug-user.rules
     udevadm control --reload
-    rmmod scsi_debug
+    rmmod scsi_debug || true
 
     return 0
 )
@@ -446,14 +446,18 @@ EOF
 
     # coldplug: logind started with existing device
     systemctl stop systemd-logind.service
-    modprobe scsi_debug
+    if ! modprobe scsi_debug; then
+        echo "scsi_debug module not available, skipping test ${FUNCNAME[0]}."
+        systemctl start systemd-logind.service
+        return
+    fi
     timeout 30 bash -c 'until ls /sys/bus/pseudo/drivers/scsi_debug/adapter*/host*/target*/*:*/block 2>/dev/null; do sleep 1; done'
     dev=/dev/$(ls /sys/bus/pseudo/drivers/scsi_debug/adapter*/host*/target*/*:*/block 2>/dev/null)
     if [[ ! -b "$dev" ]]; then
         echo "cannot find suitable scsi block device" >&2
         exit 1
     fi
-    udevadm settle
+    udevadm settle --timeout=30
     udevadm info "$dev"
 
     # trigger logind and activate session
@@ -472,7 +476,7 @@ EOF
         echo "cannot find suitable scsi block device" >&2
         exit 1
     fi
-    udevadm settle
+    udevadm settle --timeout=30
 
     # check ACL
     sleep 1

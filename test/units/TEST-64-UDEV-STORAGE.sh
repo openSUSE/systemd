@@ -117,7 +117,7 @@ check_device_unit() {(
         fi
     done
 
-    read -r -a links < <(udevadm info "$syspath" | sed -ne '/SYSTEMD_ALIAS=/ { s/^E: SYSTEMD_ALIAS=//; p }' 2>/dev/null)
+    read -r -a links < <(udevadm info -q property --property SYSTEMD_ALIAS --value "$syspath" 2>/dev/null)
     for link in "${links[@]}"; do
         if [[ "$link" == "$path" ]]; then # SYSTEMD_ALIAS= are absolute
             return 0
@@ -131,7 +131,7 @@ check_device_unit() {(
 check_device_units() {(
     set +x
 
-    local log_level path paths
+    local log_level path paths unit units
 
     log_level="${1?}"
     shift
@@ -143,12 +143,13 @@ check_device_units() {(
         fi
     done
 
-    while read -r unit _; do
+    read -r -a units < <(systemctl list-units --all --type=device --no-legend dev-* | awk '$1 !~ /dev-tty.+/ && $4 == "plugged" { print $1 }' | sed -e 's/\.device$//')
+    for unit in "${units[@]}"; do
         path=$(systemd-escape --path --unescape "$unit")
         if ! check_device_unit "$log_level" "$path"; then
            return 1
         fi
-    done < <(systemctl list-units --all --type=device --no-legend dev-* | awk '$1 !~ /dev-tty.+/ && $4 == "plugged" { print $1 }' | sed -e 's/\.device$//')
+    done
 
     return 0
 )}
@@ -214,7 +215,6 @@ testcase_nvme_basic() {
         )
     done
 
-    udevadm settle
     ls /dev/disk/by-id
     for i in "${expected_symlinks[@]}"; do
         udevadm wait --settle --timeout=30 "$i"
@@ -250,7 +250,7 @@ testcase_virtio_scsi_identically_named_partitions() {
     fi
 
     for ((i = 0; i < num_disk; i++)); do
-        udevadm lock --device "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive$i" \
+        udevadm lock --timeout=30 --device "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive$i" \
                 sfdisk "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive$i" <<EOF
 label: gpt
 
@@ -258,7 +258,7 @@ $(for ((j = 1; j <= num_part; j++)); do echo 'name="Hello world", size=2M'; done
 EOF
     done
 
-    udevadm settle
+    udevadm settle --timeout=30
     lsblk --noheadings -a -o NAME,PARTLABEL
     [[ "$(lsblk --noheadings -a -o NAME,PARTLABEL | grep -c "Hello world")" -eq "$((num_part * num_disk))" ]]
 }
@@ -283,7 +283,7 @@ blacklist {
 }
 EOF
 
-    udevadm lock --device /dev/disk/by-id/wwn-0xdeaddeadbeef0000 \
+    udevadm lock --timeout=30 --device /dev/disk/by-id/wwn-0xdeaddeadbeef0000 \
             sfdisk /dev/disk/by-id/wwn-0xdeaddeadbeef0000 <<EOF
 label: gpt
 
@@ -291,19 +291,19 @@ name="first_partition", size=5M
 uuid="deadbeef-dead-dead-beef-000000000000", name="failover_part", size=5M
 EOF
     # Partitioning triggers a synthesized event. Wait for the event being finished.
-    udevadm settle
+    udevadm settle --timeout=30
 
-    udevadm lock --device /dev/disk/by-id/wwn-0xdeaddeadbeef0000-part2 \
+    udevadm lock --timeout=30 --device /dev/disk/by-id/wwn-0xdeaddeadbeef0000-part2 \
             mkfs.ext4 -U "deadbeef-dead-dead-beef-111111111111" -L "failover_vol" /dev/disk/by-id/wwn-0xdeaddeadbeef0000-part2
     # Making filesystem triggers a synthesized event. Wait for the event being finished.
-    udevadm settle
+    udevadm settle --timeout=30
 
     modprobe -v dm_multipath
     systemctl start multipathd.service
     systemctl status multipathd.service
     # multipathd touches many devices on start. multipath command may fail if it is invoked before the
     # initial setup finished. Let's wait for a while.
-    udevadm settle
+    udevadm settle --timeout=30
     multipath -ll
     ls -l /dev/disk/by-id/
 
@@ -381,9 +381,8 @@ EOF
 }
 
 testcase_simultaneous_events_1() {
-    local disk expected i iterations key link num_part part partscript rule target timeout
-    local -a devices symlinks
-    local -A running
+    local disk expected i iterations link num_part part partscript rule target timeout
+    local -a devices symlinks running
 
     if [[ -v ASAN_OPTIONS || "$(systemd-detect-virt -v)" == "qemu" ]]; then
         num_part=2
@@ -428,7 +427,7 @@ EOF
 
     # initialize partition table
     for disk in {0..9}; do
-        echo 'label: gpt' | udevadm lock --device="${devices[$disk]}" sfdisk -q "${devices[$disk]}"
+        echo 'label: gpt' | udevadm lock --timeout=30 --device="${devices[$disk]}" sfdisk -q "${devices[$disk]}"
     done
 
     # Delete the partitions, immediately recreate them, wait for udev to settle
@@ -438,18 +437,20 @@ EOF
     # On unpatched udev versions the delete-recreate cycle may trigger a race
     # leading to dead symlinks in /dev/disk/
     for ((i = 1; i <= iterations; i++)); do
+        running=()
         for disk in {0..9}; do
             if ((disk % 2 == i % 2)); then
-                udevadm lock --device="${devices[$disk]}" sfdisk -q --delete "${devices[$disk]}" &
+                udevadm lock --timeout=30 --device="${devices[$disk]}" sfdisk -q --delete "${devices[$disk]}" &
             else
-                udevadm lock --device="${devices[$disk]}" sfdisk -q -X gpt "${devices[$disk]}" <"$partscript" &
+                udevadm lock --timeout=30 --device="${devices[$disk]}" sfdisk -q -X gpt "${devices[$disk]}" <"$partscript" &
             fi
-            running[$disk]=$!
+
+            # shellcheck disable=SC2190
+            running+=( "$!" )
         done
 
-        for key in "${!running[@]}"; do
-            wait "${running[$key]}"
-            unset "running[$key]"
+        for j in "${running[@]}"; do
+            wait "$j"
         done
 
         if ((i % 10 <= 1)); then
@@ -473,28 +474,36 @@ EOF
     done
 
     helper_check_device_units
-    rm -f "$rule" "$partscript"
 
+    # Cleanup and check if unnecessary devlinks are removed.
+    for disk in {0..9}; do
+        udevadm lock --timeout="$timeout" --device="${devices[$disk]}" sfdisk -q --delete "${devices[$disk]}" || :
+    done
+    udevadm settle --timeout="$timeout"
+    for ((part = 1; part <= num_part; part++)); do
+        udevadm wait --timeout=10 --removed "/dev/disk/by-partlabel/test${part}"
+    done
+
+    rm -f "$rule" "$partscript"
     udevadm control --reload
 }
 
 testcase_simultaneous_events_2() {
-    local disk expected i iterations key link num_part part script_dir target timeout
-    local -a devices symlinks
-    local -A running
+    local disk i iterations link num_part part script_dir target timeout
+    local -a devices running
 
     script_dir="$(mktemp --directory "/tmp/test-udev-storage.script.XXXXXXXXXX")"
     # shellcheck disable=SC2064
     trap "rm -rf '$script_dir'" RETURN
 
     if [[ -v ASAN_OPTIONS || "$(systemd-detect-virt -v)" == "qemu" ]]; then
-        num_part=20
-        iterations=1
-        timeout=2400
-    else
-        num_part=100
-        iterations=3
+        num_part=10
+        iterations=2
         timeout=300
+    else
+        num_part=40
+        iterations=5
+        timeout=200
     fi
 
     for disk in {0..9}; do
@@ -514,37 +523,97 @@ $(for ((part = 1; part <= num_part; part++)); do printf 'name="testlabel-%d", si
 EOF
     done
 
+    ls -l /dev/disk/by-partlabel
+
     echo "## $iterations iterations start: $(date '+%H:%M:%S.%N')"
-    for ((i = 1; i <= iterations; i++)); do
+    running=()
+    for disk in "${devices[@]}"; do
+        udevadm lock --timeout=30 --device="$disk" \
+                bash -c "for ((i = 1; i <= $iterations; i++)); do sfdisk -q --delete $disk; sfdisk -q -X gpt $disk <$script_dir/partscript-\$i; done" &
 
-        for disk in {0..9}; do
-            udevadm lock --device="${devices[$disk]}" sfdisk -q --delete "${devices[$disk]}" &
-            running[$disk]=$!
-        done
-
-        for key in "${!running[@]}"; do
-            wait "${running[$key]}"
-            unset "running[$key]"
-        done
-
-        for disk in {0..9}; do
-            udevadm lock --device="${devices[$disk]}" sfdisk -q -X gpt "${devices[$disk]}" <"$script_dir/partscript-$i" &
-            running[$disk]=$!
-        done
-
-        for key in "${!running[@]}"; do
-            wait "${running[$key]}"
-            unset "running[$key]"
-        done
-
-        udevadm wait --settle --timeout="$timeout" "${devices[@]}" "/dev/disk/by-partlabel/testlabel-$i"
+        # shellcheck disable=SC2190
+        running+=( "$!" )
     done
+
+    for i in "${running[@]}"; do
+        wait "$i"
+    done
+
+    udevadm settle --timeout="$timeout"
     echo "## $iterations iterations end: $(date '+%H:%M:%S.%N')"
+
+    ls -l /dev/disk/by-partlabel
+
+    # Check if unnecessary devlinks are removed.
+    for ((i = 1; i < iterations; i++)); do
+        udevadm wait --timeout=10 --removed "/dev/disk/by-partlabel/testlabel-$i"
+    done
+
+    helper_check_device_units
+
+    # Cleanup
+    for disk in "${devices[@]}"; do
+        udevadm lock --timeout=30 --device="$disk" sfdisk -q --delete "$disk"
+    done
+    udevadm settle --timeout="$timeout"
+    udevadm wait --timeout=10 --removed "/dev/disk/by-partlabel/testlabel-$iterations"
+}
+
+testcase_simultaneous_events_3() {
+    local device i iterations link num_part part script_dir target timeout
+
+    # for issue #37823
+
+    script_dir="$(mktemp --directory "/tmp/test-udev-storage.script.XXXXXXXXXX")"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$script_dir'" RETURN
+
+    num_part=5
+    iterations=30
+    if [[ -v ASAN_OPTIONS || "$(systemd-detect-virt -v)" == "qemu" ]]; then
+        timeout=120
+    else
+        timeout=60
+    fi
+
+    link="/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_deadbeeftest0"
+    device="$(readlink -f "$link")"
+    if [[ ! -b "$device" ]]; then
+        echo "ERROR: failed to find the test SCSI block device $link"
+        return 1
+    fi
+
+    for ((i = 1; i <= iterations; i++)); do
+        cat >"$script_dir/partscript-$i" <<EOF
+$(for ((part = 1; part <= num_part; part++)); do printf 'name="test3-%d", size=1M\n' "$i"; done)
+EOF
+    done
+
+    ls -l /dev/disk/by-partlabel/
+
+    echo "## $iterations iterations start: $(date '+%H:%M:%S.%N')"
+    udevadm lock --timeout="$timeout" --device="$device" \
+            bash -c "for ((i = 1; i <= $iterations; i++)); do sfdisk -q -X gpt $device <$script_dir/partscript-\$i; done"
+    udevadm settle --timeout="$timeout"
+    echo "## $iterations iterations end: $(date '+%H:%M:%S.%N')"
+
+    ls -l /dev/disk/by-partlabel/
+
+    # Check devlinks
+    for ((i = 1; i < iterations; i++)); do
+        udevadm wait --settle --timeout=10 --removed "/dev/disk/by-partlabel/test3-$i"
+    done
+    udevadm wait --settle --timeout=10 "/dev/disk/by-partlabel/test3-$iterations"
+
+    # Cleanup and check if the last devlink is removed
+    udevadm lock --timeout="$timeout" --device="$device" sfdisk -q --delete "$device"
+    udevadm wait --settle --timeout="$timeout" --removed "/dev/disk/by-partlabel/test3-$iterations"
 }
 
 testcase_simultaneous_events() {
     testcase_simultaneous_events_1
     testcase_simultaneous_events_2
+    testcase_simultaneous_events_3
 }
 
 testcase_lvm_basic() {
@@ -744,7 +813,7 @@ testcase_btrfs_basic() {
     echo "Single device: default settings"
     uuid="deadbeef-dead-dead-beef-000000000000"
     label="btrfs_root"
-    udevadm lock --device="${devices[0]}" mkfs.btrfs -f -L "$label" -U "$uuid" "${devices[0]}"
+    udevadm lock --timeout=30 --device="${devices[0]}" mkfs.btrfs -f -L "$label" -U "$uuid" "${devices[0]}"
     udevadm wait --settle --timeout=30 "${devices[0]}" "/dev/disk/by-uuid/$uuid" "/dev/disk/by-label/$label"
     btrfs filesystem show
     helper_check_device_symlinks
@@ -753,7 +822,7 @@ testcase_btrfs_basic() {
     echo "Multiple devices: using partitions, data: single, metadata: raid1"
     uuid="deadbeef-dead-dead-beef-000000000001"
     label="btrfs_mpart"
-    udevadm lock --device="${devices[0]}" sfdisk --wipe=always "${devices[0]}" <<EOF
+    udevadm lock --timeout=30 --device="${devices[0]}" sfdisk --wipe=always "${devices[0]}" <<EOF
 label: gpt
 
 name="diskpart1", size=85M
@@ -762,7 +831,7 @@ name="diskpart3", size=85M
 name="diskpart4", size=85M
 EOF
     udevadm wait --settle --timeout=30 /dev/disk/by-partlabel/diskpart{1..4}
-    udevadm lock --device="${devices[0]}" mkfs.btrfs -f -d single -m raid1 -L "$label" -U "$uuid" /dev/disk/by-partlabel/diskpart{1..4}
+    udevadm lock --timeout=30 --device="${devices[0]}" mkfs.btrfs -f -d single -m raid1 -L "$label" -U "$uuid" /dev/disk/by-partlabel/diskpart{1..4}
     udevadm wait --settle --timeout=30 "/dev/disk/by-uuid/$uuid" "/dev/disk/by-label/$label"
     btrfs filesystem show
     helper_check_device_symlinks
@@ -774,6 +843,7 @@ EOF
     uuid="deadbeef-dead-dead-beef-000000000002"
     label="btrfs_mdisk"
     udevadm lock \
+            --timeout=30 \
             --device=/dev/disk/by-id/scsi-0systemd_foobar_deadbeefbtrfs0 \
             --device=/dev/disk/by-id/scsi-0systemd_foobar_deadbeefbtrfs1 \
             --device=/dev/disk/by-id/scsi-0systemd_foobar_deadbeefbtrfs2 \
@@ -798,7 +868,7 @@ EOF
     for ((i = 0; i < ${#devices[@]}; i++)); do
         # Intentionally use weaker cipher-related settings, since we don't care
         # about security here as it's a throwaway LUKS partition
-        udevadm lock --device="${devices[$i]}" \
+        udevadm lock --timeout=30 --device="${devices[$i]}" \
                 cryptsetup luksFormat -q \
                 --use-urandom --pbkdf pbkdf2 --pbkdf-force-iterations 1000 \
                 --uuid "deadbeef-dead-dead-beef-11111111111$i" --label "encdisk$i" "${devices[$i]}" /etc/btrfs_keyfile
@@ -815,6 +885,7 @@ EOF
     ls -l /dev/mapper/encbtrfs{0..3}
     # Create a multi-device btrfs filesystem on the LUKS devices
     udevadm lock \
+            --timeout=30 \
             --device=/dev/mapper/encbtrfs0 \
             --device=/dev/mapper/encbtrfs1 \
             --device=/dev/mapper/encbtrfs2 \
@@ -858,7 +929,7 @@ EOF
     : >/etc/crypttab
     rm -fr "$mpoint"
     systemctl daemon-reload
-    udevadm settle
+    udevadm settle --timeout=30
 }
 
 testcase_iscsi_lvm() {
@@ -925,7 +996,7 @@ testcase_iscsi_lvm() {
     mpoint="$(mktemp -d /iscsi_storeXXX)"
     expected_symlinks=()
     # Use the first device as it's configured with larger capacity
-    udevadm lock --device "${devices[0]}" mkfs.ext4 -L iscsi_store "${devices[0]}"
+    udevadm lock --timeout=30 --device "${devices[0]}" mkfs.ext4 -L iscsi_store "${devices[0]}"
     udevadm wait --settle --timeout=30 "${devices[0]}"
     mount "${devices[0]}" "$mpoint"
     for i in {1..4}; do
@@ -1012,15 +1083,15 @@ testcase_long_sysfs_path() {
     stat "/sys/block/${dev}"
     readlink -f "/sys/block/${dev}/dev"
 
-    udevadm lock --device "/dev/${dev}" sfdisk "/dev/${dev}" <<EOF
+    udevadm lock --timeout=30 --device "/dev/${dev}" sfdisk "/dev/${dev}" <<EOF
 label: gpt
 
 name="test_swap", size=32M
 uuid="deadbeef-dead-dead-beef-000000000000", name="test_part", size=5M
 EOF
-    udevadm settle
-    udevadm lock --device "/dev/${dev}1" mkswap -U "deadbeef-dead-dead-beef-111111111111" -L "swap_vol" "/dev/${dev}1"
-    udevadm lock --device "/dev/${dev}2" mkfs.ext4 -U "deadbeef-dead-dead-beef-222222222222" -L "data_vol" "/dev/${dev}2"
+    udevadm settle --timeout=30
+    udevadm lock --timeout=30 --device "/dev/${dev}1" mkswap -U "deadbeef-dead-dead-beef-111111111111" -L "swap_vol" "/dev/${dev}1"
+    udevadm lock --timeout=30 --device "/dev/${dev}2" mkfs.ext4 -U "deadbeef-dead-dead-beef-222222222222" -L "data_vol" "/dev/${dev}2"
     udevadm wait --settle --timeout=30 "${expected_symlinks[@]}"
 
     # Try to mount the data partition manually (using its label)
@@ -1040,7 +1111,7 @@ EOF
     swapon -v -L swap_vol
     swapoff -v -L swap_vol
 
-    udevadm settle
+    udevadm settle --timeout=30
 
     logfile="$(mktemp)"
     # Check state of affairs after https://github.com/systemd/systemd/pull/22759
@@ -1164,7 +1235,12 @@ uuid="deadbeef-dead-dead-beef-111111111111", name="mdpart1", size=8M
 uuid="deadbeef-dead-dead-beef-222222222222", name="mdpart2", size=32M
 uuid="deadbeef-dead-dead-beef-333333333333", name="mdpart3", size=16M
 EOF
-    udevadm trigger --settle --parent-match "$raid_dev"
+    udevadm wait --settle --timeout=30 "$raid_dev" "${raid_dev}1" "${raid_dev}2" "${raid_dev}3"
+    # FIXME: For some reasons, the command sometimes stuck and the test will timeout.
+    # Let's enable debug logging and set a timeout to make not consume CI resource.
+    # UPDATE: The above 'udevadm wait' command should fix the issue.
+    # But, let's keep the debug option for a while.
+    SYSTEMD_LOG_LEVEL=debug timeout 30 udevadm trigger --settle --parent-match "$raid_dev"
     udevadm wait --settle --timeout=30 "/dev/disk/by-id/md-uuid-$uuid-part2"
     mkfs.ext4 -L "$part_name" "/dev/disk/by-id/md-uuid-$uuid-part2"
     udevadm trigger --settle "/dev/disk/by-id/md-uuid-$uuid-part2"
@@ -1180,6 +1256,14 @@ EOF
     helper_check_device_units
     # Cleanup
     mdadm -v --stop "$raid_dev"
+
+    # Clear superblocks to make the MD device will not be restarted even if the VM is restarted.
+    # This is a workaround for issue #38240.
+    udevadm settle --timeout=30
+    # shellcheck disable=SC2046
+    mdadm -v --zero-superblock --force $(readlink -f "${devices[@]}")
+    udevadm settle --timeout=30
+
     # Check if all expected symlinks were removed after the cleanup
     udevadm wait --settle --timeout=30 --removed "${expected_symlinks[@]}"
     helper_check_device_units
@@ -1237,6 +1321,14 @@ testcase_mdadm_lvm() {
     # Cleanup
     lvm vgchange -an "$vgroup"
     mdadm -v --stop "$raid_dev"
+
+    # Clear superblocks to make the MD device will not be restarted even if the VM is restarted.
+    # This is a workaround for issue #38240.
+    udevadm settle --timeout=30
+    # shellcheck disable=SC2046
+    mdadm -v --zero-superblock --force $(readlink -f "${devices[@]}")
+    udevadm settle --timeout=30
+
     # Check if all expected symlinks were removed after the cleanup
     udevadm wait --settle --timeout=30 --removed "${expected_symlinks[@]}"
     helper_check_device_units
@@ -1258,7 +1350,7 @@ fi
 
 echo "TEST_FUNCTION_NAME=$TEST_FUNCTION_NAME"
 "$TEST_FUNCTION_NAME"
-udevadm settle
+udevadm settle --timeout=60
 
 echo "Check if all symlinks under /dev/disk/ are valid (post-test)"
 helper_check_device_symlinks

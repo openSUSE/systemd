@@ -1814,9 +1814,21 @@ if conf.get('BPF_FRAMEWORK') == 1
         #
         # C.f. https://mesonbuild.com/Reference-tables.html#cpu-families
         # and src/basic/missing_syscall_def.h.
+
+        # Start with older ABI. When define is missing, we're likely targeting that.
+        ppc64_elf_version = '1'
+
+        if host_machine.cpu_family() == 'ppc64'
+                # cc doesn't have to be bpf_compiler, but they should be targeting the same ABI
+                call_elf_value = cc.get_define('_CALL_ELF')
+                if call_elf_value != ''
+                        ppc64_elf_version = call_elf_value
+                endif
+        endif
+
         cpu_arch_defines = {
                 'ppc'         : ['-D__powerpc__', '-D__TARGET_ARCH_powerpc'],
-                'ppc64'       : ['-D__powerpc64__', '-D__TARGET_ARCH_powerpc', '-D_CALL_ELF=2'],
+                'ppc64'       : ['-D__powerpc64__', '-D__TARGET_ARCH_powerpc', '-D_CALL_ELF=' + ppc64_elf_version],
                 'riscv32'     : ['-D__riscv', '-D__riscv_xlen=32', '-D__TARGET_ARCH_riscv'],
                 'riscv64'     : ['-D__riscv', '-D__riscv_xlen=64', '-D__TARGET_ARCH_riscv'],
                 'x86'         : ['-D__i386__', '-D__TARGET_ARCH_x86'],
@@ -1863,11 +1875,21 @@ if conf.get('BPF_FRAMEWORK') == 1
                 target_triplet_cmd = run_command('gcc', '-print-multiarch', check: false)
         endif
         if target_triplet_cmd.returncode() == 0
+                sysroot = meson.get_external_property('sys_root', '/')
                 target_triplet = target_triplet_cmd.stdout().strip()
-                bpf_o_unstripped_cmd += [
-                        '-isystem',
-                        '/usr/include/@0@'.format(target_triplet)
-                ]
+                target_include_dir = sysroot / 'usr' / 'include'
+                target_triple_include_dir = target_include_dir / target_triplet
+                isystem_dir = ''
+                if fs.is_dir(target_triple_include_dir)
+                        isystem_dir = target_triple_include_dir
+                elif fs.is_dir(target_include_dir)
+                        isystem_dir = target_include_dir
+                endif
+                if isystem_dir != ''
+                        bpf_o_unstripped_cmd += [
+                                '-isystem', isystem_dir
+                        ]
+                endif
         endif
 
         bpf_o_unstripped_cmd += [
@@ -2004,7 +2026,6 @@ if use_provided_vmlinux_h
         message('Using provided @0@'.format(provided_vmlinux_h_path))
 elif use_generated_vmlinux_h
         vmlinux_h_dependency = custom_target(
-                'vmlinux.h',
                 output: 'vmlinux.h',
                 command : [ bpftool, 'btf', 'dump', 'file', '/sys/kernel/btf/vmlinux', 'format', 'c' ],
                 capture : true)
@@ -2016,6 +2037,8 @@ else
 endif
 
 conf.set10('HAVE_VMLINUX_H', use_provided_vmlinux_h or use_generated_vmlinux_h)
+
+conf.set10('ENABLE_SYSCTL_BPF', conf.get('HAVE_VMLINUX_H') == 1 and libbpf.version().version_compare('>= 0.7'))
 
 #####################################################################
 
@@ -2227,12 +2250,12 @@ endif
 #####################################################################
 
 runtest_env = custom_target(
-        'systemd-runtest.env',
         output : 'systemd-runtest.env',
-        command : [sh, '-c',
-                   '{ echo SYSTEMD_TEST_DATA=@0@; echo SYSTEMD_CATALOG_DIR=@1@; } >@OUTPUT@'.format(
-                           meson.project_source_root() / 'test',
-                           meson.project_build_root() / 'catalog')],
+        command : ['printf',
+                   'SYSTEMD_TEST_DATA=%q\nSYSTEMD_CATALOG_DIR=%q\n',
+                   meson.project_source_root() / 'test',
+                   meson.project_build_root() / 'catalog'],
+        capture: true,
         depends : catalogs,
         build_by_default : true)
 
@@ -2697,7 +2720,6 @@ foreach executable : ['systemd-measure', 'systemd-sbsign', 'systemd-keyutil']
 endforeach
 
 ukify = custom_target(
-        'ukify',
         input : 'src/ukify/ukify.py',
         output : 'ukify',
         command : [jinja2_cmdline, '@INPUT@', '@OUTPUT@'],
@@ -2848,7 +2870,6 @@ if git.found()
                 all_files = files(all_files.stdout().split())
 
                 custom_target(
-                        'tags',
                         output : 'tags',
                         command : [env, 'etags', '-o', '@0@/TAGS'.format(meson.project_source_root())] + all_files)
                 run_target(
@@ -2914,12 +2935,12 @@ if not meson.is_cross_build()
 endif
 
 meson_extract_unit_files = find_program('tools/meson-extract-unit-files.py')
-custom_target('installed-unit-files.txt',
-              output : 'installed-unit-files.txt',
-              capture : true,
-              install : want_tests != 'no' and install_tests,
-              install_dir : testdata_dir,
-              command : [meson_extract_unit_files, meson.project_build_root()])
+custom_target(
+        output : 'installed-unit-files.txt',
+        capture : true,
+        install : want_tests != 'no' and install_tests,
+        install_dir : testdata_dir,
+        command : [meson_extract_unit_files, meson.project_build_root()])
 
 #####################################################################
 

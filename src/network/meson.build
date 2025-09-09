@@ -143,24 +143,21 @@ network_generator_sources = files(
 networkd_network_gperf_gperf = files('networkd-network-gperf.gperf')
 networkd_netdev_gperf_gperf = files('netdev/netdev-gperf.gperf')
 
-if conf.get('HAVE_VMLINUX_H') == 1
+if conf.get('ENABLE_SYSCTL_BPF') == 1
         sources += sysctl_monitor_skel_h
 endif
 
 sources += custom_target(
-        'networkd-gperf.c',
         input : 'networkd-gperf.gperf',
         output : 'networkd-gperf.c',
         command : [gperf, '@INPUT@', '--output-file', '@OUTPUT@'])
 
 sources += custom_target(
-        'networkd-network-gperf.c',
         input : networkd_network_gperf_gperf,
         output : 'networkd-network-gperf.c',
         command : [gperf, '@INPUT@', '--output-file', '@OUTPUT@'])
 
 sources += custom_target(
-        'netdev-gperf.c',
         input : networkd_netdev_gperf_gperf,
         output : 'netdev-gperf.c',
         command : [gperf, '@INPUT@', '--output-file', '@OUTPUT@'])

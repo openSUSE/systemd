@@ -308,6 +308,19 @@ static SubvolumeFlags subvolume_flags_from_string(const char *s) {
         return flags;
 }
 
+static char* subvolume_flags_to_string(SubvolumeFlags flags) {
+        const char *l[CONST_LOG2U(_SUBVOLUME_FLAGS_MASK + 1) + 1]; /* one string per known flag at most */
+        size_t m = 0;
+
+        if (FLAGS_SET(flags, SUBVOLUME_RO))
+                l[m++] = "ro";
+
+        assert(m < ELEMENTSOF(l));
+        l[m] = NULL;
+
+        return strv_join((char**) l, ",");
+}
+
 typedef struct Subvolume {
         char *path;
         SubvolumeFlags flags;
@@ -859,7 +872,7 @@ static bool context_drop_or_foreignize_one_priority(Context *context) {
 }
 
 static uint64_t partition_min_size(const Context *context, const Partition *p) {
-        uint64_t sz, override_min;
+        uint64_t sz;
 
         assert(context);
         assert(p);
@@ -901,9 +914,17 @@ static uint64_t partition_min_size(const Context *context, const Partition *p) {
                         sz = d;
         }
 
-        override_min = p->suppressing ? MAX(p->size_min, p->suppressing->size_min) : p->size_min;
+        uint64_t min_size = p->size_min;
+        if (p->suppressing && (min_size == UINT64_MAX || p->suppressing->size_min > min_size))
+                min_size = p->suppressing->size_min;
 
-        return MAX(round_up_size(override_min != UINT64_MAX ? override_min : DEFAULT_MIN_SIZE, context->grain_size), sz);
+        /* Default to 10M min size, except if the file system is read-only, in which case let's not enforce a
+         * minimum size, because even if we wanted to we couldn't take possession of the extra space
+         * allocated. */
+        if (min_size == UINT64_MAX)
+                min_size = (p->format && fstype_is_ro(p->format)) || p->verity != VERITY_OFF ? 1 : DEFAULT_MIN_SIZE;
+
+        return MAX(round_up_size(min_size, context->grain_size), sz);
 }
 
 static uint64_t partition_max_size(const Context *context, const Partition *p) {
@@ -2485,14 +2506,6 @@ static int partition_read_definition(Partition *p, const char *path, const char 
                 return log_syntax(NULL, LOG_ERR, path, 1, SYNTHETIC_ERRNO(EINVAL),
                                   "SizeMinBytes=/SizeMaxBytes= cannot be used with Verity=%s.",
                                   verity_mode_to_string(p->verity));
-
-        if (!ordered_hashmap_isempty(p->subvolumes) && arg_offline > 0)
-                return log_syntax(NULL, LOG_ERR, path, 1, SYNTHETIC_ERRNO(EOPNOTSUPP),
-                                  "Subvolumes= cannot be used with --offline=yes.");
-
-        if (p->default_subvolume && arg_offline > 0)
-                return log_syntax(NULL, LOG_ERR, path, 1, SYNTHETIC_ERRNO(EOPNOTSUPP),
-                                  "DefaultSubvolume= cannot be used with --offline=yes.");
 
         if (p->default_subvolume && !ordered_hashmap_contains(p->subvolumes, p->default_subvolume))
                 return log_syntax(NULL, LOG_ERR, path, 1, SYNTHETIC_ERRNO(EINVAL),
@@ -4341,7 +4354,7 @@ static int prepare_temporary_file(Context *context, PartitionTarget *t, uint64_t
 
 static bool loop_device_error_is_fatal(const Partition *p, int r) {
         assert(p);
-        return arg_offline == 0 || (r != -ENOENT && !ERRNO_IS_PRIVILEGE(r)) || !ordered_hashmap_isempty(p->subvolumes) || p->default_subvolume;
+        return arg_offline == 0 || (r != -ENOENT && !ERRNO_IS_PRIVILEGE(r));
 }
 
 static int partition_target_prepare(
@@ -5901,6 +5914,38 @@ static int partition_populate_filesystem(Context *context, Partition *p, const c
         return 0;
 }
 
+static int append_btrfs_subvols(char ***l, OrderedHashmap *subvolumes, const char *default_subvolume) {
+        Subvolume *subvolume;
+        int r;
+
+        assert(l);
+
+        ORDERED_HASHMAP_FOREACH(subvolume, subvolumes) {
+                _cleanup_free_ char *s = NULL, *f = NULL;
+
+                s = strdup(subvolume->path);
+                if (!s)
+                        return log_oom();
+
+                f = subvolume_flags_to_string(subvolume->flags);
+                if (!f)
+                        return log_oom();
+
+                if (streq_ptr(subvolume->path, default_subvolume) &&
+                    !strextend_with_separator(&f, ",", "default"))
+                        return log_oom();
+
+                if (!isempty(f) && !strextend_with_separator(&s, ":", f))
+                        return log_oom();
+
+                r = strv_extend_many(l, "--subvol", s);
+                if (r < 0)
+                        return log_oom();
+        }
+
+        return 0;
+}
+
 static int finalize_extra_mkfs_options(const Partition *p, const char *root, char ***ret) {
         _cleanup_strv_free_ char **sv = NULL;
         int r;
@@ -5913,6 +5958,18 @@ static int finalize_extra_mkfs_options(const Partition *p, const char *root, cha
                 return log_error_errno(r,
                                        "Failed to determine mkfs command line options for '%s': %m",
                                        p->format);
+
+        if (partition_needs_populate(p) && root && streq(p->format, "btrfs")) {
+                r = append_btrfs_subvols(&sv, p->subvolumes, p->default_subvolume);
+                if (r < 0)
+                        return r;
+
+                if (p->suppressing) {
+                        r = append_btrfs_subvols(&sv, p->suppressing->subvolumes, NULL);
+                        if (r < 0)
+                                return r;
+                }
+        }
 
         *ret = TAKE_PTR(sv);
         return 0;

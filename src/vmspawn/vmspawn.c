@@ -662,9 +662,12 @@ static int read_vsock_notify(NotifyConnectionData *d, int fd) {
 
         p = strv_find_startswith(tags, "EXIT_STATUS=");
         if (p) {
-                r = safe_atoi(p, d->exit_status);
+                uint8_t k = 0;
+                r = safe_atou8(p, &k);
                 if (r < 0)
                         log_warning_errno(r, "Failed to parse exit status from %s, ignoring: %m", p);
+                else
+                        *d->exit_status = k;
         }
 
         return 1; /* done */
@@ -1415,10 +1418,11 @@ static int run_virtual_machine(int kvm_device_fd, int vhost_device_fd) {
                             "falling back to OVMF firmware blobs without Secure Boot support.");
 
         shm = arg_directory || arg_runtime_mounts.n_mounts != 0 ? ",memory-backend=mem" : "";
+        const char *hpet = ARCHITECTURE_SUPPORTS_HPET ? ",hpet=off" : "";
         if (ARCHITECTURE_SUPPORTS_SMM)
-                machine = strjoin("type=" QEMU_MACHINE_TYPE ",smm=", on_off(ovmf_config->supports_sb), shm);
+                machine = strjoin("type=" QEMU_MACHINE_TYPE ",smm=", on_off(ovmf_config->supports_sb), shm, hpet);
         else
-                machine = strjoin("type=" QEMU_MACHINE_TYPE, shm);
+                machine = strjoin("type=" QEMU_MACHINE_TYPE, shm, hpet);
         if (!machine)
                 return log_oom();
 
