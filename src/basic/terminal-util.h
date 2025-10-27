@@ -160,6 +160,8 @@ int terminal_is_pty_fd(int fd);
 int pty_open_peer_racefree(int fd, int mode);
 int pty_open_peer(int fd, int mode);
 
+#define VTNR_MAX 63
+
 static inline bool vtnr_is_valid(unsigned n) {
-        return n >= 1 && n <= 63;
+        return n >= 1 && n <= VTNR_MAX;
 }
