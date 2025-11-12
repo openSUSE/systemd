@@ -313,7 +313,7 @@ StateDirectory=app0
 RuntimeDirectory=app0
 EOF
         cat >"$initdir/opt/script0.sh" <<EOF
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 test -e /usr/lib/os-release
 echo bar >\${STATE_DIRECTORY}/foo
@@ -323,6 +323,13 @@ EOF
         echo MARKER=1 >"$initdir/usr/lib/systemd/system/some_file"
         mksquashfs "$initdir" /tmp/app0.raw -noappend
         veritysetup format /tmp/app0.raw /tmp/app0.verity --root-hash-file /tmp/app0.roothash
+        openssl smime -sign -nocerts -noattr -binary \
+                -in /tmp/app0.roothash \
+                -inkey /usr/share/mkosi.key \
+                -signer /usr/share/mkosi.crt \
+                -outform der \
+                -out /tmp/app0.roothash.p7s
+        chmod go+r /tmp/app0*
 
         initdir="/var/tmp/conf0"
         mkdir -p "$initdir/etc/extension-release.d" "$initdir/etc/systemd/system" "$initdir/opt"
@@ -335,6 +342,13 @@ EOF
         echo MARKER_1 >"$initdir/etc/systemd/system/some_file"
         mksquashfs "$initdir" /tmp/conf0.raw -noappend
         veritysetup format /tmp/conf0.raw /tmp/conf0.verity --root-hash-file /tmp/conf0.roothash
+        openssl smime -sign -nocerts -noattr -binary \
+                -in /tmp/conf0.roothash \
+                -inkey /usr/share/mkosi.key \
+                -signer /usr/share/mkosi.crt \
+                -outform der \
+                -out /tmp/conf0.roothash.p7s
+        chmod go+r /tmp/conf0*
 
         initdir="/var/tmp/app1"
         mkdir -p "$initdir/usr/lib/extension-release.d" "$initdir/usr/lib/systemd/system" "$initdir/opt"
@@ -356,7 +370,7 @@ StateDirectory=app1
 RuntimeDirectory=app1
 EOF
         cat >"$initdir/opt/script1.sh" <<EOF
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 test -e /usr/lib/os-release
 echo baz >\${STATE_DIRECTORY}/foo

@@ -5551,11 +5551,11 @@ int unit_fork_helper_process(Unit *u, const char *name, bool into_cgroup, PidRef
          * with the child's PID. */
 
         if (into_cgroup) {
-                (void) unit_realize_cgroup(u);
+                r = unit_realize_cgroup(u);
+                if (r < 0)
+                        return r;
 
-                crt = unit_setup_cgroup_runtime(u);
-                if (!crt)
-                        return -ENOMEM;
+                crt = unit_get_cgroup_runtime(u);
         }
 
         r = safe_fork(name, FORK_REOPEN_LOG|FORK_DEATHSIG_SIGTERM, &pid);
@@ -6005,7 +6005,9 @@ int unit_prepare_exec(Unit *u) {
 
         /* Prepares everything so that we can fork of a process for this unit */
 
-        (void) unit_realize_cgroup(u);
+        r = unit_realize_cgroup(u);
+        if (r < 0)
+                return r;
 
         CGroupRuntime *crt = unit_get_cgroup_runtime(u);
         if (crt && crt->reset_accounting) {
@@ -6434,9 +6436,7 @@ void unit_next_freezer_state(Unit *u, FreezerAction action, FreezerState *ret_ne
                 assert_not_reached();
         }
 
-        objective = freezer_state_finish(next);
-        if (objective == FREEZER_FROZEN_BY_PARENT)
-                objective = FREEZER_FROZEN;
+        objective = freezer_state_objective(next);
         assert(IN_SET(objective, FREEZER_RUNNING, FREEZER_FROZEN));
 
         *ret_next = next;
