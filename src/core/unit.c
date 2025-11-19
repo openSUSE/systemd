@@ -1386,6 +1386,9 @@ int unit_load_fragment_and_dropin(Unit *u, bool fragment_required) {
         if (r < 0)
                 return r;
 
+        if (u->load_state == UNIT_MASKED)
+                return 0;
+
         if (u->load_state == UNIT_STUB) {
                 if (fragment_required)
                         return -ENOENT;
@@ -3518,6 +3521,32 @@ int unit_load_related_unit(Unit *u, const char *type, Unit **_found) {
         return r;
 }
 
+static int signal_name_owner_changed_install_handler(sd_bus_message *message, void *userdata, sd_bus_error *error) {
+        Unit *u = ASSERT_PTR(userdata);
+        const sd_bus_error *e;
+        int r;
+
+        e = sd_bus_message_get_error(message);
+        if (!e) {
+                log_unit_trace(u, "Successfully installed NameOwnerChanged signal match.");
+                return 0;
+        }
+
+        r = sd_bus_error_get_errno(e);
+        log_unit_error_errno(u, r,
+                             "Unexpected error response on installing NameOwnerChanged signal match: %s",
+                             bus_error_message(e, r));
+
+        /* If we failed to install NameOwnerChanged signal, also unref the bus slot of GetNameOwner(). */
+        u->match_bus_slot = sd_bus_slot_unref(u->match_bus_slot);
+        u->get_name_owner_slot = sd_bus_slot_unref(u->get_name_owner_slot);
+
+        if (UNIT_VTABLE(u)->bus_name_owner_change)
+                UNIT_VTABLE(u)->bus_name_owner_change(u, NULL);
+
+        return 0;
+}
+
 static int signal_name_owner_changed(sd_bus_message *message, void *userdata, sd_bus_error *error) {
         const char *new_owner;
         Unit *u = ASSERT_PTR(userdata);
@@ -3600,10 +3629,10 @@ int unit_install_bus_match(Unit *u, sd_bus *bus, const char *name) {
         r = bus_add_match_full(
                         bus,
                         &u->match_bus_slot,
-                        true,
+                        /* asynchronous = */ true,
                         match,
                         signal_name_owner_changed,
-                        NULL,
+                        signal_name_owner_changed_install_handler,
                         u,
                         timeout_usec);
         if (r < 0)
