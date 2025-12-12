@@ -1238,7 +1238,10 @@ static int exec_context_get_tty_for_pam(const ExecContext *context, char **ret) 
                 return 1;
         }
 
-        if (!IN_SET(context->std_input, EXEC_INPUT_TTY, EXEC_INPUT_TTY_FAIL, EXEC_INPUT_TTY_FORCE)) {
+        /* Do not implicitly configure TTY unless TTYPath= or StandardInput=tty is specified. See issue
+         * #39334. Note, exec_context_tty_path() returns "/dev/console" when TTYPath= is unspecified, hence
+         * explicitly check context->tty_path here. */
+        if (!context->tty_path && !exec_input_is_terminal(context->std_input)) {
                 *ret = NULL;
                 return 0;
         }
@@ -2116,7 +2119,7 @@ static int build_environment(
         }
 
         if (!sd_id128_is_null(p->invocation_id)) {
-                assert(p->invocation_id_string);
+                assert(!isempty(p->invocation_id_string));
 
                 x = strjoin("INVOCATION_ID=", p->invocation_id_string);
                 if (!x)

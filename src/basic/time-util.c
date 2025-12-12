@@ -1119,9 +1119,7 @@ static const char* extract_multiplier(const char *p, usec_t *ret) {
         assert(ret);
 
         FOREACH_ELEMENT(i, table) {
-                char *e;
-
-                e = startswith(p, i->suffix);
+                const char *e = startswith(p, i->suffix);
                 if (e) {
                         *ret = i->usec;
                         return e;
@@ -1297,9 +1295,7 @@ static const char* extract_nsec_multiplier(const char *p, nsec_t *ret) {
         assert(ret);
 
         FOREACH_ELEMENT(i, table) {
-                char *e;
-
-                e = startswith(p, i->suffix);
+                const char *e = startswith(p, i->suffix);
                 if (e) {
                         *ret = i->nsec;
                         return e;
@@ -1435,6 +1431,10 @@ static int get_timezones_from_zone1970_tab(char ***ret) {
                 if (*cc == '#')
                         continue;
 
+                if (!timezone_is_valid(tz, LOG_DEBUG))
+                        /* Don't list unusable timezones. */
+                        continue;
+
                 r = strv_extend(&zones, tz);
                 if (r < 0)
                         return r;
@@ -1485,6 +1485,10 @@ static int get_timezones_from_tzdata_zi(char ***ret) {
                         tz = f2;
                 else
                         /* Not a line we care about. */
+                        continue;
+
+                if (!timezone_is_valid(tz, LOG_DEBUG))
+                        /* Don't list unusable timezones. */
                         continue;
 
                 r = strv_extend(&zones, tz);
@@ -1739,8 +1743,6 @@ int time_change_fd(void) {
         };
 
         _cleanup_close_ int fd = -EBADF;
-
-        assert_cc(sizeof(time_t) == sizeof(TIME_T_MAX));
 
         /* Uses TFD_TIMER_CANCEL_ON_SET to get notifications whenever CLOCK_REALTIME makes a jump relative to
          * CLOCK_MONOTONIC. */

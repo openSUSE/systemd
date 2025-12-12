@@ -431,7 +431,8 @@ def save_active_units():
             'systemd-resolved-varlink.socket',
             'systemd-resolved.service',
             'systemd-timesyncd.service',
-            'firewalld.service'
+            'firewalld.service',
+            'nftables.service',
     ]:
         if call(f'systemctl is-active --quiet {u}') == 0:
             call(f'systemctl stop {u}')
@@ -487,18 +488,9 @@ def create_service_dropin(service, command, additional_settings=None):
     if ubsan_options:
         drop_in += [f'Environment=UBSAN_OPTIONS="{ubsan_options}"']
     if asan_options or lsan_options or ubsan_options:
-        # Disable system call filter when running with sanitizers, as they seem to call filtered syscall at
-        # the very end of the execution and stuck the process. See issue #39567.
         drop_in += [
-            'LockPersonality=no',
-            'ProtectClock=no',
-            'ProtectKernelLogs=no',
-            'RestrictAddressFamilies=',
-            'RestrictNamespaces=no',
-            'RestrictRealtime=no',
-            'RestrictSUIDSGID=no',
-            'SystemCallArchitectures=',
             'SystemCallFilter=',
+            'TimeoutStopFailureMode=abort',
         ]
     if use_valgrind or asan_options or lsan_options or ubsan_options:
         drop_in += ['MemoryDenyWriteExecute=no']
@@ -4626,6 +4618,21 @@ class NetworkdNetworkTests(unittest.TestCase, Utilities):
         self.assertNotIn('149.10.124.59', output)
         self.assertIn('default via 149.10.124.60 proto static', output)
 
+    def test_gateway_clear_routes(self):
+        copy_network_unit('25-gateway-clear-routes.network', '12-dummy.netdev')
+        start_networkd()
+        self.wait_online('dummy98:routable')
+
+        print('### ip -4 route show dev dummy98')
+        output = check_output('ip -4 route show dev dummy98')
+        print(output)
+        # All routes should be cleared - no default gateway, no [Route] section routes
+        self.assertNotIn('default via 10.0.0.2', output)
+        self.assertNotIn('192.168.1.0/24', output)
+        self.assertNotIn('192.168.2.0/24', output)
+        # Only the directly connected network should remain
+        self.assertIn('10.0.0.0/24 proto kernel scope link src 10.0.0.1', output)
+
     def test_ip_route_ipv6_src_route(self):
         # a dummy device does not make the addresses go through tentative state, so we
         # reuse a bond from an earlier test, which does make the addresses go through
@@ -8573,9 +8580,8 @@ class NetworkdDHCPClientTests(unittest.TestCase, Utilities):
 
         start_networkd()
         self.wait_online('veth-peer:carrier')
-        masq = lambda bs: ':'.join(f'{b:02x}' for b in bs)
-        start_dnsmasq('--dhcp-option=114,' + masq(b'http://\x00invalid/url'),
-                      '--dhcp-option=option6:103,' + masq(b'http://\x00/invalid/url'))
+        start_dnsmasq('--dhcp-option=114,http://|invalid/url',
+                      '--dhcp-option=option6:103,http://|invalid/url')
 
         check(self, True, True)
         check(self, True, False)

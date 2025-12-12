@@ -656,10 +656,6 @@ foreach prog : progs
         conf.set_quoted(name, path)
 endforeach
 
-if run_command(ln, '--relative', '--help', check : false).returncode() != 0
-        error('ln does not support --relative (added in coreutils 8.16)')
-endif
-
 #####################################################################
 
 gperf_test_format = '''
@@ -761,7 +757,13 @@ if time_epoch <= 0
         if time_epoch == ''
                 NEWS = files('NEWS')
                 time_epoch = run_command(stat, '-c', '%Y', NEWS,
-                                         check : true).stdout()
+                                         check : false)
+                if time_epoch.returncode() != 0
+                        # If the above fails, maybe the stat(1) uses BSD-style syntax
+                        time_epoch = run_command(stat, '-f', '%m', NEWS,
+                                                 check : true)
+                endif
+                time_epoch = time_epoch.stdout()
         endif
         time_epoch = time_epoch.strip().to_int()
 endif
@@ -1315,7 +1317,7 @@ feature = get_option('gcrypt')
 libgcrypt = dependency('libgcrypt',
                        required : feature)
 libgpg_error = dependency('gpg-error',
-                          required : feature.disabled() ? feature : false)
+                          required : feature)
 
 have = libgcrypt.found() and libgpg_error.found()
 if not have
@@ -1533,10 +1535,19 @@ conf.set('DEFAULT_DNSSEC_MODE',
          'DNSSEC_' + default_dnssec.underscorify().to_upper())
 conf.set_quoted('DEFAULT_DNSSEC_MODE_STR', default_dnssec)
 
+have = get_option('importd').require(
+        conf.get('HAVE_LIBCURL') == 1 and
+        conf.get('HAVE_OPENSSL') == 1 and
+        conf.get('HAVE_ZLIB') == 1 and
+        conf.get('HAVE_XZ') == 1,
+        error_message : 'curl, openssl/grypt, zlib and xz required').allowed()
+conf.set10('ENABLE_IMPORTD', have)
+
 have = get_option('sysupdate').require(
+        conf.get('ENABLE_IMPORTD') == 1 and
         conf.get('HAVE_OPENSSL') == 1 and
         conf.get('HAVE_LIBFDISK') == 1,
-        error_message : 'fdisk and openssl required').allowed()
+        error_message : 'systemd-importd, fdisk, and openssl required').allowed()
 conf.set10('ENABLE_SYSUPDATE', have)
 
 have2 = get_option('sysupdated')
@@ -1554,14 +1565,6 @@ endif
 conf.set10('ENABLE_SYSUPDATED', have2)
 
 conf.set10('ENABLE_STORAGETM', get_option('storagetm'))
-
-have = get_option('importd').require(
-        conf.get('HAVE_LIBCURL') == 1 and
-        conf.get('HAVE_OPENSSL') == 1 and
-        conf.get('HAVE_ZLIB') == 1 and
-        conf.get('HAVE_XZ') == 1,
-        error_message : 'curl, openssl/grypt, zlib and xz required').allowed()
-conf.set10('ENABLE_IMPORTD', have)
 
 have = get_option('homed').require(
         conf.get('HAVE_OPENSSL') == 1 and
