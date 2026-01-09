@@ -1026,6 +1026,9 @@ static SD_VARLINK_DEFINE_METHOD_FULL(
                 SD_VARLINK_FIELD_COMMENT("Runtime information of the unit"),
                 SD_VARLINK_DEFINE_OUTPUT_BY_TYPE(runtime, UnitRuntime, 0));
 
+static SD_VARLINK_DEFINE_ERROR(UnitMasked);
+static SD_VARLINK_DEFINE_ERROR(UnitError);
+
 SD_VARLINK_DEFINE_INTERFACE(
                 io_systemd_Unit,
                 "io.systemd.Unit",
@@ -1090,4 +1093,8 @@ SD_VARLINK_DEFINE_INTERFACE(
 
                 /* Errors */
                 SD_VARLINK_SYMBOL_COMMENT("No matching unit found"),
-                &vl_error_NoSuchUnit);
+                &vl_error_NoSuchUnit,
+                SD_VARLINK_SYMBOL_COMMENT("The unit is masked"),
+                &vl_error_UnitMasked,
+                SD_VARLINK_SYMBOL_COMMENT("Unit is in a fatal error state"),
+                &vl_error_UnitError);
