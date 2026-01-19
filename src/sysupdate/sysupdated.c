@@ -220,6 +220,11 @@ static int job_new(JobType type, Target *t, sd_bus_message *msg, JobComplete com
         return 0;
 }
 
+/* Is Job in the set of jobs which require Target.busy to be set so they run exclusively? */
+static bool job_requires_busy(Job *j) {
+        return IN_SET(j->type, JOB_UPDATE, JOB_VACUUM);
+}
+
 static int job_parse_child_output(int _fd, sd_json_variant **ret) {
         _cleanup_close_ int fd = ASSERT_FD(_fd); /* Take ownership of the passed fd */
         _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
@@ -332,7 +337,7 @@ static int job_on_exit(sd_event_source *s, const siginfo_t *si, void *userdata) 
         assert(s);
         assert(si);
 
-        if (IN_SET(j->type, JOB_UPDATE, JOB_VACUUM)) {
+        if (job_requires_busy(j)) {
                 assert(j->target->busy);
                 j->target->busy = false;
         }
@@ -430,7 +435,7 @@ static int job_start(Job *j) {
 
         assert(j);
 
-        if (IN_SET(j->type, JOB_UPDATE, JOB_VACUUM) && j->target->busy)
+        if (job_requires_busy(j) && j->target->busy)
                 return log_notice_errno(SYNTHETIC_ERRNO(EBUSY), "Target %s busy, ignoring job.", j->target->name);
 
         stdout_fd = memfd_new("sysupdate-stdout");
@@ -547,7 +552,7 @@ static int job_start(Job *j) {
 
         j->stdout_fd = TAKE_FD(stdout_fd);
 
-        if (IN_SET(j->type, JOB_UPDATE, JOB_VACUUM))
+        if (job_requires_busy(j))
                 j->target->busy = true;
 
         return 0;
