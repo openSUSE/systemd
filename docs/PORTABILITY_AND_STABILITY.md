@@ -28,7 +28,7 @@ The stable interfaces are:
 
 * Some of the **"special" unit names** and their semantics.
   To be precise the ones that are necessary for normal services, and not those required only for early boot and late shutdown, with very few exceptions.
-  To list them here: `basic.target`, `shutdown.target`, `sockets.target`, `network.target`, `getty.target`, `graphical.target`, `multi-user.target`, `rescue.target`, `emergency.target`, `poweroff.target`, `reboot.target`, `halt.target`, `runlevel[1-5].target`.
+  To list them here: `basic.target`, `shutdown.target`, `sockets.target`, `network.target`, `getty.target`, `graphical.target`, `multi-user.target`, `rescue.target`, `emergency.target`, `poweroff.target`, `reboot.target`, `halt.target`.
 
 * **The D-Bus interfaces of the main service daemon and other daemons**. We try to always preserve backwards compatibility, and intentional breakage is never introduced.
   Nevertheless, when we find bugs that mean that the existing interface was not useful, or when the implementation did something different than stated by the documentation and the implemented behaviour is not useful, we will fix the implementation and thus introduce a change in behaviour.

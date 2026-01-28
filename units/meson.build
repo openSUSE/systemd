@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+runlevels = conf.get('ENABLE_COMPAT_SYSV_INTERFACES') == 1
+
 units = [
         { 'file' : 'basic.target' },
         { 'file' : 'blockdev@.target' },
@@ -49,7 +51,7 @@ units = [
         },
         {
           'file' : 'graphical.target',
-          'symlinks' : ['default.target'],
+          'symlinks' : ['default.target'] + (runlevels ? ['runlevel5.target'] : []),
         },
         { 'file' : 'halt.target' },
         {
@@ -142,14 +144,20 @@ units = [
           'conditions' : ['ENABLE_MACHINED'],
         },
         { 'file' : 'modprobe@.service' },
-        { 'file' : 'multi-user.target' },
+        {
+          'file' : 'multi-user.target',
+          'symlinks' : runlevels ? ['runlevel2.target', 'runlevel3.target', 'runlevel4.target'] : [],
+        },
         { 'file' : 'network-online.target' },
         { 'file' : 'network-pre.target' },
         { 'file' : 'network.target' },
         { 'file' : 'nss-lookup.target' },
         { 'file' : 'nss-user-lookup.target' },
         { 'file' : 'paths.target' },
-        { 'file' : 'poweroff.target' },
+        {
+          'file' : 'poweroff.target',
+          'symlinks' : runlevels ? ['runlevel0.target'] : [],
+        },
         { 'file' : 'printer.target' },
         {
           'file' : 'proc-sys-fs-binfmt_misc.automount',
@@ -174,7 +182,7 @@ units = [
         },
         {
           'file' : 'reboot.target',
-          'symlinks' : ['ctrl-alt-del.target'],
+          'symlinks' : ['ctrl-alt-del.target'] + (runlevels ? ['runlevel6.target'] : []),
         },
         {
           'file' : 'remote-cryptsetup.target',
@@ -194,7 +202,10 @@ units = [
           'symlinks' : ['initrd-root-device.target.wants/'],
         },
         { 'file' : 'rescue.service.in' },
-        { 'file' : 'rescue.target' },
+        {
+          'file' : 'rescue.target',
+          'symlinks' : runlevels ? ['runlevel1.target'] : [],
+        },
         { 'file' : 'rpcbind.target' },
         { 'file' : 'serial-getty@.service.in' },
         { 'file' : 'shutdown.target' },
