@@ -116,6 +116,9 @@ Deprecations and removals:
 
 * Consider removing root=gpt-auto, and push people to use root=dissect instead.
 
+* remove any trace of "cpuacct" cgroup controller, it's a cgroupv1 thing.
+  similar "devices"
+
 Features:
 
 * mountfsd: when looking for non-foreign uid owned inodes up the tree, stop at
