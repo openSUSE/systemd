@@ -1575,10 +1575,12 @@ static int generate_ssh_keypair(const char *key_path, const char *key_type) {
                 log_debug("Executing: %s", joined);
         }
 
-        r = safe_fork(
+        r = safe_fork_full(
                         ssh_keygen,
-                        FORK_WAIT|FORK_RESET_SIGNALS|FORK_CLOSE_ALL_FDS|FORK_DEATHSIG_SIGTERM|FORK_LOG|FORK_RLIMIT_NOFILE_SAFE|FORK_REARRANGE_STDIO,
-                        NULL);
+                        (int[]) { -EBADF, -EBADF, STDERR_FILENO },
+                        /* except_fds= */ NULL, /* n_except_fds= */ 0,
+                        FORK_WAIT|FORK_RESET_SIGNALS|FORK_CLOSE_ALL_FDS|FORK_DEATHSIG_SIGTERM|FORK_LOG|FORK_RLIMIT_NOFILE_SAFE|FORK_REARRANGE_STDIO|FORK_REOPEN_LOG,
+                        /* ret_pid= */ NULL);
         if (r < 0)
                 return r;
         if (r == 0) {
@@ -2221,9 +2223,11 @@ static int run_virtual_machine(int kvm_device_fd, int vhost_device_fd) {
                         return log_oom();
         }
 
-        r = strv_prepend(&arg_kernel_cmdline_extra, "console=hvc0");
-        if (r < 0)
-                return log_oom();
+        if (arg_console_mode != CONSOLE_GUI) {
+                r = strv_prepend(&arg_kernel_cmdline_extra, "console=hvc0");
+                if (r < 0)
+                        return log_oom();
+        }
 
         FOREACH_ARRAY(mount, arg_runtime_mounts.mounts, arg_runtime_mounts.n_mounts) {
                 _cleanup_free_ char *listen_address = NULL;
@@ -2698,7 +2702,7 @@ static int run_virtual_machine(int kvm_device_fd, int vhost_device_fd) {
         /* Exit when the child exits */
         r = event_add_child_pidref(event, /* ret= */ NULL, &child_pidref, WEXITED, on_child_exit, /* userdata= */ NULL);
         if (r < 0)
-                return log_error_errno(r, "Failed to watch qemu process: &m");
+                return log_error_errno(r, "Failed to watch qemu process: %m");
 
         _cleanup_(osc_context_closep) sd_id128_t osc_context_id = SD_ID128_NULL;
         _cleanup_(pty_forward_freep) PTYForward *forward = NULL;

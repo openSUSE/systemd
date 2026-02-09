@@ -123,7 +123,8 @@ REQUIREMENTS:
           CONFIG_SECCOMP
           CONFIG_SECCOMP_FILTER (required for seccomp support)
           CONFIG_KCMP (for the kcmp() syscall, used to be under
-                       CONFIG_CHECKPOINT_RESTORE before ~5.12)
+                       CONFIG_CHECKPOINT_RESTORE before ~5.12;
+                       not needed after 6.10)
           CONFIG_NET_SCHED
           CONFIG_NET_SCH_FQ_CODEL
 
@@ -191,7 +192,7 @@ REQUIREMENTS:
         This is shipped by default, see modprobe.d/systemd.conf.
 
         Required for systemd-nspawn:
-          CONFIG_DEVPTS_MULTIPLE_INSTANCES or Linux kernel >= 4.7
+          CONFIG_DEVPTS_MULTIPLE_INSTANCES (removed and unneeded since 4.7)
 
         Required for systemd-oomd:
           CONFIG_PSI

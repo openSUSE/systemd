@@ -3925,7 +3925,7 @@ int bus_exec_context_set_transient_property(
                 if (r < 0)
                         return r;
 
-                if (empty) {
+                if (!UNIT_WRITE_FLAGS_NOOP(flags) && empty) {
                         bind_mount_free_many(c->bind_mounts, c->n_bind_mounts);
                         c->bind_mounts = NULL;
                         c->n_bind_mounts = 0;
@@ -3970,7 +3970,7 @@ int bus_exec_context_set_transient_property(
                 if (r < 0)
                         return r;
 
-                if (empty) {
+                if (!UNIT_WRITE_FLAGS_NOOP(flags) && empty) {
                         temporary_filesystem_free_many(c->temporary_filesystems, c->n_temporary_filesystems);
                         c->temporary_filesystems = NULL;
                         c->n_temporary_filesystems = 0;
@@ -4319,7 +4319,7 @@ int bus_exec_context_set_transient_property(
                 if (r < 0)
                         return r;
 
-                r = image_policy_from_string(s, &p);
+                r = image_policy_from_string(s, /* graceful= */ true, &p);
                 if (r < 0)
                         return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Failed to parse image policy string: %s", s);
 
