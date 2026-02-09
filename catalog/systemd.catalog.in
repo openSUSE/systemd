@@ -963,6 +963,6 @@ Defined-By: systemd
 Support: %SUPPORT_URL%
 Documentation: man:systemd(1)
 
-It has been attempted to break an ordering cycle between units for which jobs
-have been enqueued as part of a transaction, but this was not successful. The
-transaction will fail.
+An unsuccessful attempt has been made to break an ordering cycle between units
+for which jobs have been enqueued as part of a transaction. The transaction
+will fail.
