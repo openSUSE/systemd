@@ -4,11 +4,13 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include "alloc-util.h"
 #include "bus-util.h"
 #include "exec-util.h"
 #include "fd-util.h"
 #include "io-util.h"
 #include "log.h"
+#include "path-util.h"
 #include "polkit-agent.h"
 #include "process-util.h"
 #include "stdio-util.h"
@@ -32,6 +34,15 @@ int polkit_agent_open(void) {
         if (r <= 0)
                 return r;
 
+        _cleanup_free_ char *pkttyagent = NULL;
+        r = find_executable("pkttyagent", &pkttyagent);
+        if (r == -ENOENT) {
+                log_debug("pkttyagent binary not available, ignoring.");
+                return 0;
+        }
+        if (r < 0)
+                return log_error_errno(r, "Failed to determine whether pkttyagent binary exists: %m");
+
         if (pipe2(pipe_fd, 0) < 0)
                 return -errno;
 
@@ -41,7 +52,7 @@ int polkit_agent_open(void) {
                        &pipe_fd[1],
                        1,
                        &agent_pid,
-                       POLKIT_AGENT_BINARY_PATH,
+                       pkttyagent,
                        "--notify-fd", notify_fd,
                        "--fallback");
         if (r < 0)
