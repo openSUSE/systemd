@@ -2051,15 +2051,11 @@ int vl_method_install(
                         if (empty_or_root(p.context.root))
                                 p.context.root = mfree(p.context.root);
                 }
-        }
-
-        if (p.context.root_fd < 0 && p.context.root) {
+        } else if (p.context.root) {
                 p.context.root_fd = open(p.context.root, O_RDONLY|O_CLOEXEC|O_DIRECTORY);
                 if (p.context.root_fd < 0)
                         return log_debug_errno(errno, "Failed to open '%s': %m", p.context.root);
-        }
-
-        if (p.context.root_fd < 0)
+        } else
                 p.context.root_fd = XAT_FDROOT;
 
         if (p.context.entry_token_type < 0)
