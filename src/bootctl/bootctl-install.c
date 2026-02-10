@@ -2035,6 +2035,10 @@ int vl_method_install(
                 if (p.context.root_fd < 0)
                         return log_debug_errno(p.context.root_fd, "Failed to acquire root fd from Varlink: %m");
 
+                r = fd_verify_safe_flags_full(p.context.root_fd, O_DIRECTORY);
+                if (r < 0)
+                        return sd_varlink_error_invalid_parameter_name(link, "rootFileDescriptor");
+
                 r = fd_verify_directory(p.context.root_fd);
                 if (r < 0)
                         return log_debug_errno(r, "Specified file descriptor does not refer to a directory: %m");
