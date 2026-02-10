@@ -128,6 +128,12 @@ Features:
   - metrics from pid1: suppress metrics form units that are inactive and have nothing to report
   - how to plug facts into this? i.e. hostname, ssh keys, and so on
   - switch to daan's suggested hierarchy?
+  - enforce naming rules: a backend can only report metrics with the prefix of its service name
+  - use that to optimize sorted report generation
+  - figure out report vs. metrics
+  - systemd-report: add prefix matching of metrics
+  - add "hint-suppress-zero" flag (which suppresses all metrics which are zero)
+  - add "hint-object" parameter (which only queries info about certain object)
 
 * implement a varlink registry service, similar to the one of the reference
   implementation, backed by /run/varlink/registry/. Then, also implement
