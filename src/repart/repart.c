@@ -10369,14 +10369,16 @@ static int vl_method_run(
 
         r = context_ponder(context);
         if (r == -ENOSPC) {
-                uint64_t current_size, minimal_size;
+                uint64_t current_size, foreign_size, minimal_size;
 
-                r = determine_auto_size(context, LOG_DEBUG, &current_size, /* ret_foreign_size= */ NULL, &minimal_size);
+                r = determine_auto_size(context, LOG_DEBUG, &current_size, &foreign_size, &minimal_size);
                 if (r < 0)
                         return r;
 
+                uint64_t needed_size = LESS_BY(minimal_size, foreign_size);
+
                 /* Check if space issue is caused by the whole disk being too small */
-                if (minimal_size > context->total)
+                if (needed_size > context->total)
                         return sd_varlink_errorbo(
                                         link,
                                         "io.systemd.Repart.DiskTooSmall",
