@@ -10066,9 +10066,10 @@ static int determine_auto_size(
                 Context *c,
                 int level,
                 uint64_t *ret_current_size,
+                uint64_t *ret_foreign_size,
                 uint64_t *ret_minimal_size) {
 
-        uint64_t current_size, minimal_size;
+        uint64_t current_size, foreign_size, minimal_size;
 
         assert(c);
 
@@ -10079,8 +10080,13 @@ static int determine_auto_size(
         else
                 current_size = round_up_size(GPT_METADATA_SIZE, 4096);
 
+        foreign_size = 0;
+
         LIST_FOREACH(partitions, p, c->partitions) {
                 uint64_t m;
+
+                if (PARTITION_IS_FOREIGN(p))
+                        foreign_size += p->current_size;
 
                 if (PARTITION_EXISTS(p))
                         current_size += p->current_size;
@@ -10108,6 +10114,8 @@ static int determine_auto_size(
 
         if (ret_current_size)
                 *ret_current_size = current_size;
+        if (ret_foreign_size)
+                *ret_foreign_size = foreign_size;
         if (ret_minimal_size)
                 *ret_minimal_size = minimal_size;
 
@@ -10350,7 +10358,7 @@ static int vl_method_run(
         if (!context->node) {
                 /* Check if space issue is caused by the whole disk being too small */
                 uint64_t minimal_size;
-                r = determine_auto_size(context, LOG_DEBUG, /* ret_current_size= */ NULL, &minimal_size);
+                r = determine_auto_size(context, LOG_DEBUG, /* ret_current_size= */ NULL, /* ret_foreign_size= */ NULL, &minimal_size);
                 if (r < 0)
                         return r;
 
@@ -10363,7 +10371,7 @@ static int vl_method_run(
         if (r == -ENOSPC) {
                 uint64_t current_size, minimal_size;
 
-                r = determine_auto_size(context, LOG_DEBUG, &current_size, &minimal_size);
+                r = determine_auto_size(context, LOG_DEBUG, &current_size, /* ret_foreign_size= */ NULL, &minimal_size);
                 if (r < 0)
                         return r;
 
@@ -10391,7 +10399,7 @@ static int vl_method_run(
                 uint64_t current_size, minimal_size;
 
                 /* If we are doing a dry-run, report the minimal size. */
-                r = determine_auto_size(context, LOG_DEBUG, &current_size, &minimal_size);
+                r = determine_auto_size(context, LOG_DEBUG, &current_size, /* ret_foreign_size= */ NULL, &minimal_size);
                 if (r < 0)
                         return r;
 
@@ -10644,12 +10652,12 @@ static int run(int argc, char *argv[]) {
                 return r;
 
         if (arg_node_none) {
-                (void) determine_auto_size(context, LOG_INFO, /* ret_current_size= */ NULL, /* ret_minimal_size= */ NULL);
+                (void) determine_auto_size(context, LOG_INFO, /* ret_current_size= */ NULL, /* ret_foreign_size= */ NULL, /* ret_minimal_size= */ NULL);
                 return 0;
         }
 
         if (arg_size_auto) {
-                r = determine_auto_size(context, LOG_INFO, /* ret_current_size= */ NULL, &arg_size);
+                r = determine_auto_size(context, LOG_INFO, /* ret_current_size= */ NULL, /* ret_foreign_size= */ NULL, &arg_size);
                 if (r < 0)
                         return r;
 
@@ -10674,7 +10682,7 @@ static int run(int argc, char *argv[]) {
         r = context_ponder(context);
         if (r == -ENOSPC) {
                 /* When we hit space issues, tell the user the minimal size. */
-                (void) determine_auto_size(context, LOG_INFO, /* ret_current_size= */ NULL, /* ret_minimal_size= */ NULL);
+                (void) determine_auto_size(context, LOG_INFO, /* ret_current_size= */ NULL, /* ret_foreign_size= */ NULL, /* ret_minimal_size= */ NULL);
                 return r;
         }
         if (r < 0)
