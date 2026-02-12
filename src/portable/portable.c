@@ -1475,7 +1475,7 @@ static int install_chroot_dropin(
                                                "LogExtraFields=PORTABLE_EXTENSION=", extension_base_name, "\n"))
                                         return -ENOMEM;
 
-                                if (pinned_ext_image_policy) {
+                                if (pinned_ext_image_policy && !IN_SET(ext->type, IMAGE_DIRECTORY, IMAGE_SUBVOLUME)) {
                                         _cleanup_free_ char *policy_str = NULL;
 
                                         r = image_policy_to_string(pinned_ext_image_policy, /* simplify= */ true, &policy_str);
