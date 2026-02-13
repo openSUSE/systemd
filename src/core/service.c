@@ -2886,7 +2886,7 @@ static void service_enter_refresh_credentials(Service *s) {
                                           FORK_ALLOW_DLOPEN, /* allow loading libacl to avoid doing so in pid1 */
                                           &worker);
         if (r < 0) {
-                log_unit_error_errno(UNIT(s), r, "Failed to fork process to refresh credentials in unit's namespace: %m");
+                log_unit_error_errno(UNIT(s), r, "Failed to fork process to refresh credentials: %m");
                 goto fail;
         }
         if (r == 0) {
