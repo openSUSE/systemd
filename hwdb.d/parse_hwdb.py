@@ -337,7 +337,7 @@ def print_summary(fname, groups):
     print(f'{fname}: {len(groups)} match groups, {n_matches} matches, {n_props} properties')
 
     if n_matches == 0 or n_props == 0:
-        error(f'{fname}: no matches or props')
+        print(f'{fname}: no matches or props')
 
 if __name__ == '__main__':
     args = sys.argv[1:] or sorted(glob.glob(os.path.dirname(sys.argv[0]) + '/[678][0-9]-*.hwdb'))
