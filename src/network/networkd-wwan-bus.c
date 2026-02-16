@@ -669,7 +669,7 @@ static void modem_simple_connect(Modem *modem) {
 
         /* Check if .network file found at all */
         if (!link->network)
-                return (void) log_debug("ModemManager: no .network file provideded for %s",
+                return (void) log_debug("ModemManager: no .network file provided for %s",
                                         modem->port_name);
 
         /* Check if we are provided with simple connection properties */
@@ -1309,7 +1309,7 @@ int manager_notify_mm_bus_connected(Manager *m) {
         /*
          * Called on D-Bus connected.
          * Check if ModemManager is available. If it is then initialize.
-         * If not then wait for the serivce to be available.
+         * If not then wait for the service to be available.
          */
         assert(m);
         assert(sd_bus_is_ready(m->bus) > 0);

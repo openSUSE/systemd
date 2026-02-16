@@ -111,7 +111,7 @@ int bearer_set_name(Bearer *b, const char *name) {
          * registered in the hash map: if simple connect options
          * are changed, e.g. externally modified .network file and then
          * reloaded with 'networkctl reload'. This may create a new bearer
-         * attached to the same inerface name, e.g. "wwan0". The order in which
+         * attached to the same interface name, e.g. "wwan0". The order in which
          * we parse the bearer properties is undetermined and it can be that we
          * need to raplce the old one with the new one now, so only one bearer
          * with the given interface name exists.
