@@ -705,7 +705,7 @@ SPDX-License-Identifier: LGPL-2.1-or-later
 - Think about the log level you choose: for functions that are of the "logging"
   kind (see above), please ensure that failures we propagate should be logged
   about at `LOG_ERR` level. Failures that are noteworthy, but we proceed anyway,
-  should be loged at `LOG_WARN` level. Important informational messages should
+  should be logged at `LOG_WARN` level. Important informational messages should
   use `LOG_NOTICE` and regular informational messages should use
   `LOG_INFO`. Note that the latter is the default maximum log level, i.e. only
   `LOG_DEBUG` messages are hidden by default.
