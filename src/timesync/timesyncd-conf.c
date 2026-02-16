@@ -20,7 +20,7 @@ int manager_parse_server_string(Manager *m, ServerType type, const char *string)
         first = type == SERVER_FALLBACK ? m->fallback_servers : m->system_servers;
 
         if (type == SERVER_FALLBACK)
-                 m->have_fallbacks = true;
+                 m->fallback_set = true;
 
         for (;;) {
                 _cleanup_free_ char *word = NULL;
@@ -59,7 +59,7 @@ int manager_parse_server_string(Manager *m, ServerType type, const char *string)
 }
 
 int manager_parse_fallback_string(Manager *m, const char *string) {
-        if (m->have_fallbacks)
+        if (m->fallback_set)
                 return 0;
 
         return manager_parse_server_string(m, SERVER_FALLBACK, string);
