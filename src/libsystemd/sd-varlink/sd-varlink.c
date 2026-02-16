@@ -2706,7 +2706,7 @@ _public_ int sd_varlink_error(sd_varlink *v, const char *error_id, sd_json_varia
                         return r;
 
                 /* If we have a previous reply still ready make sure we queue it before the error. We only
-                 * ever set "previous" if we're in a streaming method so we pass more=true uncondtionally
+                 * ever set "previous" if we're in a streaming method so we pass more=true unconditionally
                  * here as we know we're still going to queue an error afterwards. */
                 r = varlink_enqueue_item(v, v->previous);
                 if (r < 0)
