@@ -86,6 +86,11 @@ int config_parse_servers(
 
         if (isempty(rvalue)) {
                 manager_flush_server_names(m, ltype);
+
+                /* FallbackNTP= with an empty string disables the built-in fallback servers. */
+                if (ltype == SERVER_FALLBACK)
+                        m->fallback_set = true;
+
                 return 0;
         }
 
