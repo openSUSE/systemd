@@ -48,8 +48,8 @@ CHANGES WITH 260 in spe:
           lowered from 5% to 1%. This is a safe change allowing more chance to
           user environments to set lower values that won't be set higher at boot
           while still giving the chance to recover from blackouts because
-          excesive lower bright values by just rebooting. Notice that if your
-          enviroment allow you to set excesive low brightness values this has
+          excessive lower bright values by just rebooting. Notice that if your
+          environment allow you to set excessive low brightness values this has
           nothing to do with systemd's brightness clamp.
 
 CHANGES WITH 259:
