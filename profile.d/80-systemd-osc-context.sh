@@ -28,7 +28,7 @@ __systemd_osc_context_escape() {
     # uuids, id128, hostnames, usernames, since they all come with syntax
     # requirements that exclude \ and ; anyway. This hence primarily is about
     # escaping the current working directory.
-    echo "$1" | sed -e 's/\\/\\x5x/g' -e 's/;/\\x3b/g'
+    echo "$1" | sed -e 's/\\/\\x5c/g' -e 's/;/\\x3b/g'
 }
 
 __systemd_osc_context_common() {
