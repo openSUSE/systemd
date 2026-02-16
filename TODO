@@ -121,6 +121,9 @@ Deprecations and removals:
 
 Features:
 
+* networkd: maintain a file in /run/ that can be symlinked into /run/issue.d/
+  that always shows the current primary IP address
+
 * report:
   - should the list of metrics use JSON-SEQ? or maybe be wrapped in a json
     array (the latter might be necessary, once we sign the combination)
