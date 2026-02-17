@@ -113,7 +113,7 @@ CHANGES WITH 260 in spe:
 
         * systemd-networkd gained integration with ModemManager via the "simple
           connect" protocol. A new [ModemManager] section has been added with
-          SimpleConnectProprties= (currently apn=, allowed-auth=, user=,
+          SimpleConnectProperties= (currently apn=, allowed-auth=, user=,
           password=, ip-type=, allow-roaming=, pin=, and operator-id=),
           RouteMetric=, and UseGateway= settings. This allows systemd-networkd
           to establish a cellular modem connection to a broadband network.
