@@ -211,6 +211,11 @@ CHANGES WITH 260 in spe:
 
         Changes in units:
 
+        * runlevel[0-6].target was removed in v258 has been restored when the
+          newly introduced -Dcompat-sysv-interfaces=BOOL meson option is
+          enabled. The installation of legacy.conf for tmpfiles is now also
+          conditionalized with the meson option.
+
         * systemd-portabled now runs also in the user session in the new
           systemd-portabled.service unit.
 
