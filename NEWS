@@ -176,7 +176,7 @@ CHANGES WITH 260 in spe:
         * systemd-inhibit --list option gained support for JSON output
           and filtering with --what= , --who=, --why=, and --mode=.
 
-        * systemd-vmspawn gained support for registring with systemd-machined
+        * systemd-vmspawn gained support for registering with systemd-machined
           in the user session. New options --user/--system control which
           instance is used.
 
