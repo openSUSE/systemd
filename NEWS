@@ -118,13 +118,17 @@ CHANGES WITH 260 in spe:
           RouteMetric=, and UseGateway= settings. This allows systemd-networkd
           to establish a cellular modem connection to a broadband network.
 
-        * systemd-networkd now provides a varlink interface and networkctl
-          now uses varlink to connect to the daemon.
+        * systemd-networkd gained a pair of varlink methods LinkUp()/LinkDown().
+          networkctl up/down now utilizes the new varlink interfaces in place
+          of direct RTNL message for better interaction with networkd.
 
         Changes in systemd-boot and the stub:
 
         * The timeout in the boot menu can be configured with the
           io.systemd.boot.timeout= SMBIOS type 11 string.
+
+        * bootctl's varlink interface gained a new Install() method for performing
+          systemd-boot installation/upgrade via IPC calls.
 
         Changes in libsystemd:
 
@@ -166,10 +170,6 @@ CHANGES WITH 260 in spe:
         * systemd-keyutil gained an 'extract-certificate' verb to print the X.509
           certificate.
 
-        * bootctl is now also available as service over varlink. The new
-          systemd-bootctl.socket unit spawns systemd-bootctl@.service instances
-          to handle individual connections.
-
         * systemd-sysupdate gained a new 'acquire' verb, allowing the download
           and installation or update steps to be done separately.
 
@@ -210,9 +210,6 @@ CHANGES WITH 260 in spe:
 
         * systemd-portabled now runs also in the user session in the new
           systemd-portabled.service unit.
-
-        * New system units sysystemd-bootctl.socket, systemd-bootctl@.service
-          have been added.
 
         * getty@.service gained an [Install] and must now be explicitly enabled
           to be active.
