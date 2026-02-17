@@ -5230,7 +5230,7 @@ _public_ int sd_json_dispatch_full(
                                 } else
                                         done++;
 
-                        } else  {
+                        } else {
                                 if (flags & SD_JSON_ALLOW_EXTENSIONS) {
                                         json_log(value, flags|SD_JSON_DEBUG, 0, "Unrecognized object field '%s', assuming extension.", sd_json_variant_string(key));
                                         continue;
