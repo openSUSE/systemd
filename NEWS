@@ -27,9 +27,8 @@ CHANGES WITH 260 in spe:
 
         * The parsing of RootImageOptions= and the mount image parameters of
           ExtensionImages= and MountImages= has been changed so that the last
-          duplicated definition for a given partition wins and is applied,
-          rather than the first, to keep these options coherent with other
-          unit settings.
+          definition for a given partition wins and is applied, rather than the
+          first, to keep these options coherent with other unit settings.
 
         * Support for non-system users and groups in udev rules and
           systemd-networkd configuration has been restored, but is deprecated
@@ -40,17 +39,18 @@ CHANGES WITH 260 in spe:
         Changes in other components:
 
         * New options SYSTEMD_COLORS=auto-16, SYSTEMD_COLORS=auto-256, and
-          SYSTEMD_COLORS=auto-24bit, which are like SYSTEMD_COLORS=16,
-          SYSTEMD_COLORS=256, and SYSTEMD_COLORS=24bit respectively when output
-          is to a non-dumb TTY, and like SYSTEMD_COLORS=no otherwise.
+          SYSTEMD_COLORS=auto-24bit have been added. They are like
+          SYSTEMD_COLORS=16, SYSTEMD_COLORS=256, and SYSTEMD_COLORS=24bit
+          respectively when output is to a non-dumb TTY, and degrade to
+          SYSTEMD_COLORS=no otherwise.
 
-        * Minimum backlight brightness clamp for restoring it at boot has been
-          lowered from 5% to 1%. This is a safe change allowing more chance to
-          user environments to set lower values that won't be set higher at boot
-          while still giving the chance to recover from blackouts because
-          excessive lower bright values by just rebooting. Notice that if your
-          environment allow you to set excessive low brightness values this has
-          nothing to do with systemd's brightness clamp.
+        * The minimum backlight brightness value used when restoring backlight
+          levels at boot has been lowered from 5% to 1%. This lower value
+          should be sufficient to avoid blacked-out displays, but allows user
+          environments to use a wider range of values (without lower values
+          being reset during reboot). Note that environments may still set very
+          low brightness values at runtime independently of the systemd clamp
+          which only applies during boot.
 
 CHANGES WITH 259:
 
