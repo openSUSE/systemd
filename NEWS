@@ -88,6 +88,12 @@ CHANGES WITH 260 in spe:
           whether extensions and credentials are to be refreshed when the unit
           is reloaded.
 
+        * A new unit setting BindNetworkInterface= has been introduced that
+          automatically binds all sockets created by the unit to a specific
+          network interface.
+
+        * EnqueueMarkedJobs() D-Bus method now has a Varlink counterpart.
+
         Changes in udev:
 
         * Persistent network interface naming has bee extended to MCTP devices
