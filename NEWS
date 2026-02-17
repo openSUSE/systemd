@@ -266,6 +266,8 @@ CHANGES WITH 259:
 
         * systemd-networkd and systemd-nspawn no longer support creating NAT
           rules via iptables/libiptc APIs; only nftables is now supported.
+          The corresponding meson option '-Dlibiptc=' is deprecated and will be
+          dropped in a future release.
 
         * systemd-boot's and systemd-stub's support for TPM 1.2 has been
           removed (only TPM 2.0 supported is retained). The security value of
