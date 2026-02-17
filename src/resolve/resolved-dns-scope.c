@@ -478,7 +478,7 @@ static int dns_scope_socket(
         if (s->delegate && s->delegate->fwmark > 0) {
                 r = setsockopt_int(fd, SOL_SOCKET, SO_MARK, s->delegate->fwmark);
                 if (r < 0)
-                        return log_debug_errno(r, "Failed to set firewall mark on DNS socket: %m)");
+                        return log_debug_errno(r, "Failed to set firewall mark on DNS socket: %m");
         }
 
         bool addr_is_nonlocal = s->link &&
