@@ -477,18 +477,16 @@ static int bearer_new_and_initialize(Modem *modem, const char *path) {
 
 static int modem_connect_handler(sd_bus_message *message, void *userdata, sd_bus_error *ret_error) {
         Modem *modem = ASSERT_PTR(userdata);
-        const sd_bus_error *e;
-        const char *new_bearer;
         int r;
 
         assert(message);
 
         modem->slot_connect = sd_bus_slot_unref(modem->slot_connect);
 
-        e = sd_bus_message_get_error(message);
+        const sd_bus_error *e = sd_bus_message_get_error(message);
         if (e) {
                 r = sd_bus_error_get_errno(e);
-                log_full_errno(LOG_ERR, r,
+                log_error_errno(r,
                                "Could not connect modem %s %s: %s",
                                modem->manufacturer, modem->model,
                                bus_error_message(e, r));
@@ -497,10 +495,16 @@ static int modem_connect_handler(sd_bus_message *message, void *userdata, sd_bus
                 return 0;
         }
 
-        sd_bus_message_read(message, "o", &new_bearer);
+        const char *new_bearer;
+        r = sd_bus_message_read(message, "o", &new_bearer);
+        if (r < 0) {
+                log_debug_errno(r, "Received connection of %s %s from ModemManager, but bearer not found, ignoring: %m",
+                                modem->manufacturer, modem->model);
+                return 0;
+        }
+
         log_debug("ModemManager: %s %s connected, bearer is at %s",
                   modem->manufacturer, modem->model, new_bearer);
-
         return 0;
 }
 
