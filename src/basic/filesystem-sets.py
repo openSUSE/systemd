@@ -308,7 +308,7 @@ def generate_fs_in_group():
     print('        switch (fs_group) {')
 
     for name, _, *filesystems in FILESYSTEM_SETS:
-        magics = sorted(set(sum((NAME_TO_MAGIC[fs] for fs in filesystems), [])))
+        magics = sorted(set(sum((NAME_TO_MAGIC[fs] for fs in filesystems), start=[])))
         enum = 'FILESYSTEM_SET_' + name[1:].upper().replace('-', '_')
         print(f'        case {enum}:')
         opts = '\n                    || '.join(f'F_TYPE_EQUAL(st->f_type, {magic})'
@@ -355,7 +355,7 @@ def magic_defines():
 
 def check():
     kernel_magics = set(magic_defines())
-    our_magics = set(sum(NAME_TO_MAGIC.values(), []))
+    our_magics = set(sum(NAME_TO_MAGIC.values(), start=[]))
     extra = kernel_magics - our_magics
     if extra:
         sys.exit(f"kernel knows additional filesystem magics: {', '.join(sorted(extra))}")
