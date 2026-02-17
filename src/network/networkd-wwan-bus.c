@@ -109,16 +109,16 @@ static int map_dns(
                 void *userdata) {
 
         Bearer *b = ASSERT_PTR(userdata);
-        struct in_addr_full *a;
-        const char *s;
         int r;
 
         assert(m);
 
+        const char *s;
         r = sd_bus_message_read_basic(m, 's', &s);
         if (r < 0)
                 return r;
 
+        _cleanup_free_ struct in_addr_full *a = NULL;
         r = in_addr_full_new_from_string(s, &a);
         if (r < 0)
                 return r;
@@ -127,7 +127,6 @@ static int map_dns(
                 return -ENOMEM;
 
         b->dns[b->n_dns++] = TAKE_PTR(a);
-
         return 0;
 }
 
