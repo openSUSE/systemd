@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Repository checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
       # Reuse the setup phase of the unit test script to avoid code duplication
       - name: Install build dependencies
         run: |
