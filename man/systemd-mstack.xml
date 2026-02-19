@@ -176,7 +176,7 @@
     <!-- In case you are wondering why this is spelled out with the /sbin/ prefix, rather than /usr/bin/ or
          so, or omitting the prefix entirely: it's simply because util-linux mount always uses precisely this
          spelling in their API docs. For example open mount(8), and grep for '/sbin/mount', and you see a ton
-         of occurences. We just inherit this spelling here, to make clear this is just an instantiation of
+         of occurrences. We just inherit this spelling here, to make clear this is just an instantiation of
          their plugin mechanism. -->
 
     <para>The <command>systemd-mstack</command> executable may be symlinked to
