@@ -601,7 +601,7 @@ int mstack_open_images(
                                         return r;
 
                                 if (!dissected_image->partitions[PARTITION_ROOT].found)
-                                        return log_debug_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "Currently images withot root partition are not supported: %m");
+                                        return log_debug_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "Currently images without root partition are not supported: %m");
 
                                 r = dissected_image_load_verity_sig_partition(
                                                 dissected_image,
@@ -757,7 +757,7 @@ static int mstack_make_overlayfs(
 
         /* If we operate unpriv, we have to attach the layers to a place in the fs, before we can pass them
          * to overlayfs (see comments below), hence fork off a child with a private mount namespace, so that
-         * noone else sees that. */
+         * no one else sees that. */
         r = pidref_safe_fork("(layerfd)",
                       FORK_RESET_SIGNALS|FORK_DEATHSIG_SIGTERM|FORK_LOG|FORK_REOPEN_LOG|FORK_WAIT|FORK_NEW_MOUNTNS|FORK_MOUNTNS_SLAVE,
                       /* ret= */ NULL);
