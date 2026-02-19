@@ -82,6 +82,7 @@
 #include "strv.h"
 #include "strxcpyx.h"
 #include "terminal-util.h"
+#include "uid-range.h"
 #include "user-util.h"
 #include "utmp-wtmp.h"
 #include "vpick.h"
@@ -2397,10 +2398,12 @@ static int setup_private_users_child(int unshare_ready_fd, const char *uid_map, 
 
 static int setup_private_users(
                 PrivateUsers private_users,
-                uid_t ouid, /* service manager uid */
-                gid_t ogid, /* service manager gid */
-                uid_t uid,  /* unit uid */
-                gid_t gid,  /* unit gid */
+                uid_t saved_uid,    /* service manager uid */
+                gid_t saved_gid,    /* service manager gid */
+                uid_t *uid,         /* unit uid (seen from inside) [input+output] */
+                gid_t *gid,         /* unit gid (ditto)            [input+output] */
+                uid_t *outside_uid, /* uid seen from the outside (which is the same as *uid, except of userns is used) */
+                gid_t *outside_gid, /* gid seen from the outside (similar) */
                 bool allow_setgroups) {
 
         _cleanup_free_ char *uid_map = NULL, *gid_map = NULL;
@@ -2410,6 +2413,11 @@ static int setup_private_users(
         uint64_t c = 1;
         ssize_t n;
         int r;
+
+        assert(uid);
+        assert(gid);
+        assert(outside_uid);
+        assert(outside_gid);
 
         /* Set up a user namespace and map the original UID/GID (IDs from before any user or group changes, i.e.
          * the IDs from the user or system manager(s)) to itself, the selected UID/GID to itself, and everything else to
@@ -2427,12 +2435,22 @@ static int setup_private_users(
                 return 0; /* Early exit */
 
         case PRIVATE_USERS_MANAGED: {
-                if (uid != 0 || gid != 0)
+                if (uid_is_valid(*uid) || uid_is_valid(*gid))
                         return log_debug_errno(SYNTHETIC_ERRNO(EPERM), "When allocating dynamic user namespace range, target UID/GID must be root, refusing.");
 
                 _cleanup_close_ int userns_fd = nsresource_allocate_userns(/* name= */ NULL, NSRESOURCE_UIDS_64K);
                 if (userns_fd < 0)
                         return userns_fd;
+
+                _cleanup_(uid_range_freep) UIDRange *uid_range = NULL;
+                r = uid_range_load_userns_by_fd(userns_fd, UID_RANGE_USERNS_OUTSIDE, &uid_range);
+                if (r < 0)
+                        return log_debug_errno(r, "Failed to read outside userns UID range: %m");
+
+                _cleanup_(uid_range_freep) UIDRange *gid_range = NULL;
+                r = uid_range_load_userns_by_fd(userns_fd, GID_RANGE_USERNS_OUTSIDE, &gid_range);
+                if (r < 0)
+                        return log_debug_errno(r, "Failed to read outside userns GID range: %m");
 
                 if (setns(userns_fd, CLONE_NEWUSER) < 0)
                         return log_debug_errno(errno, "Failed to join freshly allocated user namespace: %m");
@@ -2441,6 +2459,13 @@ static int setup_private_users(
                 r = reset_uid_gid();
                 if (r < 0)
                         return log_debug_errno(r, "Failed to reset UID/GID to root: %m");
+
+                /* Now report are new UIDs/GIDS, both inside and outside */
+                *uid = 0;
+                *gid = 0;
+
+                *outside_uid = uid_range_base(uid_range);
+                *outside_gid = uid_range_base(gid_range);
 
                 return 1; /* Early exit */
         }
@@ -2465,15 +2490,15 @@ static int setup_private_users(
 
         case PRIVATE_USERS_SELF:
                 /* Can only set up multiple mappings with CAP_SETUID. */
-                if (uid_is_valid(uid) && uid != ouid && have_effective_cap(CAP_SETUID) > 0)
+                if (uid_is_valid(*uid) && *uid != saved_uid && have_effective_cap(CAP_SETUID) > 0)
                         r = asprintf(&uid_map,
                                      UID_FMT " " UID_FMT " 1\n"     /* Map $OUID → $OUID */
                                      UID_FMT " " UID_FMT " 1\n",    /* Map $UID → $UID */
-                                     ouid, ouid, uid, uid);
+                                     saved_uid, saved_uid, *uid, *uid);
                 else
                         r = asprintf(&uid_map,
                                      UID_FMT " " UID_FMT " 1\n",    /* Map $OUID → $OUID */
-                                     ouid, ouid);
+                                     saved_uid, saved_uid);
                 if (r < 0)
                         return -ENOMEM;
 
@@ -2499,15 +2524,15 @@ static int setup_private_users(
 
         case PRIVATE_USERS_SELF:
                 /* Can only set up multiple mappings with CAP_SETGID. */
-                if (gid_is_valid(gid) && gid != ogid && have_effective_cap(CAP_SETGID) > 0)
+                if (gid_is_valid(*gid) && *gid != saved_gid && have_effective_cap(CAP_SETGID) > 0)
                         r = asprintf(&gid_map,
                                      GID_FMT " " GID_FMT " 1\n"     /* Map $OGID → $OGID */
                                      GID_FMT " " GID_FMT " 1\n",    /* Map $GID → $GID */
-                                     ogid, ogid, gid, gid);
+                                     saved_gid, saved_gid, *gid, *gid);
                 else
                         r = asprintf(&gid_map,
                                      GID_FMT " " GID_FMT " 1\n",    /* Map $OGID -> $OGID */
-                                     ogid, ogid);
+                                     saved_gid, saved_gid);
                 if (r < 0)
                         return -ENOMEM;
                 break;
@@ -5111,10 +5136,10 @@ int exec_invoke(
 #if HAVE_SECCOMP
         uint64_t saved_bset = 0;
 #endif
-        uid_t saved_uid = getuid();
-        gid_t saved_gid = getgid();
-        uid_t uid = UID_INVALID;
-        gid_t gid = GID_INVALID;
+        /* saved_uid → where we started from; uid → where we ended up in; outside_uid → where we ended up in,
+         * but seen from the outside (covers userns mappings) */
+        uid_t uid = UID_INVALID, saved_uid = getuid(), outside_uid = UID_INVALID;
+        gid_t gid = GID_INVALID, saved_gid = getgid(), outside_gid = GID_INVALID;
         int secure_bits;
         _cleanup_free_ gid_t *gids = NULL, *gids_after_pam = NULL;
         int ngids = 0, ngids_after_pam = 0;
@@ -5284,7 +5309,9 @@ int exec_invoke(
                 return log_error_errno(errno, "Failed to update environment: %m");
         }
 
-        if (context->dynamic_user && runtime->dynamic_creds) {
+        if (exec_context_get_effective_private_users(context, params) == PRIVATE_USERS_MANAGED)
+                log_debug("Running with a managed user namespace, not initializing UIDs/GIDs.");
+        else if (context->dynamic_user && runtime->dynamic_creds) {
                 _cleanup_strv_free_ char **suggested_paths = NULL;
 
                 /* On top of that, make sure we bypass our own NSS module nss-systemd comprehensively for any NSS
@@ -5366,20 +5393,22 @@ int exec_invoke(
                 }
         }
 
-        /* Initialize user supplementary groups and get SupplementaryGroups= ones */
-        ngids = get_supplementary_groups(context, username, gid, &gids);
-        if (ngids < 0) {
-                *exit_status = EXIT_GROUP;
-                return log_error_errno(ngids, "Failed to determine supplementary groups: %m");
-        }
+        if (exec_context_get_effective_private_users(context, params) != PRIVATE_USERS_MANAGED) {
+                /* Initialize user supplementary groups and get SupplementaryGroups= ones */
+                ngids = get_supplementary_groups(context, username, gid, &gids);
+                if (ngids < 0) {
+                        *exit_status = EXIT_GROUP;
+                        return log_error_errno(ngids, "Failed to determine supplementary groups: %m");
+                }
 
-        r = send_user_lookup(params->unit_id, params->user_lookup_fd, uid, gid);
-        if (r < 0) {
-                *exit_status = EXIT_USER;
-                return log_error_errno(r, "Failed to send user credentials to PID1: %m");
-        }
+                r = send_user_lookup(params->unit_id, params->user_lookup_fd, uid, gid);
+                if (r < 0) {
+                        *exit_status = EXIT_USER;
+                        return log_error_errno(r, "Failed to send user credentials to PID1: %m");
+                }
 
-        params->user_lookup_fd = safe_close(params->user_lookup_fd);
+                params->user_lookup_fd = safe_close(params->user_lookup_fd);
+        }
 
         r = acquire_home(context, &pwent_home, &home_buffer);
         if (r < 0) {
@@ -5909,7 +5938,15 @@ int exec_invoke(
 
                 /* The kernel requires /proc/pid/setgroups be set to "deny" prior to writing /proc/pid/gid_map in
                  * unprivileged user namespaces. */
-                r = setup_private_users(pu, saved_uid, saved_gid, uid, gid, /* allow_setgroups= */ false);
+                r = setup_private_users(
+                                pu,
+                                saved_uid,
+                                saved_gid,
+                                &uid,
+                                &gid,
+                                &outside_uid,
+                                &outside_gid,
+                                /* allow_setgroups= */ false);
                 /* If it was requested explicitly and we can't set it up, fail early. Otherwise, continue and let
                  * the actual requested operations fail (or silently continue). */
                 if (r < 0 && context->private_users != PRIVATE_USERS_NO) {
@@ -5989,14 +6026,34 @@ int exec_invoke(
         } else if (needs_sandboxing && !userns_set_up) {
                 PrivateUsers pu = exec_context_get_effective_private_users(context, params);
 
-                r = setup_private_users(pu, saved_uid, saved_gid, uid, gid,
-                                        /* allow_setgroups= */ pu == PRIVATE_USERS_FULL);
+                r = setup_private_users(
+                                pu,
+                                saved_uid,
+                                saved_gid,
+                                &uid,
+                                &gid,
+                                &outside_uid,
+                                &outside_gid,
+                                /* allow_setgroups= */ pu == PRIVATE_USERS_FULL);
                 if (r < 0) {
                         *exit_status = EXIT_USER;
                         return log_error_errno(r, "Failed to set up user namespacing: %m");
                 }
                 if (r > 0)
                         log_debug("Set up privileged user namespace");
+        }
+
+        if (params->user_lookup_fd >= 0) {
+                /* If we haven't sent the UIDs/GIDs we settled on upstream yet, let's do so now, as we
+                 * finally know our final UID/GID range */
+
+                r = send_user_lookup(params->unit_id, params->user_lookup_fd, outside_uid, outside_gid);
+                if (r < 0) {
+                        *exit_status = EXIT_USER;
+                        return log_error_errno(r, "Failed to send user credentials to PID1: %m");
+                }
+
+                params->user_lookup_fd = safe_close(params->user_lookup_fd);
         }
 
         /* Call setup_delegated_namespaces() the second time to unshare all delegated namespaces. */

@@ -4328,8 +4328,8 @@ static int unit_verify_contexts(const Unit *u) {
         if (ec->pam_name && kc && !IN_SET(kc->kill_mode, KILL_CONTROL_GROUP, KILL_MIXED))
                 return log_unit_error_errno(u, SYNTHETIC_ERRNO(ENOEXEC), "Unit has PAM enabled. Kill mode must be set to 'control-group' or 'mixed'. Refusing.");
 
-        if ((ec->user || ec->dynamic_user) && ec->private_users == PRIVATE_USERS_MANAGED)
-                return log_unit_error_errno(u, SYNTHETIC_ERRNO(ENOEXEC), "PrivateUsers=managed may not be used in combination with User=/DynamicUser=, refusing.");
+        if ((ec->user || ec->dynamic_user || ec->group || ec->pam_name) && ec->private_users == PRIVATE_USERS_MANAGED)
+                return log_unit_error_errno(u, SYNTHETIC_ERRNO(ENOEXEC), "PrivateUsers=managed may not be used in combination with User=/DynamicUser=/Group=/PAMName=, refusing.");
 
         return 0;
 }
