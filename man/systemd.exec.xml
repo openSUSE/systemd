@@ -2252,7 +2252,7 @@ BindReadOnlyPaths=/var/lib/systemd</programlisting>
         namespace. Settings such as <varname>CapabilityBoundingSet=</varname> will affect only the latter,
         and there's no way to acquire additional capabilities in the host's user namespace.</para>
 
-        <para>If the paramater is <literal>managed</literal> a transient, dynamically allocated range of
+        <para>If the parameter is <literal>managed</literal> a transient, dynamically allocated range of
         65536 UIDs/GIDs is allocated for the unit, and a UID/GID mapping is assigned to the unit's process
         so the UID/GID 0 from inside the unit maps to the first UID/GID of the allocated mapping. Note that
         in this mode the UID/GID the service process will run as is different depending if looking from the
