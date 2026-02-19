@@ -131,7 +131,7 @@ Features:
   "importctl pull-oci" which focusses on the "OCI image spec", i.e. downloads
   from the web (i.e. acquiring via URLs).
 
-* oci: support "data" in any OCI decriptor, not just manifest config.
+* oci: support "data" in any OCI descriptor, not just manifest config.
 
 * report:
   - should the list of metrics use JSON-SEQ? or maybe be wrapped in a json
