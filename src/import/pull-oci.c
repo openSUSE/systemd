@@ -1414,7 +1414,7 @@ static int oci_pull_process_authentication_challenge(OciPull *i, const char *cha
         _cleanup_strv_free_ char **l = NULL;
         r = strv_split_full(&l, e, ",", EXTRACT_KEEP_QUOTE);
         if (r < 0)
-                return log_error_errno(r, "Failed to split bearer token paramaters: %m");
+                return log_error_errno(r, "Failed to split bearer token parameters: %m");
 
         _cleanup_free_ char *realm = NULL, *scope = NULL, *service = NULL;
         struct {
