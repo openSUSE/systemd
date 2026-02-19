@@ -1399,6 +1399,7 @@ int pkey_generate_volume_keys(
 static int load_key_from_provider(
                 const char *provider,
                 const char *private_key_uri,
+                UI_METHOD *ui_method,
                 EVP_PKEY **ret) {
 
         assert(provider);
@@ -1415,8 +1416,8 @@ static int load_key_from_provider(
 
         _cleanup_(OSSL_STORE_closep) OSSL_STORE_CTX *store = OSSL_STORE_open(
                         private_key_uri,
-                        /* ui_method= */ NULL,
-                        /* ui_method= */ NULL,
+                        ui_method,
+                        /* ui_data= */ NULL,
                         /* post_process= */ NULL,
                         /* post_process_data= */ NULL);
         if (!store)
@@ -1441,7 +1442,7 @@ static int load_key_from_provider(
 #endif
 }
 
-static int load_key_from_engine(const char *engine, const char *private_key_uri, EVP_PKEY **ret) {
+static int load_key_from_engine(const char *engine, const char *private_key_uri, UI_METHOD *ui_method, EVP_PKEY **ret) {
         assert(engine);
         assert(private_key_uri);
         assert(ret);
@@ -1455,7 +1456,7 @@ static int load_key_from_engine(const char *engine, const char *private_key_uri,
         if (ENGINE_init(e) == 0)
                 return log_openssl_errors("Failed to initialize signing engine '%s'", engine);
 
-        _cleanup_(EVP_PKEY_freep) EVP_PKEY *private_key = ENGINE_load_private_key(e, private_key_uri, /* ui_method= */ NULL, /* callback_data= */ NULL);
+        _cleanup_(EVP_PKEY_freep) EVP_PKEY *private_key = ENGINE_load_private_key(e, private_key_uri, ui_method, /* callback_data= */ NULL);
         if (!private_key)
                 return log_openssl_errors("Failed to load private key from '%s'", private_key_uri);
         REENABLE_WARNING;
@@ -1729,13 +1730,18 @@ int openssl_load_private_key(
                 if (r < 0)
                         return log_debug_errno(r, "Failed to allocate ask-password user interface: %m");
 
+                UI_METHOD *ui_method = NULL;
+#ifndef OPENSSL_NO_UI_CONSOLE
+                ui_method = ui->method;
+#endif
+
                 switch (private_key_source_type) {
 
                 case OPENSSL_KEY_SOURCE_ENGINE:
-                        r = load_key_from_engine(private_key_source, private_key, ret_private_key);
+                        r = load_key_from_engine(private_key_source, private_key, ui_method, ret_private_key);
                         break;
                 case OPENSSL_KEY_SOURCE_PROVIDER:
-                        r = load_key_from_provider(private_key_source, private_key, ret_private_key);
+                        r = load_key_from_provider(private_key_source, private_key, ui_method, ret_private_key);
                         break;
                 default:
                         assert_not_reached();
