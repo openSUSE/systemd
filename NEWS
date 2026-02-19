@@ -32,7 +32,8 @@ CHANGES WITH 260 in spe:
           libseccomp 2.3.1 → 2.4.0,
           glibc 2.31 → 2.34,
           libxcrypt or libcrypt from glibc → libxcrypt 4.4.0 only,
-          OpenSSL 1.1.0 → 3.0.0.
+          OpenSSL 1.1.0 → 3.0.0,
+          Python 3.7.0 → 3.9.0.
 
           The Linux kernel version requirements have been updated too:
           baseline 5.4 → 5.10, recommended baseline 5.7 → 5.14, 6.6 for full
