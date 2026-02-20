@@ -56,7 +56,7 @@ static void mstack_done(MStack *mstack) {
         safe_close(mstack->usr_mount_fd);
 }
 
-MStack *mstack_free(MStack *mstack) {
+MStack* mstack_free(MStack *mstack) {
         if (!mstack)
                 return NULL;
 
@@ -501,7 +501,7 @@ static bool mount_is_ro(MStackMount *m, MStackFlags flags) {
                 IN_SET(m->mount_type, MSTACK_LAYER, MSTACK_ROBIND);
 }
 
-static const char *mount_name(MStackMount *m) {
+static const char* mount_name(MStackMount *m) {
         assert(m);
 
         /* Returns some vaguely useful identifier for this layer, for showing in debug output */
