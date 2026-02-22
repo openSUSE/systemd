@@ -59,7 +59,7 @@ int device_get_properties_strv(sd_device *device, char ***ret);
 
 int device_clone_with_db(sd_device *device, sd_device **ret);
 
-int device_tag_index(sd_device *device, sd_device *device_old, bool add);
+int device_tag_index(sd_device *device, bool add);
 bool device_should_have_db(sd_device *device);
 int device_has_db(sd_device *device);
 int device_update_db(sd_device *device);
