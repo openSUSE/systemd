@@ -43,6 +43,7 @@ int device_add_property(sd_device *device, const char *property, const char *val
 int device_add_propertyf(sd_device *device, const char *key, const char *format, ...) _printf_(3, 4);
 int device_add_tag(sd_device *device, const char *tag, bool both);
 void device_remove_tag(sd_device *device, const char *tag);
+int device_copy_all_tags(sd_device *dest, sd_device *src);
 void device_cleanup_tags(sd_device *device);
 void device_cleanup_devlinks(sd_device *device);
 
