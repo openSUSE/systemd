@@ -705,8 +705,7 @@ void device_cleanup_tags(sd_device *device) {
 void device_cleanup_devlinks(sd_device *device) {
         assert(device);
 
-        set_free(device->devlinks);
-        device->devlinks = NULL;
+        device->devlinks = set_free(device->devlinks);
         device->property_devlinks_outdated = true;
         device->devlinks_generation++;
 }
