@@ -709,13 +709,23 @@ int device_copy_all_tags(sd_device *dest, sd_device *src) {
         return 0;
 }
 
-void device_cleanup_tags(sd_device *device) {
+int device_cleanup_tags(sd_device *device, sd_device *original) {
+        int r;
+
         assert(device);
 
-        device->all_tags = set_free(device->all_tags);
+        _cleanup_set_free_ Set *saved = TAKE_PTR(device->all_tags);
         device->current_tags = set_free(device->current_tags);
         device->property_tags_outdated = true;
         device->tags_generation++;
+
+        r = device_copy_all_tags(device, original);
+        if (r < 0) {
+                set_free_and_replace(device->all_tags, saved);
+                return r;
+        }
+
+        return 0;
 }
 
 void device_cleanup_devlinks(sd_device *device) {
