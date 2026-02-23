@@ -20,6 +20,3 @@ ListenStream=/run/systemd/io.systemd.PCRLock
 FileDescriptorName=varlink
 SocketMode=0600
 Accept=yes
-
-[Install]
-WantedBy=sockets.target
