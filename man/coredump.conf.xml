@@ -173,7 +173,8 @@
         free at least (defaults to 15% of the total disk size, limited 
         to a maximum of 4GiB). Note that the disk space used
         by core dumps might temporarily exceed these limits while
-        core dumps are processed. Note that old core dumps are also
+        core dumps are processed. <option>MaxUse=</option> takes precedence.
+        Note that old core dumps are also
         removed based on time via
         <citerefentry><refentrytitle>systemd-tmpfiles</refentrytitle><manvolnum>8</manvolnum></citerefentry>.
         Set either value to 0 to turn off size-based cleanup.</para>
