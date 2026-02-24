@@ -103,6 +103,13 @@ CHANGES WITH 260 in spe:
           EXPERIMENTAL at this point. We reserve the right to make incompatible
           changes to the JSON structure and/or place additional requirements.
 
+        * A new "mstack" feature has been introduced, to allowing defining an
+          overlayfs by structuring the content of an ".mstack/" directory
+          following this specification.
+
+        * A new 'verity' NVPCR has been added. Various components measure
+          dm-verity images to it upon loading.
+
         Changes in the system and user managers:
 
         * Systemd now uses ANSI CSI 18 sequence to query terminal size. This
@@ -117,6 +124,18 @@ CHANGES WITH 260 in spe:
         * A new unit setting BindNetworkInterface= has been introduced that
           automatically binds all sockets created by the unit to a specific
           network interface.
+
+        * A new pair of unit settings ConditionPathIsSocket= and
+          AssertPathIsSocket have been introduced that evaluate whether the
+          given path is a socket, and respectively skips or fails the unit
+          otherwise.
+
+        * A new unit setting RootMStack= has been introduced, to support the
+          new "mstack" feature for services.
+
+        * The unit setting PrivateUsers= gained a new possible value "managed",
+          which automatically assigns a dynamic and transient range of 65536
+          UIDs/GIDs to the unit.
 
         * EnqueueMarkedJobs() D-Bus method now has a Varlink counterpart.
 
@@ -181,6 +200,11 @@ CHANGES WITH 260 in spe:
 
         * The timeout in the boot menu can be configured with the
           io.systemd.boot.timeout= SMBIOS type 11 string.
+
+        * A new LoaderEntryPreferred setting has been added to systemd-boot that
+          is similar to LoaderEntryDefault, but that takes into the account boot
+          assessment logic, and will skip entires that have the tries-left counter
+          set to zero.
 
         * bootctl's varlink interface gained a new Install() method for performing
           systemd-boot installation/upgrade via IPC calls.
@@ -247,6 +271,23 @@ CHANGES WITH 260 in spe:
         * systemd-vmspawn gained support for ephemeral machines via a new
           --ephemeral option. This is similar to the functionality provided via
           the same switch in systemd-nspawn.
+
+        * systemctl gained a new 'enqueue-marked-jobs' verb, which calls the
+          EnqueueMarkedJobs() D-Bus method. The '--marked' parameter, which was
+          previously used for the same purpose, is now deprecated.
+
+        * journalctl now implements a Varlink interface that exposes a
+          GetEntries() method, which allows retrieving journal entries.
+
+        * systemd-importd gained support for downloading OCI images. They will
+          be stored locally in the new "mstack" format, which then can be used
+          by various components.
+
+        * systemd-nspawn gained a new --mstack= parameter to support the new
+          "mstack" feature for containers.
+
+        * A new systemd-mstack command line tool has been introduced to support
+          the new "mstack" feature interactively.
 
         * New options SYSTEMD_COLORS=auto-16, SYSTEMD_COLORS=auto-256, and
           SYSTEMD_COLORS=auto-24bit have been added. They are like
