@@ -1074,7 +1074,7 @@ manpages = [
  ['systemd-modules-load.service', '8', ['systemd-modules-load'], 'HAVE_KMOD'],
  ['systemd-mount', '1', ['systemd-umount'], ''],
  ['systemd-mountfsd.service', '8', ['systemd-mountfsd'], 'ENABLE_MOUNTFSD'],
- ['systemd-mstack', '1', ['mount.mstack'], 'HAVE_BLKID'],
+ ['systemd-mstack', '1', ['mount.mstack'], ''],
  ['systemd-mute-console',
   '1',
   ['systemd-mute-console.socket', 'systemd-mute-console@.service'],
