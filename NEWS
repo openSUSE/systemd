@@ -123,6 +123,9 @@ CHANGES WITH 260 in spe:
         * SetProperties() D-Bus method now has a Varlink counterpart. For now,
           it only supports setting the Markers= property.
 
+        * New 'needs-start' and 'needs-stop' settings are now supported for the
+          Markers= property.
+
         Changes in udev:
 
         * Permissions for /dev/ptp* are now set to 0664 (previously 0660),
@@ -185,6 +188,9 @@ CHANGES WITH 260 in spe:
           requests with a firewall mark.
 
         * resolvectl now uses varlink to connect to systemd-resolved.
+
+        * systemd-resolved now supports ifindex=0 in the BrowseServices IPC API,
+          to allow browsing all mDNS interfaces in one call.
 
         Changes in other components:
 
