@@ -137,6 +137,11 @@ CHANGES WITH 260 in spe:
           which automatically assigns a dynamic and transient range of 65536
           UIDs/GIDs to the unit.
 
+        * The implementation for PrivateUsers=full has been updated map the
+          full range of IDs. The workaround to allow nested systemd older than
+          257 to correctly detect that it is under such a mapping has been
+          dropped.
+
         * EnqueueMarkedJobs() D-Bus method now has a Varlink counterpart.
 
         * SetProperties() D-Bus method now has a Varlink counterpart. For now,
