@@ -111,6 +111,15 @@ CHANGES WITH 260 in spe:
         * A new 'verity' NVPCR has been added. Various components measure
           dm-verity images to it upon loading.
 
+        * A canonical set of hwid files for automated DeviceTree mapping in
+          UKIs is now shipped under /usr/lib/systemd/boot/hwids/<efi-arch>/.
+          Users and developers are welcome to contribute definitions for
+          their specific devices, so that UKIs can automatically find and load
+          the appropriate DTB on boot, without requiring per-devices and
+          per-kernel images. ukify now uses these definition automatically if
+          present on the system at build time. A first set of hwid files for
+          arm64 Snapdragon devices has been imported.
+
         Changes in the system and user managers:
 
         * Systemd now uses ANSI CSI 18 sequence to query terminal size. This
