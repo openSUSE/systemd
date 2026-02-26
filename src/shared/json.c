@@ -2111,7 +2111,7 @@ int json_variant_append_array(JsonVariant **v, JsonVariant *element) {
 
                         if (old != *v)
                                 /* Readjust the parent pointers to the new address */
-                                for (size_t i = 1; i < size; i++)
+                                for (size_t i = 0; i < size; i++)
                                         (*v)[1 + i].parent = *v;
 
                         return _json_variant_array_put_element(*v, element);
