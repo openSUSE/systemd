@@ -496,7 +496,7 @@ sensor:modalias:acpi:KIOX000A:*:dmi:bvnINSYDECorp.:bvrBYT70A.YNCHENG.WIN.007:*:s
 # GPD
 #########################################
 
-# TODO: Now that we can match sku, try to search if it could be a better mach. 
+# TODO: Now that we can match sku, try to search if it could be a better match.
 # GPD win (version 1, with the X5-Z8750 CPU)
 # Note we match all dmi fields including the BIOS date checking for all known
 # BIOS dates, since the strings are unfortunately very generic.
@@ -718,7 +718,7 @@ sensor:modalias:acpi:KIOX000A:*:dmi:*:svnLINX:pnVISION004:*    # Vision 8
 #########################################
 # Mediacom
 #########################################
- 
+
 sensor:modalias:acpi:BMA250:*:dmi:*:svnMEDIACOM:pnWinPad7W10-WPW700:*    # Winpad 7.0 W700
  ACCEL_MOUNT_MATRIX=0, 1, 0; 1, 0, 0; 0, 0, 1
 
