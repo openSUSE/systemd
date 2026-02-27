@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Repository checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - id: metadata
         name: Gather Pull Request Metadata

@@ -33,6 +33,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Development Freezer
         uses: redhat-plumbers-in-action/devel-freezer@ad766eafd555b28d2cb8e27937835983f9c3d173

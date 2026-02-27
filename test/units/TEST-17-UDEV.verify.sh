@@ -316,8 +316,10 @@ if ! getent passwd 12345 >/dev/null; then
 fi
 # regular user
 if getent passwd testuser >/dev/null; then
-    test_syntax_error 'OWNER="testuser"' "User 'testuser' is not a system user, ignoring."
-    test_syntax_error "OWNER=\"$(id -u testuser)\"" "User '$(id -u testuser)' is not a system user, ignoring."
+    echo 'OWNER="testuser"' >"${rules}"
+    udevadm verify "${rules}"
+    echo "OWNER=\"$(id -u testuser)\"" >"${rules}"
+    udevadm verify "${rules}"
 fi
 test_syntax_error 'GROUP{a}="b"' 'Invalid attribute for GROUP.'
 test_syntax_error 'GROUP-="b"' 'Invalid operator for GROUP.'
@@ -348,8 +350,11 @@ if ! getent group 12345 >/dev/null; then
 fi
 # regular group
 if getent group testuser >/dev/null; then
-    test_syntax_error 'GROUP="testuser"' "Group 'testuser' is not a system group, ignoring."
-    test_syntax_error "GROUP=\"$(id -g testuser)\"" "Group '$(id -g testuser)' is not a system group, ignoring."
+    echo 'GROUP="testuser"' >"${rules}"
+    udevadm verify "${rules}"
+
+    echo "GROUP=\"$(id -g testuser)\"" >"${rules}"
+    udevadm verify "${rules}"
 fi
 test_syntax_error 'MODE{a}="b"' 'Invalid attribute for MODE.'
 test_syntax_error 'MODE-="b"' 'Invalid operator for MODE.'

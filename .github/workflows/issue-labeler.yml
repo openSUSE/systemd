@@ -21,6 +21,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Parse issue form
         uses: stefanbuck/github-issue-parser@1e5bdee70d4b3e066a33aa0669ab782943825f94

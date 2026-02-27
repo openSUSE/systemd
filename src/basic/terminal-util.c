@@ -31,6 +31,7 @@
 #include "namespace-util.h"
 #include "parse-util.h"
 #include "path-util.h"
+#include "pidref.h"
 #include "proc-cmdline.h"
 #include "process-util.h"
 #include "signal-util.h"
@@ -1116,7 +1117,7 @@ int resolve_dev_console(char **ret) {
          * is a sign for container setups). */
 
         _cleanup_free_ char *chased = NULL;
-        r = chase("/dev/console", /* root= */ NULL, /* flags= */ 0,  &chased, /* ret_fd= */ NULL);
+        r = chase("/dev/console", /* root= */ NULL, /* flags= */ 0, &chased, /* ret_fd= */ NULL);
         if (r < 0)
                 return r;
         if (!path_equal(chased, "/dev/console")) {
@@ -1134,6 +1135,8 @@ int resolve_dev_console(char **ret) {
         r = read_one_line_file("/sys/class/tty/console/active", &active);
         if (r < 0)
                 return r;
+        if (r == 0)
+                return -ENXIO;
 
         /* If multiple log outputs are configured the last one is what /dev/console points to */
         const char *tty = strrchr(active, ' ');
@@ -1149,6 +1152,8 @@ int resolve_dev_console(char **ret) {
                 r = read_one_line_file("/sys/class/tty/tty0/active", &active);
                 if (r < 0)
                         return r;
+                if (r == 0)
+                        return -ENXIO;
 
                 tty = active;
         }
@@ -1192,6 +1197,10 @@ int get_kernel_consoles(char ***ret) {
                         r = read_one_line_file("/sys/class/tty/tty0/active", &tty);
                         if (r < 0)
                                 return r;
+                        if (r == 0) {
+                                log_debug("No VT active, skipping /dev/tty0.");
+                                continue;
+                        }
                 }
 
                 path = path_join("/dev", tty);
@@ -1658,7 +1667,7 @@ int openpt_allocate_in_namespace(
 
         r = pidref_namespace_open(pidref, &pidnsfd, &mntnsfd, /* ret_netns_fd = */ NULL, &usernsfd, &rootfd);
         if (r < 0)
-                return r;
+                return log_debug_errno(r, "Failed to open namespaces of PID "PID_FMT": %m", pidref->pid);
 
         if (socketpair(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0, pair) < 0)
                 return -errno;

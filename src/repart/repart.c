@@ -374,6 +374,7 @@ typedef struct Partition {
 
         bool dropped;
         bool factory_reset;
+        bool discarded;
         int32_t priority;
 
         uint32_t weight, padding_weight;
@@ -2517,7 +2518,7 @@ static bool partition_needs_populate(const Partition *p) {
 static MakeFileSystemFlags partition_mkfs_flags(const Partition *p) {
         MakeFileSystemFlags flags = 0;
 
-        if (arg_discard)
+        if (arg_discard && !p->discarded)
                 flags |= MKFS_DISCARD;
 
         if (streq(p->format, "erofs") && !DEBUG_LOGGING && !isatty_safe(STDERR_FILENO))
@@ -2715,7 +2716,7 @@ static int partition_read_definition(Partition *p, const char *path, const char 
         }
 
         /* Verity partitions are read only, let's imply the RO flag hence, unless explicitly configured otherwise. */
-        if ((partition_designator_is_verity(p->type.designator) || p->verity == VERITY_DATA) && p->read_only < 0)
+        if ((partition_designator_is_verity(p->type.designator) || IN_SET(p->verity, VERITY_DATA, VERITY_SIG)) && p->read_only < 0)
                 p->read_only = true;
 
         /* Default to "growfs" on, unless read-only */
@@ -4325,6 +4326,7 @@ static int context_discard_partition(Context *context, Partition *p) {
                 return log_error_errno(r, "Failed to discard data for future partition %" PRIu64 ".", p->partno);
 
         log_info("Successfully discarded data from future partition %" PRIu64 ".", p->partno);
+        p->discarded = true;
         return 1;
 }
 
