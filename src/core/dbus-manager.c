@@ -666,6 +666,12 @@ static int method_get_unit_by_control_group(sd_bus_message *message, void *userd
         if (r < 0)
                 return r;
 
+        if (!path_is_absolute(cgroup))
+                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Control group path is not absolute: %s", cgroup);
+
+        if (!path_is_normalized(cgroup))
+                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Control group path is not normalized: %s", cgroup);
+
         u = manager_get_unit_by_cgroup(m, cgroup);
         if (!u)
                 return sd_bus_error_setf(error, BUS_ERROR_NO_SUCH_UNIT,
@@ -2189,6 +2195,8 @@ static int method_enqueue_marked_jobs(sd_bus_message *message, void *userdata, s
         char *k;
         int ret = 0;
         HASHMAP_FOREACH_KEY(u, k, m->units) {
+                _cleanup_(sd_bus_error_free) sd_bus_error e = SD_BUS_ERROR_NULL;
+
                 /* ignore aliases */
                 if (u->id != k)
                         continue;
@@ -2201,17 +2209,16 @@ static int method_enqueue_marked_jobs(sd_bus_message *message, void *userdata, s
                 else
                         continue;
 
-                r = mac_selinux_unit_access_check(u, message, "start", error);
+                r = mac_selinux_unit_access_check(u, message, "start", &e);
                 if (r >= 0)
                         r = bus_unit_queue_job_one(message, u,
                                                    JOB_TRY_RESTART, JOB_FAIL, flags,
-                                                   reply, error);
+                                                   reply, &e);
+                if (ERRNO_IS_NEG_RESOURCE(r))
+                        return r;
                 if (r < 0) {
-                        if (ERRNO_IS_RESOURCE(r))
-                                return r;
-                        if (ret >= 0)
-                                ret = r;
-                        sd_bus_error_free(error);
+                        RET_GATHER(ret, r);
+                        log_warning_errno(r, "%s", bus_error_message(&e, r));
                 }
         }
 
