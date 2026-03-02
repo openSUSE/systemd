@@ -69,12 +69,12 @@ journalctl -b -t "$ID" --truncate-newline | grep -q -v TAIL
 journalctl -b -1 -b all -m >/dev/null
 
 # -b always behaves like -b0
-journalctl -q -b-1 -b0 | head -1 >/tmp/expected
-journalctl -q -b-1 -b | head -1 >/tmp/output
+journalctl -q -b-1 -b0 -n+1 >/tmp/expected
+journalctl -q -b-1 -b -n+1 >/tmp/output
 diff /tmp/expected /tmp/output
 # ... even when another option follows (both of these should fail due to -m)
-{ journalctl -ball -b0 -m 2>&1 || :; } | head -1 >/tmp/expected
-{ journalctl -ball -b  -m 2>&1 || :; } | head -1 >/tmp/output
+{ journalctl -ball -b0 -n+1 -m 2>&1 || :; } >/tmp/expected
+{ journalctl -ball -b  -n+1 -m 2>&1 || :; } >/tmp/output
 diff /tmp/expected /tmp/output
 
 # https://github.com/systemd/systemd/issues/13708
@@ -104,10 +104,12 @@ diff /tmp/expected /tmp/output
 
 # test that LogLevelMax can also suppress logging about services, not only by services
 systemctl start silent-success
+journalctl --sync
 [[ -z "$(journalctl -b -q -u silent-success.service)" ]]
 
 # Test syslog identifiers exclusion
 systemctl start verbose-success.service
+journalctl --sync
 [[ -n "$(journalctl -b -q -u verbose-success.service -t systemd)" ]]
 [[ -n "$(journalctl -b -q -u verbose-success.service -t bash)" ]]
 [[ -n "$(journalctl -b -q -u verbose-success.service -T systemd)" ]]

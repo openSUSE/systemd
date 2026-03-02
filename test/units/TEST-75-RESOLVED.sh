@@ -59,6 +59,7 @@ monitor_check_rr() (
     # displayed. We turn off pipefail for this, since we don't care about the
     # lhs of this pipe expression, we only care about the rhs' result to be
     # clean
+    set +o pipefail
     timeout -v 30s journalctl -u resolvectl-monitor.service --since "$since" -f --full | grep -m1 "$match"
 )
 
@@ -182,8 +183,8 @@ EOF
         chown -R knot:knot /run/knot
     fi
     systemctl start knot
-    # Wait a bit for the keys to propagate
-    sleep 4
+    # Wait for signed.test's zone DS records to get pushed to the parent zone
+    timeout 60s bash -xec 'until knotc zone-read test. signed.test. ds | grep -E "signed\.test\. [0-9]+ DS"; do sleep 2; done'
 
     systemctl status resolved-dummy-server
     networkctl status

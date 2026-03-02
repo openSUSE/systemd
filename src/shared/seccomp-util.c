@@ -359,6 +359,8 @@ const SyscallFilterSet syscall_filter_sets[_SYSCALL_FILTER_SET_MAX] = {
                 "gettimeofday\0"
                 "getuid\0"
                 "getuid32\0"
+                "lsm_get_self_attr\0"
+                "lsm_list_modules\0"
                 "membarrier\0"
                 "mmap\0"
                 "mmap2\0"
@@ -2387,7 +2389,7 @@ uint32_t scmp_act_kill_process(void) {
 
 int parse_syscall_and_errno(const char *in, char **name, int *error) {
         _cleanup_free_ char *n = NULL;
-        char *p;
+        const char *p;
         int e = -1;
 
         assert(in);

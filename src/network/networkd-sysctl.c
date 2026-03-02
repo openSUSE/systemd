@@ -378,6 +378,8 @@ static int link_set_ip_forwarding(Link *link, int family) {
         if (FLAGS_SET(link->network->ip_masquerade, AF_TO_ADDRESS_FAMILY(family)) &&
             link->manager->ip_forwarding[family == AF_INET6] < 0) {
 
+                log_link_notice(link, "IPMasquerade= is enabled on the interface, enabling the global IPv6Forwarding= setting, which may affect NDisc and DHCPv6 client on other interfaces.");
+
                 link->manager->ip_forwarding[family == AF_INET6] = true;
                 manager_set_ip_forwarding(link->manager, family);
 
@@ -539,11 +541,11 @@ int link_set_ipv6_mtu(Link *link, int log_level) {
         if (mtu == 0)
                 return 0;
 
-        if (mtu > link->mtu) {
+        if (mtu > link->max_mtu) {
                 log_link_full(link, log_level,
                               "Reducing requested IPv6 MTU %"PRIu32" to the interface's maximum MTU %"PRIu32".",
-                              mtu, link->mtu);
-                mtu = link->mtu;
+                              mtu, link->max_mtu);
+                mtu = link->max_mtu;
         }
 
         r = sysctl_write_ip_property_uint32(AF_INET6, link->ifname, "mtu", mtu, manager_get_sysctl_shadow(link->manager));

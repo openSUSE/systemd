@@ -179,9 +179,14 @@ def get_zboot_kernel(f: IO[bytes]) -> bytes:
     elif comp_type.startswith(b'xzkern'):
         raise NotImplementedError('xzkern decompression not implemented')
     elif comp_type.startswith(b'zstd'):
-        zstd = try_import('zstandard')
-        data = f.read(size)
-        return cast(bytes, zstd.ZstdDecompressor().stream_reader(data).read())
+        try:
+            zstd = try_import('compression.zstd')
+            data = f.read(size)
+            return cast(bytes, zstd.zstd.ZstdDecompressor().decompress(data))
+        except ValueError:
+            zstd = try_import('zstandard')
+            data = f.read(size)
+            return cast(bytes, zstd.ZstdDecompressor().stream_reader(data).read())
 
     raise NotImplementedError(f'unknown compressed type: {comp_type!r}')
 
@@ -211,8 +216,12 @@ def maybe_decompress(filename: Union[str, Path]) -> bytes:
         return cast(bytes, gzip.open(f).read())
 
     if start.startswith(b'\x28\xb5\x2f\xfd'):
-        zstd = try_import('zstandard')
-        return cast(bytes, zstd.ZstdDecompressor().stream_reader(f.read()).read())
+        try:
+            zstd = try_import('compression.zstd')
+            return cast(bytes, zstd.zstd.ZstdDecompressor().decompress(f.read()))
+        except ValueError:
+            zstd = try_import('zstandard')
+            return cast(bytes, zstd.ZstdDecompressor().stream_reader(f.read()).read())
 
     if start.startswith(b'\x02\x21\x4c\x18'):
         lz4 = try_import('lz4.frame', 'lz4')
@@ -1260,6 +1269,9 @@ def make_uki(opts: UkifyConfig) -> None:
         '.profile',
     }
 
+    if not opts.os_release:
+        to_import.remove('.osrel')
+
     for profile in opts.join_profiles:
         pe = pefile.PE(profile, fast_load=True)
         prev_len = len(uki.sections)
@@ -2125,7 +2137,12 @@ def finalize_options(opts: argparse.Namespace) -> None:
 
     opts.os_release = resolve_at_path(opts.os_release)
 
-    if not opts.os_release and opts.linux:
+    if opts.os_release == '':
+        # If --os-release= with an empty string was passed, treat that as
+        # explicitly disabling the .osrel section, and do not fallback to the
+        # system's os-release files.
+        pass
+    elif opts.os_release is None and opts.linux:
         p = Path('/etc/os-release')
         if not p.exists():
             p = Path('/usr/lib/os-release')

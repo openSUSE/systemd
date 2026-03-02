@@ -54,6 +54,8 @@ static int device_monitor_handler(sd_device_monitor *monitor, sd_device *device,
                 printf("\n");
         }
 
+        fflush(stdout);
+
         return 0;
 }
 

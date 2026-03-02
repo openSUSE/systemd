@@ -1167,7 +1167,7 @@ static int process_route_one(
                         route_detach(route);
                 } else
                         log_route_debug(tmp,
-                                        manager->manage_foreign_routes ? "Kernel removed unknown" : "Ignoring received",
+                                        manager->manage_foreign_routes ? "Kernel removed unknown" : "Ignoring removed",
                                         manager);
 
                 if (req)
@@ -1925,6 +1925,12 @@ int config_parse_route_section(
 
         if (streq(section, "Network")) {
                 assert(streq_ptr(lvalue, "Gateway"));
+
+                /* Clear all previously defined routes when Gateway= (empty) is set in [Network] section */
+                if (isempty(rvalue)) {
+                        network->routes_by_section = hashmap_free(network->routes_by_section);
+                        return 0;
+                }
 
                 /* we are not in an Route section, so use line number instead */
                 r = route_new_static(network, filename, line, &route);

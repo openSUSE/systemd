@@ -31,7 +31,7 @@
 
 /******************************************************************************/
 
-static void mpi_export(void *buf, size_t buflen, const gcry_mpi_t x) {
+static void mpi_export(void *buf, size_t buflen, gcry_mpi_t x) {
         unsigned len;
         size_t nwritten;
 
@@ -134,7 +134,7 @@ static gcry_mpi_t genprime3mod4(int bits, const void *seed, size_t seedlen, uint
 }
 
 /* deterministically generate from seed/idx a quadratic residue (mod n) */
-static gcry_mpi_t gensquare(const gcry_mpi_t n, const void *seed, size_t seedlen, uint32_t idx, unsigned secpar) {
+static gcry_mpi_t gensquare(gcry_mpi_t n, const void *seed, size_t seedlen, uint32_t idx, unsigned secpar) {
         size_t buflen = secpar / 8;
         uint8_t buf[buflen];
         gcry_mpi_t x;
@@ -148,7 +148,7 @@ static gcry_mpi_t gensquare(const gcry_mpi_t n, const void *seed, size_t seedlen
 }
 
 /* compute 2^m (mod phi(p)), for a prime p */
-static gcry_mpi_t twopowmodphi(uint64_t m, const gcry_mpi_t p) {
+static gcry_mpi_t twopowmodphi(uint64_t m, gcry_mpi_t p) {
         gcry_mpi_t phi, r;
         int n;
 
@@ -176,7 +176,7 @@ static gcry_mpi_t twopowmodphi(uint64_t m, const gcry_mpi_t p) {
 }
 
 /* Decompose $x \in Z_n$ into $(xp,xq) \in Z_p \times Z_q$ using Chinese Remainder Theorem */
-static void CRT_decompose(gcry_mpi_t *xp, gcry_mpi_t *xq, const gcry_mpi_t x, const gcry_mpi_t p, const gcry_mpi_t q) {
+static void CRT_decompose(gcry_mpi_t *xp, gcry_mpi_t *xq, gcry_mpi_t x, gcry_mpi_t p, gcry_mpi_t q) {
         *xp = sym_gcry_mpi_new(0);
         *xq = sym_gcry_mpi_new(0);
         sym_gcry_mpi_mod(*xp, x, p);
@@ -184,7 +184,7 @@ static void CRT_decompose(gcry_mpi_t *xp, gcry_mpi_t *xq, const gcry_mpi_t x, co
 }
 
 /* Compose $(xp,xq) \in Z_p \times Z_q$ into $x \in Z_n$ using Chinese Remainder Theorem */
-static void CRT_compose(gcry_mpi_t *x, const gcry_mpi_t xp, const gcry_mpi_t xq, const gcry_mpi_t p, const gcry_mpi_t q) {
+static void CRT_compose(gcry_mpi_t *x, gcry_mpi_t xp, gcry_mpi_t xq, gcry_mpi_t p, gcry_mpi_t q) {
         gcry_mpi_t a, u;
 
         a = sym_gcry_mpi_new(0);

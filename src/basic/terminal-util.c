@@ -825,6 +825,8 @@ int resolve_dev_console(char **ret) {
                 r = read_one_line_file("/sys/class/tty/tty0/active", &active);
                 if (r < 0)
                         return r;
+                if (r == 0)
+                        return -ENXIO;
 
                 tty = active;
         }
@@ -868,6 +870,10 @@ int get_kernel_consoles(char ***ret) {
                         r = read_one_line_file("/sys/class/tty/tty0/active", &tty);
                         if (r < 0)
                                 return r;
+                        if (r == 0) {
+                                log_debug("No VT active, skipping /dev/tty0.");
+                                continue;
+                        }
                 }
 
                 path = path_join("/dev", tty);

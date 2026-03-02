@@ -470,7 +470,8 @@ char* line_get_key_value(char *s, const char *sep, size_t *pos, char **ret_key, 
                         value++;
 
                 /* unquote */
-                if (value[0] == '"' && line[linelen - 1] == '"') {
+                if ((value[0] == '"' && line[linelen - 1] == '"') ||
+                    (value[0] == '\'' && line[linelen - 1] == '\'')) {
                         value++;
                         line[linelen - 1] = '\0';
                 }
@@ -997,6 +998,7 @@ _used_ void *memcpy(void * restrict dest, const void * restrict src, size_t n);
 _used_ void *memset(void *p, int c, size_t n);
 #else
 /* And for userspace unit testing we need to give them an efi_ prefix. */
+#  undef memchr
 #  define memchr efi_memchr
 #  define memcmp efi_memcmp
 #  define memcpy efi_memcpy

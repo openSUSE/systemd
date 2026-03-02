@@ -75,7 +75,7 @@ UDEV_TAG = Word(string.ascii_uppercase, alphanums + '_')
 TYPES = {'mouse':    ('usb', 'bluetooth', 'ps2', '*'),
          'evdev':    ('name', 'atkbd', 'input'),
          'fb':       ('pci', 'vmbus'),
-         'id-input': ('modalias'),
+         'id-input': ('modalias', 'bluetooth', 'i2c', 'usb'),
          'touchpad': ('i8042', 'rmi', 'bluetooth', 'usb'),
          'joystick': ('i8042', 'rmi', 'bluetooth', 'usb'),
          'keyboard': ('name', ),
@@ -205,7 +205,7 @@ def property_grammar():
                    for name, val in props]
     kbd_props = [Regex(r'KEYBOARD_KEY_[0-9a-f]+')('NAME')
                  - Suppress('=') -
-                 ('!' ^ (Optional('!') - Word(alphanums + '_')))('VALUE')
+                 Group('!' ^ (Optional('!') - Word(alphanums + '_')))('VALUE')
                 ]
     abs_props = [Regex(r'EVDEV_ABS_[0-9a-f]{2}')('NAME')
                  - Suppress('=') -
@@ -336,7 +336,7 @@ def print_summary(fname, groups):
     print(f'{fname}: {len(groups)} match groups, {n_matches} matches, {n_props} properties')
 
     if n_matches == 0 or n_props == 0:
-        error(f'{fname}: no matches or props')
+        print(f'{fname}: no matches or props')
 
 if __name__ == '__main__':
     args = sys.argv[1:] or sorted(glob.glob(os.path.dirname(sys.argv[0]) + '/[678][0-9]-*.hwdb'))

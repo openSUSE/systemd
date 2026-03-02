@@ -237,7 +237,7 @@ size_t syslog_parse_identifier(const char **buf, char **identifier, char **pid) 
         return l;
 }
 
-static int syslog_skip_timestamp(const char **buf) {
+static size_t syslog_skip_timestamp(const char **buf) {
         enum {
                 LETTER,
                 SPACE,
@@ -257,8 +257,8 @@ static int syslog_skip_timestamp(const char **buf) {
                 SPACE
         };
 
-        const char *p, *t;
-        unsigned i;
+        const char *p;
+        size_t i;
 
         assert(buf);
         assert(*buf);
@@ -295,13 +295,15 @@ static int syslog_skip_timestamp(const char **buf) {
                         if (*p != ':')
                                 return 0;
                         break;
-
                 }
         }
 
-        t = *buf;
+        assert(p >= *buf);
+        size_t n = p - *buf;
+        assert(n <= ELEMENTSOF(sequence));
+
         *buf = p;
-        return p - t;
+        return n;
 }
 
 void server_process_syslog_message(

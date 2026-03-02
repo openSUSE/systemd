@@ -446,6 +446,8 @@ static int help(void) {
                "     --overlay-ro=PATH[:PATH...]:PATH\n"
                "                            Similar, but creates a read-only overlay mount\n"
                "     --bind-user=NAME       Bind user from host to container\n"
+               "     --bind-user-shell=BOOL|PATH\n"
+               "                            Configure the shell to use for --bind-user= users\n"
                "\n%3$sInput/Output:%4$s\n"
                "     --console=MODE         Select how stdin/stdout/stderr and /dev/console are\n"
                "                            set up for the container.\n"
@@ -1020,31 +1022,23 @@ static int parse_argv(int argc, char *argv[]) {
                 }
 
                 case 'M':
-                        if (isempty(optarg))
-                                arg_machine = mfree(arg_machine);
-                        else {
-                                if (!hostname_is_valid(optarg, 0))
-                                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                                               "Invalid machine name: %s", optarg);
+                        if (!isempty(optarg) && !hostname_is_valid(optarg, /* flags= */ 0))
+                                return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                                       "Invalid machine name: %s", optarg);
 
-                                r = free_and_strdup(&arg_machine, optarg);
-                                if (r < 0)
-                                        return log_oom();
-                        }
+                        r = free_and_strdup_warn(&arg_machine, optarg);
+                        if (r < 0)
+                                return r;
                         break;
 
                 case ARG_HOSTNAME:
-                        if (isempty(optarg))
-                                arg_hostname = mfree(arg_hostname);
-                        else {
-                                if (!hostname_is_valid(optarg, 0))
-                                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                                               "Invalid hostname: %s", optarg);
+                        if (!isempty(optarg) && !hostname_is_valid(optarg, /* flags= */ 0))
+                                return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                                       "Invalid hostname: %s", optarg);
 
-                                r = free_and_strdup(&arg_hostname, optarg);
-                                if (r < 0)
-                                        return log_oom();
-                        }
+                        r = free_and_strdup_warn(&arg_hostname, optarg);
+                        if (r < 0)
+                                return r;
 
                         arg_settings_mask |= SETTING_HOSTNAME;
                         break;

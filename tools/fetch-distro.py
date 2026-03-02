@@ -34,7 +34,7 @@ def parse_args():
     return p.parse_args()
 
 def read_config(distro: str):
-    cmd = ['mkosi', '--json', '-d', distro, 'summary']
+    cmd = ['mkosi', '--json', '-d', distro, '-f', 'summary']
     print(f"+ {shlex.join(cmd)}")
     text = subprocess.check_output(cmd, text=True)
 

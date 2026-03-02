@@ -44,7 +44,7 @@ struct Manager {
 
         RateLimit ratelimit;
         bool exhausted_servers;
-        bool have_fallbacks;
+        bool fallback_set; /* Indicate if FallbackNTP= is explicitly configured. */
 
         /* network */
         sd_event_source *network_event_source;
