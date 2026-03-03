@@ -141,7 +141,7 @@ static int extract_prefix(const char *path, char **ret) {
         else {
                 const char *e;
 
-                e = endswith(bn, ".raw");
+                e = ENDSWITH_SET(bn, ".raw.v", ".raw", ".v");
                 if (!e)
                         e = strchr(bn, 0);
 

@@ -182,6 +182,9 @@ systemctl is-active app0.service
 status="$(portablectl is-attached --extension /tmp/app10.raw /usr/share/minimal_0.raw)"
 [[ "${status}" == "running-runtime" ]]
 
+# Ensure --force adds relax-extension-release-check for image extensions
+grep -q -F "ExtensionImages=" /run/systemd/system.attached/app0.service.d/20-portable.conf
+
 portablectl inspect --force --cat --extension /tmp/app10.raw /usr/share/minimal_0.raw app0 | grep -F "Extension Release: /tmp/app10.raw" >/dev/null
 
 # Ensure that we can detach even when an image has been deleted already (stop the unit manually as

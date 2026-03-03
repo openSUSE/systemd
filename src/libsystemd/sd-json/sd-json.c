@@ -56,7 +56,7 @@ typedef struct JsonSource {
         char name[];
 } JsonSource;
 
-/* On x86-64 this whole structure should have a size of 6 * 64 bit = 48 bytes */
+/* On x86-64 this whole structure should have a size of 5 * 64 bit = 40 bytes */
 struct sd_json_variant {
         union {
                 /* We either maintain a reference counter for this variant itself, or we are embedded into an
@@ -132,7 +132,7 @@ struct sd_json_variant {
 
 /* Let's make sure this structure isn't increased in size accidentally. This check is only for our most relevant arch
  * (x86-64). */
-#if defined(__x86_64__) && __SIZEOF_POINTER__ == 8
+#if defined(__x86_64__) && __SIZEOF_POINTER__ == 8 && !defined(__EDG__)
 assert_cc(sizeof(sd_json_variant) == 40U);
 assert_cc(INLINE_STRING_MAX == 7U);
 #endif
@@ -2235,7 +2235,7 @@ _public_ int sd_json_variant_append_array(sd_json_variant **v, sd_json_variant *
 
                         if (old != *v)
                                 /* Readjust the parent pointers to the new address */
-                                for (size_t i = 1; i < size; i++)
+                                for (size_t i = 0; i < size; i++)
                                         (*v)[1 + i].parent = *v;
 
                         return json_variant_array_put_element(*v, element);

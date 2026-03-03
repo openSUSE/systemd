@@ -38,17 +38,17 @@ test -f /run/systemd/nvpcr/test.anchor
 /usr/lib/systemd/systemd-pcrextend --nvpcr=test schrumpel
 # To calculate the current value we need the anchor measurement
 DIGEST_BASE="$(cat /run/systemd/nvpcr/test.anchor)"
-DIGEST_MEASURED="$(echo -n "schrumpel" | openssl dgst -sha256 -binary | xxd -p -c200)"
-DIGEST_EXPECTED="$(echo "$DIGEST_BASE$DIGEST_MEASURED" | xxd -r -p | openssl dgst -sha256 -binary | xxd -p -c200)"
+DIGEST_MEASURED="$(echo -n "schrumpel" | openssl dgst -sha256 -hex -r | cut -d' ' -f1)"
+DIGEST_EXPECTED="$(echo "$DIGEST_BASE$DIGEST_MEASURED" | tr '[:lower:]' '[:upper:]' | basenc --base16 -d | openssl dgst -sha256 -hex -r | cut -d' ' -f1)"
 DIGEST_ACTUAL="$(systemd-analyze nvpcrs test --json=pretty | jq -r '.[] | select(.name=="test") | .value')"
 test "$DIGEST_ACTUAL" = "$DIGEST_EXPECTED"
 
-# Now "destroy" the value via another measurement
-/usr/lib/systemd/systemd-pcrextend --nvpcr=test schnurz
+# Now "destroy" the value via another measurement (this time we use Varlink, to test the API)
+varlinkctl call /usr/lib/systemd/systemd-pcrextend io.systemd.PCRExtend.Extend '{"nvpcr":"test","text":"schnurz"}'
 DIGEST_ACTUAL2="$(systemd-analyze nvpcrs test --json=pretty | jq -r '.[] | select(.name=="test") | .value')"
 test "$DIGEST_ACTUAL2" != "$DIGEST_EXPECTED"
 
 # And calculate the new result
-DIGEST_MEASURED2="$(echo -n "schnurz" | openssl dgst -sha256 -binary | xxd -p -c200)"
-DIGEST_EXPECTED2="$(echo "$DIGEST_EXPECTED$DIGEST_MEASURED2" | xxd -r -p | openssl dgst -sha256 -binary | xxd -p -c200)"
+DIGEST_MEASURED2="$(echo -n "schnurz" | openssl dgst -sha256 -hex -r | cut -d' ' -f1)"
+DIGEST_EXPECTED2="$(echo "$DIGEST_EXPECTED$DIGEST_MEASURED2" | tr '[:lower:]' '[:upper:]' | basenc --base16 -d | openssl dgst -sha256 -hex -r | cut -d' ' -f1)"
 test "$DIGEST_ACTUAL2" = "$DIGEST_EXPECTED2"

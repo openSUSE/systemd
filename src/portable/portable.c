@@ -1192,7 +1192,7 @@ static int install_chroot_dropin(
                                                ext->path,
                                                /* With --force tell PID1 to avoid enforcing that the image <name> and
                                                 * extension-release.<name> have to match. */
-                                               !IN_SET(type, IMAGE_DIRECTORY, IMAGE_SUBVOLUME) &&
+                                               !IN_SET(ext->type, IMAGE_DIRECTORY, IMAGE_SUBVOLUME) &&
                                                    FLAGS_SET(flags, PORTABLE_FORCE_EXTENSION) ?
                                                        ":x-systemd.relax-extension-release-check\n" :
                                                        "\n",
