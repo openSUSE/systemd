@@ -35,6 +35,7 @@
 #include "strv.h"
 #include "strxcpyx.h"
 #include "udev-builtin.h"
+#include "utf8.h"
 
 #define ONBOARD_14BIT_INDEX_MAX ((1U << 14) - 1)
 #define ONBOARD_16BIT_INDEX_MAX ((1U << 16) - 1)
@@ -210,7 +211,10 @@ static int dev_pci_onboard(sd_device *dev, struct netnames *names) {
         }
 
         /* kernel provided front panel port name for multiple port PCI device */
-        (void) sd_device_get_sysattr_value(dev, "phys_port_name", &port_name);
+        r = sd_device_get_sysattr_value(dev, "phys_port_name", &port_name);
+        if (r >= 0 && !isempty(port_name))
+                if (!utf8_is_valid(port_name) || string_has_cc(port_name, /* ok= */ NULL))
+                        return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid phys_port_name");
 
         s = names->pci_onboard;
         l = sizeof(names->pci_onboard);
@@ -225,9 +229,15 @@ static int dev_pci_onboard(sd_device *dev, struct netnames *names) {
                          idx, strempty(port_name), dev_port,
                          empty_to_na(names->pci_onboard));
 
-        if (sd_device_get_sysattr_value(names->pcidev, "label", &names->pci_onboard_label) >= 0)
+        const char *label;
+        r = sd_device_get_sysattr_value(names->pcidev, "label", &label);
+        if (r >= 0) {
+                if (!utf8_is_valid(label) || string_has_cc(label, /* ok= */ NULL))
+                        return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid label");
+
+                names->pci_onboard_label = label;
                 log_device_debug(dev, "Onboard label from PCI device: %s", names->pci_onboard_label);
-        else
+        } else
                 names->pci_onboard_label = NULL;
 
         return 0;
@@ -386,7 +396,10 @@ static int dev_pci_slot(sd_device *dev, struct netnames *names) {
         }
 
         /* kernel provided front panel port name for multi-port PCI device */
-        (void) sd_device_get_sysattr_value(dev, "phys_port_name", &port_name);
+        r = sd_device_get_sysattr_value(dev, "phys_port_name", &port_name);
+        if (r >= 0 && !isempty(port_name))
+                if (!utf8_is_valid(port_name) || string_has_cc(port_name, /* ok= */ NULL))
+                        return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid phys_port_name");
 
         /* compose a name based on the raw kernel's PCI bus, slot numbers */
         s = names->pci_path;
@@ -906,6 +919,10 @@ static int names_netdevsim(sd_device *dev, struct netnames *names) {
         r = sd_device_get_sysattr_value(dev, "phys_port_name", &port_name);
         if (r < 0)
                 return r;
+        if (isempty(port_name))
+                return -EOPNOTSUPP;
+        if (!utf8_is_valid(port_name) || string_has_cc(port_name, /* ok= */ NULL))
+                return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid phys_port_name");
 
         ok = snprintf_ok(names->netdevsim_path, sizeof(names->netdevsim_path), "i%un%s", addr, port_name);
         if (!ok)
