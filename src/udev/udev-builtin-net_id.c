@@ -104,6 +104,7 @@
 #include "fileio.h"
 #include "string-util.h"
 #include "udev.h"
+#include "utf8.h"
 
 enum netname_type{
         NET_UNDEF,
@@ -139,6 +140,7 @@ static int dev_pci_onboard(struct udev_device *dev, struct netnames *names) {
         size_t l;
         char *s;
         const char *attr;
+        const char *label;
         int idx;
 
         /* ACPI _DSM  -- device specific method for naming a PCI or PCI Express device */
@@ -166,7 +168,14 @@ static int dev_pci_onboard(struct udev_device *dev, struct netnames *names) {
         if (l == 0)
                 names->pci_onboard[0] = '\0';
 
-        names->pci_onboard_label = udev_device_get_sysattr_value(names->pcidev, "label");
+        label = udev_device_get_sysattr_value(names->pcidev, "label");
+        if (label)
+                if (!utf8_is_valid(label) || string_has_cc(label, /* ok= */ NULL)) {
+                        log_debug("Invalid label: %s", label);
+                        return -EINVAL;
+                }
+
+        names->pci_onboard_label = label;
 
         return 0;
 }
