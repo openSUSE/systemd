@@ -762,7 +762,7 @@ static int builtin_path_id(struct udev_device *dev, int argc, char *argv[], bool
                 const char *p;
 
                 /* compose valid udev tag name */
-                for (p = path, i = 0; *p; p++) {
+                for (p = path, i = 0; *p && i < sizeof(tag) - 1; p++) {
                         if ((*p >= '0' && *p <= '9') ||
                             (*p >= 'A' && *p <= 'Z') ||
                             (*p >= 'a' && *p <= 'z') ||
