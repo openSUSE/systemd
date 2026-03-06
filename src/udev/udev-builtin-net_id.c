@@ -39,6 +39,7 @@
 #include "strv.h"
 #include "strxcpyx.h"
 #include "udev-builtin.h"
+#include "utf8.h"
 
 #define ONBOARD_14BIT_INDEX_MAX ((1U << 14) - 1)
 #define ONBOARD_16BIT_INDEX_MAX ((1U << 16) - 1)
@@ -204,6 +205,9 @@ static int get_port_specifier(sd_device *dev, bool fallback_to_dev_id, char **re
                         }
                 }
 
+                if (!utf8_is_valid(phys_port_name) || string_has_cc(phys_port_name, /* ok= */ NULL))
+                        return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid phys_port_name");
+
                 /* Otherwise, use phys_port_name as is. */
                 if (asprintf(&buf, "n%s", phys_port_name) < 0)
                         return -ENOMEM;
@@ -291,9 +295,15 @@ static int dev_pci_onboard(sd_device *dev, const LinkInfo *info, NetNames *names
                          idx, strna(port),
                          special_glyph(SPECIAL_GLYPH_ARROW_RIGHT), empty_to_na(names->pci_onboard));
 
-        if (device_get_sysattr_value_filtered(names->pcidev, "label", &names->pci_onboard_label) >= 0)
+        const char *label;
+        r = device_get_sysattr_value_filtered(names->pcidev, "label", &label);
+        if (r >= 0) {
+                if (!utf8_is_valid(label) || string_has_cc(label, /* ok= */ NULL))
+                        return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid label");
+
+                names->pci_onboard_label = label;
                 log_device_debug(dev, "Onboard label from PCI device: %s", names->pci_onboard_label);
-        else
+        } else
                 names->pci_onboard_label = NULL;
 
         return 0;
@@ -1152,6 +1162,8 @@ static int names_netdevsim(sd_device *dev, const char *prefix, bool test) {
                 return r;
         if (isempty(phys_port_name))
                 return -EOPNOTSUPP;
+        if (!utf8_is_valid(phys_port_name) || string_has_cc(phys_port_name, /* ok= */ NULL))
+                return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid phys_port_name");
 
         char str[ALTIFNAMSIZ];
         if (snprintf_ok(str, sizeof str, "%si%un%s", prefix, addr, phys_port_name))
