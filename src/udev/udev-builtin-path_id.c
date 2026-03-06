@@ -683,7 +683,7 @@ static void add_id_tag(sd_device *dev, bool test, const char *path) {
         int r;
 
         /* compose valid udev tag name */
-        for (const char *p = path; *p; p++) {
+        for (const char *p = path; *p && i < sizeof(tag) - 1; p++) {
                 if (ascii_isdigit(*p) ||
                     ascii_isalpha(*p) ||
                     *p == '-') {
