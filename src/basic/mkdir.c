@@ -112,7 +112,7 @@ int mkdir_parents_internal(const char *prefix, const char *path, mode_t mode, ui
         if (e == path)
                 return 0;
 
-        p = strndupa(path, e - path);
+        p = strndupa_safe(path, e - path);
         r = is_dir(p, true);
         if (r > 0)
                 return 0;

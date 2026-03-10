@@ -603,7 +603,7 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
 
                         e = strchr(eq, ' ');
                         if (e) {
-                                path = strndupa(eq, e - eq);
+                                path = strndupa_safe(eq, e - eq);
                                 rwm = e+1;
                         }
 
@@ -629,7 +629,7 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
                                                        "Failed to parse %s value %s.",
                                                        field, eq);
 
-                        path = strndupa(eq, e - eq);
+                        path = strndupa_safe(eq, e - eq);
                         bandwidth = e+1;
 
                         if (streq(bandwidth, "infinity"))
@@ -663,7 +663,7 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
                                                        "Failed to parse %s value %s.",
                                                        field, eq);
 
-                        path = strndupa(eq, e - eq);
+                        path = strndupa_safe(eq, e - eq);
                         weight = e+1;
 
                         r = safe_atou64(weight, &u);
@@ -694,7 +694,7 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
                                                        "Failed to parse %s value %s.",
                                                        field, eq);
 
-                        path = strndupa(eq, e - eq);
+                        path = strndupa_safe(eq, e - eq);
                         target = e+1;
 
                         r = parse_sec(target, &usec);
@@ -2379,7 +2379,7 @@ int bus_append_unit_property_assignment(sd_bus_message *m, UnitType t, const cha
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
                                        "Not an assignment: %s", assignment);
 
-        field = strndupa(assignment, eq - assignment);
+        field = strndupa_safe(assignment, eq - assignment);
         eq++;
 
         switch (t) {
