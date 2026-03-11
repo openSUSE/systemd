@@ -24,6 +24,7 @@
 #include "alloc-util.h"
 #include "device-util.h"
 #include "dirent-util.h"
+#include "escape.h"
 #include "fd-util.h"
 #include "fileio.h"
 #include "fs-util.h"
@@ -76,6 +77,12 @@ struct virtfn_info {
         sd_device *physfn_pcidev;
         char suffix[ALTIFNAMSIZ];
 };
+
+static int log_invalid_device_attr(sd_device *dev, const char *attr, const char *value) {
+        _cleanup_free_ char *escaped = cescape(value);
+        return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL),
+                                      "Invalid %s value '%s'.", attr, strnull(escaped));
+}
 
 /* skip intermediate virtio devices */
 static sd_device *skip_virtio(sd_device *dev) {
@@ -214,7 +221,7 @@ static int dev_pci_onboard(sd_device *dev, struct netnames *names) {
         r = sd_device_get_sysattr_value(dev, "phys_port_name", &port_name);
         if (r >= 0 && !isempty(port_name))
                 if (!utf8_is_valid(port_name) || string_has_cc(port_name, /* ok= */ NULL))
-                        return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid phys_port_name");
+                        return log_invalid_device_attr(dev, "phys_port_name", port_name);
 
         s = names->pci_onboard;
         l = sizeof(names->pci_onboard);
@@ -233,7 +240,7 @@ static int dev_pci_onboard(sd_device *dev, struct netnames *names) {
         r = sd_device_get_sysattr_value(names->pcidev, "label", &label);
         if (r >= 0) {
                 if (!utf8_is_valid(label) || string_has_cc(label, /* ok= */ NULL))
-                        return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid label");
+                        return log_invalid_device_attr(dev, "label", label);
 
                 names->pci_onboard_label = label;
                 log_device_debug(dev, "Onboard label from PCI device: %s", names->pci_onboard_label);
@@ -399,7 +406,7 @@ static int dev_pci_slot(sd_device *dev, struct netnames *names) {
         r = sd_device_get_sysattr_value(dev, "phys_port_name", &port_name);
         if (r >= 0 && !isempty(port_name))
                 if (!utf8_is_valid(port_name) || string_has_cc(port_name, /* ok= */ NULL))
-                        return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid phys_port_name");
+                        return log_invalid_device_attr(dev, "phys_port_name", port_name);
 
         /* compose a name based on the raw kernel's PCI bus, slot numbers */
         s = names->pci_path;
@@ -552,8 +559,7 @@ static int names_vio(sd_device *dev, struct netnames *names) {
 
         s = strndupa(s, 8);
         if (!in_charset(s, HEXDIGITS))
-                return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL),
-                                              "VIO bus ID and slot ID contain invalid characters: %s", s);
+                return log_invalid_device_attr(dev, "VIO bus ID and slot ID", s);
 
         /* Parse only slot ID (tha last 4 hexdigits). */
         r = safe_atou_full(s + 4, 16, &slotid);
@@ -622,8 +628,7 @@ static int names_platform(sd_device *dev, struct netnames *names, bool test) {
                 return -EINVAL;
 
         if (!in_charset(vendor, validchars))
-                return log_device_debug_errno(dev, SYNTHETIC_ERRNO(ENOENT),
-                                              "Platform vendor contains invalid characters: %s", vendor);
+                return log_invalid_device_attr(dev, "platform vendor", vendor);
 
         ascii_strlower(vendor);
 
@@ -937,7 +942,7 @@ static int names_netdevsim(sd_device *dev, struct netnames *names) {
         if (isempty(port_name))
                 return -EOPNOTSUPP;
         if (!utf8_is_valid(port_name) || string_has_cc(port_name, /* ok= */ NULL))
-                return log_device_debug_errno(dev, SYNTHETIC_ERRNO(EINVAL), "Invalid phys_port_name");
+                return log_invalid_device_attr(dev, "phys_port_name", port_name);
 
         ok = snprintf_ok(names->netdevsim_path, sizeof(names->netdevsim_path), "i%un%s", addr, port_name);
         if (!ok)
