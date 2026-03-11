@@ -99,7 +99,9 @@
 #include <unistd.h>
 #include <linux/pci_regs.h>
 
+#include "alloc-util.h"
 #include "dirent-util.h"
+#include "escape.h"
 #include "fd-util.h"
 #include "fileio.h"
 #include "string-util.h"
@@ -171,7 +173,8 @@ static int dev_pci_onboard(struct udev_device *dev, struct netnames *names) {
         label = udev_device_get_sysattr_value(names->pcidev, "label");
         if (label)
                 if (!utf8_is_valid(label) || string_has_cc(label, /* ok= */ NULL)) {
-                        log_debug("Invalid label: %s", label);
+                        _cleanup_free_ char *escaped = cescape(label);
+                        log_debug("Invalid label value '%s'.", strnull(escaped));
                         return -EINVAL;
                 }
 
@@ -292,6 +295,7 @@ static int names_vio(struct udev_device *dev, struct netnames *names) {
         struct udev_device *parent;
         unsigned busid, slotid, ethid;
         const char *syspath;
+        int r;
 
         /* check if our direct parent is a VIO device with no other bus in-between */
         parent = udev_device_get_parent(dev);
@@ -307,8 +311,12 @@ static int names_vio(struct udev_device *dev, struct netnames *names) {
          * there should only ever be one bus, and then remove leading zeros. */
         syspath = udev_device_get_syspath(dev);
 
-        if (sscanf(syspath, "/sys/devices/vio/%4x%4x/net/eth%u", &busid, &slotid, &ethid) != 3)
+        r = sscanf(syspath, "/sys/devices/vio/%4x%4x/net/eth%u", &busid, &slotid, &ethid);
+        if (r != 3) {
+                _cleanup_free_ char *escaped = cescape(syspath);
+                log_debug("Invalid busid/slot values in '%s'.", strnull(escaped));
                 return -EINVAL;
+        }
 
         snprintf(names->vio_slot, sizeof(names->vio_slot), "v%u", slotid);
         names->type = NET_VIO;
