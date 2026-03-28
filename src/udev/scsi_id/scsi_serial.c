@@ -26,6 +26,7 @@
 #include "scsi.h"
 #include "scsi_id.h"
 #include "string-util.h"
+#include "strxcpyx.h"
 
 /*
  * A priority based list of id, naa, and binary/ascii for the identifier
@@ -523,9 +524,9 @@ static int check_fill_0x83_id(struct scsi_id_device *dev_scsi,
         strcpy(serial_short, serial + s);
 
         if (id_search->id_type == SCSI_ID_NAA && wwn != NULL) {
-                strncpy(wwn, serial + s, 16);
+                strscpy(wwn, 17, serial + s);
                 if (wwn_vendor_extension)
-                        strncpy(wwn_vendor_extension, serial + s + 16, 16);
+                        strscpy(wwn_vendor_extension, 17, serial + s + 16);
         }
 
         return 0;
