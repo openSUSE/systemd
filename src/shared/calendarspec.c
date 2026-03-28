@@ -1151,9 +1151,8 @@ static int find_matching_component(
                 } else if (c->repeat > 0) {
                         int k;
 
-                        k = start + ROUND_UP(*val - start, c->repeat);
-
-                        if ((!d_set || k < d) && (stop < 0 || k <= stop)) {
+                        if (!__builtin_add_overflow(start, ROUND_UP(*val - start, c->repeat), &k) &&
+                            (!d_set || k < d) && (stop < 0 || k <= stop)) {
                                 d = k;
                                 d_set = true;
                         }
