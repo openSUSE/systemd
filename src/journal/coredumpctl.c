@@ -32,6 +32,7 @@
 #include "compress.h"
 #include "fd-util.h"
 #include "fileio.h"
+#include "io-util.h"
 #include "journal-internal.h"
 #include "log.h"
 #include "macro.h"
@@ -625,20 +626,13 @@ static int save_core(sd_journal *j, int fd, char **path, bool *unlink_temp) {
 
                 r = sd_journal_get_data(j, "COREDUMP", (const void**) &data, &len);
                 if (r == 0) {
-                        ssize_t sz;
-
                         assert(len >= 9);
                         data += 9;
                         len -= 9;
 
-                        sz = write(fd, data, len);
-                        if (sz < 0) {
-                                r = log_error_errno(errno, "Failed to write output: %m");
-                                goto error;
-                        }
-                        if (sz != (ssize_t) len) {
-                                log_error("Short write to output.");
-                                r = -EIO;
+                        r = loop_write(fd, data, len, /* do_poll = */ false);
+                        if (r < 0) {
+                                log_error_errno(r, "Failed to write output: %m");
                                 goto error;
                         }
                 } else if (filename) {
