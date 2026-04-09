@@ -2536,8 +2536,6 @@ static int count_connection(VarlinkServer *server, const struct ucred *ucred) {
         assert(server);
         assert(ucred);
 
-        server->n_connections++;
-
         if (FLAGS_SET(server->flags, VARLINK_SERVER_ACCOUNT_UID)) {
                 r = hashmap_ensure_allocated(&server->by_uid, NULL);
                 if (r < 0)
@@ -2552,6 +2550,8 @@ static int count_connection(VarlinkServer *server, const struct ucred *ucred) {
                 if (r < 0)
                         return log_debug_errno(r, "Failed to increment counter in UID hash table: %m");
         }
+
+        server->n_connections++;
 
         return 0;
 }
