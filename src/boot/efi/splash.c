@@ -97,10 +97,17 @@ EFI_STATUS bmp_parse_header(UINT8 *bmp, UINTN size, struct bmp_dib **ret_dib,
                 return EFI_UNSUPPORTED;
         }
 
-        row_size = ((UINTN) dib->depth * dib->x + 31) / 32 * 4;
-        if (file->size - file->offset <  dib->y * row_size)
+        if (dib->x == 0 || dib->y == 0)
                 return EFI_INVALID_PARAMETER;
-        if (row_size * dib->y > 64 * 1024 * 1024)
+
+        /* Bound dimensions before computing row_size to prevent overflow
+         * in the (UINTN) dib->depth * dib->x multiplication on 32-bit. */
+        if (dib->x > (UINTN) 64 * 1024 * 1024 / dib->depth ||
+            dib->y > (UINTN) 64 * 1024 * 1024 / dib->depth / dib->x)
+                return EFI_INVALID_PARAMETER;
+
+        row_size = ((UINTN) dib->depth * dib->x + 31) / 32 * 4;
+        if (file->size - file->offset < dib->y * row_size)
                 return EFI_INVALID_PARAMETER;
 
         /* check color table */
