@@ -355,6 +355,10 @@ int bus_machine_method_open_shell(sd_bus_message *message, void *userdata, sd_bu
         if (r < 0)
                 return r;
         user = isempty(user) ? "root" : user;
+
+        if (!valid_user_group_name(user, VALID_USER_RELAX))
+                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid user name '%s'", user);
+
         r = sd_bus_message_read_strv(message, &args_wire);
         if (r < 0)
                 return r;
