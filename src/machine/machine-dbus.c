@@ -601,13 +601,17 @@ int bus_machine_method_open_shell(sd_bus_message *message, void *userdata, sd_bu
         if (r < 0)
                 return r;
         user = isempty(user) ? "root" : user;
+
+        if (!valid_user_group_name(user, VALID_USER_RELAX))
+                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid user name '%s'", user);
+
         r = sd_bus_message_read_strv(message, &args_wire);
         if (r < 0)
                 return r;
         if (isempty(path)) {
                 path = "/bin/sh";
 
-                args = new0(char*, 3 + 1);
+                args = new0(char*, 5 + 1);
                 if (!args)
                         return -ENOMEM;
                 args[0] = strdup("sh");
@@ -616,14 +620,20 @@ int bus_machine_method_open_shell(sd_bus_message *message, void *userdata, sd_bu
                 args[1] = strdup("-c");
                 if (!args[1])
                         return -ENOMEM;
-                r = asprintf(&args[2],
-                             "shell=$(getent passwd %s 2>/dev/null | { IFS=: read _ _ _ _ _ _ x; echo \"$x\"; })\n"\
-                             "exec \"${shell:-/bin/sh}\" -l", /* -l is means --login */
-                             user);
-                if (r < 0) {
-                        args[2] = NULL;
+
+                args[2] = strdup(
+                     "shell=$(getent passwd \"$1\" 2>/dev/null | { IFS=: read _ _ _ _ _ _ x; echo \"$x\"; })\n"
+                     "exec \"${shell:-/bin/sh}\" -l"); /* -l means --login */
+                if (!args[2])
                         return -ENOMEM;
-                }
+
+                args[3] = strdup("sh"); /* $0 placeholder for sh -c */
+                if (!args[3])
+                        return -ENOMEM;
+
+                args[4] = strdup(user); /* becomes $1 in the script */
+                if (!args[4])
+                        return -ENOMEM;
         } else {
                 if (!path_is_absolute(path))
                         return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Specified path '%s' is not absolute", path);
