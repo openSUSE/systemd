@@ -46,6 +46,7 @@
 #include "selinux-util.h"
 #include "sleep-config.h"
 #include "special.h"
+#include "string-util.h"
 #include "strv.h"
 #include "terminal-util.h"
 #include "udev-util.h"
@@ -2357,6 +2358,49 @@ static int method_can_reboot_to_firmware_setup(
         return sd_bus_reply_method_return(message, "s", result);
 }
 
+static int wall_message_validate(const char *wall_message, sd_bus_error *error) {
+        if (strlen(wall_message) > WALL_MESSAGE_MAX)
+                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS,
+                                         "Wall message too long, maximum permitted length is %u characters.",
+                                         WALL_MESSAGE_MAX);
+
+        if (string_has_cc(wall_message, /* ok= */ "\n\t"))
+                return sd_bus_error_set(error,
+                                        SD_BUS_ERROR_INVALID_ARGS,
+                                        "Wall message contains control characters, refusing.");
+
+        return 0;
+}
+
+static int property_set_wall_message(
+                sd_bus *bus,
+                const char *path,
+                const char *interface,
+                const char *property,
+                sd_bus_message *value,
+                void *userdata,
+                sd_bus_error *error) {
+
+        char **p = userdata;
+        const char *s;
+        int r;
+
+        assert(value);
+
+        r = sd_bus_message_read(value, "s", &s);
+        if (r < 0)
+                return r;
+
+        r = wall_message_validate(s, error);
+        if (r < 0)
+                return r;
+
+        r = free_and_strdup(p, isempty(s) ? NULL : s);
+        if (r < 0)
+                return log_oom();
+        return r;
+}
+
 static int method_set_wall_message(
                 sd_bus_message *message,
                 void *userdata,
@@ -2374,10 +2418,9 @@ static int method_set_wall_message(
         if (r < 0)
                 return r;
 
-        if (strlen(wall_message) > WALL_MESSAGE_MAX)
-                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS,
-                        "Wall message too long, maximum permitted length is %u characters.",
-                        WALL_MESSAGE_MAX);
+        r = wall_message_validate(wall_message, error);
+        if (r < 0)
+                return r;
 
         r = bus_verify_polkit_async(message,
                                     CAP_SYS_ADMIN,
@@ -2521,7 +2564,7 @@ const sd_bus_vtable manager_vtable[] = {
         SD_BUS_VTABLE_START(0),
 
         SD_BUS_WRITABLE_PROPERTY("EnableWallMessages", "b", NULL, NULL, offsetof(Manager, enable_wall_messages), 0),
-        SD_BUS_WRITABLE_PROPERTY("WallMessage", "s", NULL, NULL, offsetof(Manager, wall_message), 0),
+        SD_BUS_WRITABLE_PROPERTY("WallMessage", "s", NULL, property_set_wall_message, offsetof(Manager, wall_message), 0),
 
         SD_BUS_PROPERTY("NAutoVTs", "u", NULL, offsetof(Manager, n_autovts), SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("KillOnlyUsers", "as", NULL, offsetof(Manager, kill_only_users), SD_BUS_VTABLE_PROPERTY_CONST),
