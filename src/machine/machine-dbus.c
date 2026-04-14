@@ -380,9 +380,28 @@ int bus_machine_method_get_os_release(sd_bus_message *message, void *userdata, s
         Machine *m = userdata;
         char **k, **v;
         int r;
+        const char *details[] = {
+                "machine", m->name,
+                "verb", "get_os_release",
+                NULL
+        };
 
         assert(message);
         assert(m);
+
+        r = bus_verify_polkit_async(
+                        message,
+                        CAP_SYS_ADMIN,
+                        "org.freedesktop.machine1.inspect-machines",
+                        details,
+                        false,
+                        UID_INVALID,
+                        &m->manager->polkit_registry,
+                        error);
+        if (r < 0)
+                return r;
+        if (r == 0)
+                return 1; /* Will call us back */
 
         switch (m->class) {
 
