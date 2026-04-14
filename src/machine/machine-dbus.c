@@ -243,6 +243,23 @@ int bus_machine_method_get_os_release(sd_bus_message *message, void *userdata, s
 
         assert(message);
 
+        const char *details[] = {
+                "machine", m->name,
+                "verb", "get_os_release",
+                NULL
+        };
+
+        r = bus_verify_polkit_async(
+                        message,
+                        "org.freedesktop.machine1.inspect-machines",
+                        details,
+                        &m->manager->polkit_registry,
+                        error);
+        if (r < 0)
+                return r;
+        if (r == 0)
+                return 1; /* Will call us back */
+
         r = machine_get_os_release(m, &l);
         if (r == -ENONET)
                 return sd_bus_error_set(error, SD_BUS_ERROR_FAILED, "Machine does not contain OS release information.");
