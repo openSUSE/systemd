@@ -267,6 +267,8 @@ TEST(strrep) {
         assert_se(streq(one, "waldo"));
         assert_se(streq(three, "waldowaldowaldo"));
         assert_se(streq(zero, ""));
+
+        assert_se(!strrep("waldo", SIZE_MAX - 1));
 }
 
 TEST(string_has_cc) {

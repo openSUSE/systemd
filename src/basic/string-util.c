@@ -1016,22 +1016,27 @@ char *strextendn(char **x, const char *s, size_t l) {
         return *x;
 }
 
-char *strrep(const char *s, unsigned n) {
-        char *r, *p;
+char *strrep(const char *s, size_t n) {
+        char *ret, *p;
         size_t l;
 
         assert(s);
 
         l = strlen(s);
-        p = r = malloc(l * n + 1);
-        if (!r)
+        if (__builtin_mul_overflow(l, n, &l))
+                return NULL;
+        if (__builtin_add_overflow(l, 1, &l))
                 return NULL;
 
-        for (unsigned i = 0; i < n; i++)
+        p = ret = malloc(l);
+        if (!ret)
+                return NULL;
+
+        for (size_t i = 0; i < n; i++)
                 p = stpcpy(p, s);
 
         *p = 0;
-        return r;
+        return ret;
 }
 
 int split_pair(const char *s, const char *sep, char **l, char **r) {
