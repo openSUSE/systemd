@@ -203,7 +203,7 @@ char* strextendn(char **x, const char *s, size_t l);
 int strextendf_with_separator(char **x, const char *separator, const char *format, ...) _printf_(3,4);
 #define strextendf(x, ...) strextendf_with_separator(x, NULL, __VA_ARGS__)
 
-char* strrep(const char *s, unsigned n);
+char* strrep(const char *s, size_t n);
 
 #define strrepa(s, n)                                                   \
         ({                                                              \

@@ -1028,22 +1028,27 @@ char* strextendn(char **x, const char *s, size_t l) {
         return *x;
 }
 
-char* strrep(const char *s, unsigned n) {
-        char *r, *p;
+char* strrep(const char *s, size_t n) {
+        char *ret, *p;
         size_t l;
 
         assert(s);
 
         l = strlen(s);
-        p = r = malloc(l * n + 1);
-        if (!r)
+        if (!MUL_ASSIGN_SAFE(&l, n))
+                return NULL;
+        if (!INC_SAFE(&l, 1))
                 return NULL;
 
-        for (unsigned i = 0; i < n; i++)
+        p = ret = malloc(l);
+        if (!ret)
+                return NULL;
+
+        for (size_t i = 0; i < n; i++)
                 p = stpcpy(p, s);
 
         *p = 0;
-        return r;
+        return ret;
 }
 
 int split_pair(const char *s, const char *sep, char **l, char **r) {
