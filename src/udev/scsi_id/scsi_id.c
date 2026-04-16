@@ -33,6 +33,7 @@
 
 #include "fd-util.h"
 #include "libudev-private.h"
+#include "parse-util.h"
 #include "scsi_id.h"
 #include "string-util.h"
 #include "udev-util.h"
@@ -329,7 +330,7 @@ static int set_options(struct udev *udev,
                        int argc, char **argv,
                        char *maj_min_dev)
 {
-        int option;
+        int option, r;
 
         /*
          * optind is a global extern used by getopt. Since we can call
@@ -374,7 +375,11 @@ static int set_options(struct udev *udev,
                         break;
 
                 case 's':
-                        sg_version = atoi(optarg);
+                        r = safe_atoi(optarg, &sg_version);
+                        if (r < 0)
+                                return log_error_errno(r,
+                                                       "Invalid SG version '%s'",
+                                                       optarg);
                         if (sg_version < 3 || sg_version > 4) {
                                 log_error("Unknown SG version '%s'", optarg);
                                 return -1;
