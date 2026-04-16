@@ -153,7 +153,7 @@ char *strip_tab_ansi(char **p, size_t *l);
 
 char *strextend(char **x, ...) _sentinel_;
 
-char *strrep(const char *s, unsigned n);
+char* strrep(const char *s, size_t n);
 
 int split_pair(const char *s, const char *sep, char **l, char **r);
 
