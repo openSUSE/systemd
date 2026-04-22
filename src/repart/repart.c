@@ -7596,7 +7596,7 @@ static int context_minimize(Context *context) {
                                 attrs & FS_NOCOW_FL ? XO_NOCOW : 0,
                                 0600);
                 if (fd < 0)
-                        return log_error_errno(errno, "Failed to open temporary file %s: %m", temp);
+                        return log_error_errno(fd, "Failed to open temporary file %s: %m", temp);
 
                 if (fstype_is_ro(p->format))
                         fs_uuid = p->fs_uuid;
@@ -7797,7 +7797,7 @@ static int context_minimize(Context *context) {
                                 attrs & FS_NOCOW_FL ? XO_NOCOW : 0,
                                 0600);
                 if (fd < 0)
-                        return log_error_errno(errno, "Failed to open temporary file %s: %m", temp);
+                        return log_error_errno(fd, "Failed to open temporary file %s: %m", temp);
 
                 r = partition_format_verity_hash(context, p, temp, dp->copy_blocks_path);
                 if (r < 0)
@@ -8784,7 +8784,7 @@ static int find_root(Context *context) {
 
                         fd = xopenat_full(AT_FDCWD, arg_node, O_RDONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, XO_NOCOW, 0666);
                         if (fd < 0)
-                                return log_error_errno(errno, "Failed to create '%s': %m", arg_node);
+                                return log_error_errno(fd, "Failed to create '%s': %m", arg_node);
 
                         context->node = TAKE_PTR(s);
                         context->node_is_our_file = true;
