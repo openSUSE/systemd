@@ -328,6 +328,7 @@ int nsresource_add_netif(
         static const sd_json_dispatch_field dispatch_table[] = {
                 { "hostInterfaceName",      SD_JSON_VARIANT_STRING, sd_json_dispatch_string, offsetof(InterfaceParams, host_interface_name),      0 },
                 { "namespaceInterfaceName", SD_JSON_VARIANT_STRING, sd_json_dispatch_string, offsetof(InterfaceParams, namespace_interface_name), 0 },
+                {}
         };
 
         _cleanup_(interface_params_done) InterfaceParams p = {};
