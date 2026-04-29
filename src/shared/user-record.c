@@ -511,6 +511,9 @@ static int json_dispatch_environment(const char *name, JsonVariant *variant, Jso
                 return 0;
         }
 
+        if (json_variant_elements(variant) > ENVIRONMENT_ASSIGNMENTS_MAX)
+                return json_log(variant, flags, SYNTHETIC_ERRNO(E2BIG), "Too many environment variable assignments.");
+
         if (!json_variant_is_array(variant))
                 return json_log(variant, flags, SYNTHETIC_ERRNO(EINVAL), "JSON field '%s' is not an array.", strna(name));
 
