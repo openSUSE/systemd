@@ -85,8 +85,6 @@ JsonVariant *json_variant_ref(JsonVariant *v);
 JsonVariant *json_variant_unref(JsonVariant *v);
 void json_variant_unref_many(JsonVariant **array, size_t n);
 
-#define ENVIRONMENT_ASSIGNMENTS_MAX 1024U
-
 #define JSON_VARIANT_REPLACE(v, q)        \
         do {                              \
                 typeof(v)* _v = &(v);     \

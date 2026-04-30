@@ -9,6 +9,8 @@
 #include "macro.h"
 #include "string.h"
 
+#define ENVIRONMENT_ASSIGNMENTS_MAX 16384U
+
 static inline size_t sc_arg_max(void) {
         long l = sysconf(_SC_ARG_MAX);
         assert(l > 0);
