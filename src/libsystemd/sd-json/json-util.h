@@ -11,8 +11,6 @@
 const char* sd_json_variant_type_to_string(sd_json_variant_type_t t);
 sd_json_variant_type_t sd_json_variant_type_from_string(const char *s);
 
-#define ENVIRONMENT_ASSIGNMENTS_MAX 1024U
-
 #define JSON_VARIANT_REPLACE(v, q)        \
         do {                              \
                 typeof(v)* _v = &(v);     \
