@@ -3167,6 +3167,9 @@ int bus_exec_context_set_transient_property(
                 if (r < 0)
                         return r;
 
+                if (strv_length(l) > ENVIRONMENT_ASSIGNMENTS_MAX)
+                        return sd_bus_error_set(error, SD_BUS_ERROR_LIMITS_EXCEEDED,
+                                                "Too many environment assignments.");
                 if (!strv_env_is_valid(l))
                         return sd_bus_error_set(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid environment block.");
 
@@ -3201,6 +3204,9 @@ int bus_exec_context_set_transient_property(
                 if (r < 0)
                         return r;
 
+                if (strv_length(l) > ENVIRONMENT_ASSIGNMENTS_MAX)
+                        return sd_bus_error_set(error, SD_BUS_ERROR_LIMITS_EXCEEDED,
+                                                "Too many environment variable names or assignments.");
                 if (!strv_env_name_or_assignment_is_valid(l))
                         return sd_bus_error_set(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid UnsetEnvironment= list.");
 
@@ -3353,6 +3359,9 @@ int bus_exec_context_set_transient_property(
                 if (r < 0)
                         return r;
 
+                if (strv_length(l) > ENVIRONMENT_ASSIGNMENTS_MAX)
+                        return sd_bus_error_set(error, SD_BUS_ERROR_LIMITS_EXCEEDED,
+                                                "Too many environment variable names.");
                 if (!strv_env_name_is_valid(l))
                         return sd_bus_error_set(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid PassEnvironment= block.");
 
