@@ -749,6 +749,19 @@ bool path_is_safe(const char *p) {
         return true;
 }
 
+bool path_is_normalized(const char *p) {
+        if (!path_is_safe(p))
+                return false;
+
+        if (streq(p, ".") || startswith(p, "./") || endswith(p, "/.") || strstr(p, "/./"))
+                return false;
+
+        if (strstr(p, "//"))
+                return false;
+
+        return true;
+}
+
 char *file_in_same_dir(const char *path, const char *filename) {
         char *e, *ret;
         size_t k;
