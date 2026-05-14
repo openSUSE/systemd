@@ -12,6 +12,7 @@
 #include "gpt.h"
 #include "hexdecoct.h"
 #include "install-file.h"
+#include "mkdir.h"
 #include "parse-helpers.h"
 #include "parse-util.h"
 #include "process-util.h"
@@ -1228,6 +1229,10 @@ int transfer_install_instance(
                         r = path_make_relative(parent, link_target, &relative);
                         if (r < 0)
                                 return log_error_errno(r, "Failed to make symlink path '%s' relative to '%s': %m", link_target, parent);
+
+                        r = mkdir_parents(link_path, 0755);
+                        if (r < 0)
+                                return log_error_errno(r, "Failed to create directory for current symlink '%s': %m", link_path);
 
                         r = symlink_atomic(relative, link_path);
                         if (r < 0)
