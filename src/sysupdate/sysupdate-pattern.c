@@ -418,7 +418,7 @@ int pattern_match(const char *pattern, const char *s, InstanceMetadata *ret) {
                 }
 
                 default:
-                        assert_se("unexpected pattern element");
+                        assert_not_reached();
                 }
 
                 p = n;
