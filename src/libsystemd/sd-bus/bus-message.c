@@ -5020,7 +5020,8 @@ static int message_skip_fields(
                 sd_bus_message *m,
                 size_t *ri,
                 uint32_t array_size,
-                const char **signature) {
+                const char **signature,
+                unsigned depth) {
 
         size_t original_index;
         int r;
@@ -5029,6 +5030,11 @@ static int message_skip_fields(
         assert(ri);
         assert(signature);
         assert(!BUS_MESSAGE_IS_GVARIANT(m));
+
+        if (depth >= BUS_CONTAINER_DEPTH) {
+                log_debug("Maximum container nesting depth reached, refusing.");
+                return -EBADMSG;
+        }
 
         original_index = *ri;
 
@@ -5110,7 +5116,7 @@ static int message_skip_fields(
                                 if (r < 0)
                                         return r;
 
-                                r = message_skip_fields(m, ri, nas, (const char**) &s);
+                                r = message_skip_fields(m, ri, nas, (const char**) &s, depth + 1);
                                 if (r < 0)
                                         return r;
                         }
@@ -5124,7 +5130,7 @@ static int message_skip_fields(
                         if (r < 0)
                                 return r;
 
-                        r = message_skip_fields(m, ri, (uint32_t) -1, (const char**) &s);
+                        r = message_skip_fields(m, ri, (uint32_t) -1, (const char**) &s, depth + 1);
                         if (r < 0)
                                 return r;
 
@@ -5143,7 +5149,7 @@ static int message_skip_fields(
                                 strncpy(sig, *signature + 1, l-1);
                                 s = sig;
 
-                                r = message_skip_fields(m, ri, (uint32_t) -1, (const char**) &s);
+                                r = message_skip_fields(m, ri, (uint32_t) -1, (const char**) &s, depth + 1);
                                 if (r < 0)
                                         return r;
                         }
@@ -5459,7 +5465,7 @@ int bus_message_parse_fields(sd_bus_message *m) {
 
                 default:
                         if (!BUS_MESSAGE_IS_GVARIANT(m))
-                                r = message_skip_fields(m, &ri, (uint32_t) -1, (const char **) &signature);
+                                r = message_skip_fields(m, &ri, (uint32_t) -1, (const char **) &signature, 0);
                 }
 
                 if (r < 0)
