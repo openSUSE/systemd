@@ -3889,7 +3889,8 @@ static int message_skip_fields(
                 sd_bus_message *m,
                 size_t *ri,
                 uint32_t array_size,
-                const char **signature) {
+                const char **signature,
+                unsigned depth) {
 
         size_t original_index;
         int r;
@@ -3897,6 +3898,9 @@ static int message_skip_fields(
         assert(m);
         assert(ri);
         assert(signature);
+
+        if (depth >= BUS_CONTAINER_DEPTH)
+                return log_debug_errno(SYNTHETIC_ERRNO(EBADMSG), "Maximum container nesting depth reached, refusing.");
 
         original_index = *ri;
 
@@ -3978,7 +3982,7 @@ static int message_skip_fields(
                                 if (r < 0)
                                         return r;
 
-                                r = message_skip_fields(m, ri, nas, (const char**) &s);
+                                r = message_skip_fields(m, ri, nas, (const char**) &s, depth + 1);
                                 if (r < 0)
                                         return r;
                         }
@@ -3992,7 +3996,7 @@ static int message_skip_fields(
                         if (r < 0)
                                 return r;
 
-                        r = message_skip_fields(m, ri, UINT32_MAX, (const char**) &s);
+                        r = message_skip_fields(m, ri, UINT32_MAX, (const char**) &s, depth + 1);
                         if (r < 0)
                                 return r;
 
@@ -4010,7 +4014,7 @@ static int message_skip_fields(
                                 strncpy(sig, *signature + 1, l);
                                 sig[l] = '\0';
 
-                                r = message_skip_fields(m, ri, UINT32_MAX, (const char**) &s);
+                                r = message_skip_fields(m, ri, UINT32_MAX, (const char**) &s, depth + 1);
                                 if (r < 0)
                                         return r;
                         }
@@ -4184,7 +4188,7 @@ static int message_parse_fields(sd_bus_message *m) {
                         break;
 
                 default:
-                        r = message_skip_fields(m, &ri, UINT32_MAX, (const char **) &signature);
+                        r = message_skip_fields(m, &ri, UINT32_MAX, (const char **) &signature, 0);
                 }
                 if (r < 0)
                         return r;
