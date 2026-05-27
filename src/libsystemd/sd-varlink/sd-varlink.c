@@ -41,7 +41,7 @@
 #include "varlink-org.varlink.service.h"
 
 #define VARLINK_DEFAULT_CONNECTIONS_MAX 4096U
-#define VARLINK_DEFAULT_CONNECTIONS_PER_UID_MAX 1024U
+#define VARLINK_DEFAULT_CONNECTIONS_PER_UID_MAX 128U
 
 #define VARLINK_DEFAULT_TIMEOUT_USEC (45U*USEC_PER_SEC)
 #define VARLINK_BUFFER_MAX (16U*1024U*1024U)
@@ -1601,8 +1601,18 @@ static int varlink_dispatch_method(sd_varlink *v) {
                                                  * and no replies were enqueued by the callback. */
                                                 if (sentinel == POINTER_MAX)
                                                         r = sd_varlink_reply(v, NULL);
-                                                else
+                                                else {
                                                         r = sd_varlink_error(v, sentinel, NULL);
+                                                        /* sd_varlink_error() deliberately returns a negative
+                                                         * errno mapped from the error id on success (so method
+                                                         * callbacks can `return sd_varlink_error(...);` to
+                                                         * enqueue a reply and propagate a matching errno in one
+                                                         * go). For sentinel dispatch we don't care about that
+                                                         * mapping — the reply is either enqueued or not, which
+                                                         * we detect via the state transition instead. */
+                                                        if (v->state == VARLINK_PROCESSED_METHOD)
+                                                                r = 0;
+                                                }
 
                                                 if (sentinel != POINTER_MAX)
                                                         free(sentinel);
@@ -3562,8 +3572,6 @@ static int count_connection(sd_varlink_server *server, const struct ucred *ucred
         assert(server);
         assert(ucred);
 
-        server->n_connections++;
-
         if (FLAGS_SET(server->flags, SD_VARLINK_SERVER_ACCOUNT_UID)) {
                 assert(uid_is_valid(ucred->uid));
 
@@ -3580,6 +3588,8 @@ static int count_connection(sd_varlink_server *server, const struct ucred *ucred
                 if (r < 0)
                         return varlink_server_log_errno(server, r, "Failed to increment counter in UID hash table: %m");
         }
+
+        server->n_connections++;
 
         return 0;
 }

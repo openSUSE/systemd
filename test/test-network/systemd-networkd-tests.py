@@ -73,6 +73,7 @@ resolvectl_bin = shutil.which('resolvectl', path=which_paths)
 timedatectl_bin = shutil.which('timedatectl', path=which_paths)
 udevadm_bin = shutil.which('udevadm', path=which_paths)
 test_ndisc_send = None
+test_modem_manager_mock = None
 build_dir = None
 source_dir = None
 
@@ -301,6 +302,23 @@ def compare_kernel_version(min_kernel_version):
     kver = kver.split('+')[0]
 
     return version.parse(kver) >= version.parse(min_kernel_version)
+
+
+def networkd_has_sysctl_monitor_bpf():
+    """Check whether systemd-networkd was built with ENABLE_SYSCTL_BPF support."""
+    if not networkd_bin:
+        return False
+    try:
+        output = subprocess.run(
+            [networkd_bin, '--version'],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return '+BTF' in output.split()
+
 
 def copy_network_unit(*units, copy_dropins=True):
     """
@@ -973,6 +991,28 @@ def start_radvd(*additional_options, config_file):
 def stop_radvd():
     stop_by_pid_file(radvd_pid_file)
 
+def start_modem_manager_mock(*additional_options):
+    dbus_policy_src = os.path.join(networkd_ci_temp_dir, 'mock-modem-manager.conf')
+    cp(dbus_policy_src, '/etc/dbus-1/system.d/mock-modem-manager.conf')
+    check_output('systemctl reload dbus.service')
+
+    command = ' '.join([test_modem_manager_mock] + list(additional_options))
+    with open('/run/systemd/system/test-modem-manager-mock.service', mode='w', encoding='utf-8') as f:
+        f.write('[Unit]\n'
+                'Description=Mock ModemManager for networkd testing\n'
+                '[Service]\n'
+                'Type=notify\n'
+                'BusName=org.freedesktop.ModemManager1\n'
+                f'ExecStart={command}\n')
+    check_output('systemctl daemon-reload')
+    check_output('systemctl start test-modem-manager-mock.service')
+
+def stop_modem_manager_mock():
+    call('systemctl stop test-modem-manager-mock.service')
+    rm_f('/run/systemd/system/test-modem-manager-mock.service')
+    call('systemctl daemon-reload')
+    rm_f('/etc/dbus-1/system.d/mock-modem-manager.conf')
+
 def radvd_check_config(config_file):
     if not shutil.which('radvd'):
         print('radvd is not installed, assuming the config check failed')
@@ -1246,7 +1286,13 @@ class Utilities():
             if not link_exists(link):
                 time.sleep(0.5)
                 continue
-            output = networkctl_status(link)
+            try:
+                output = networkctl_status(link)
+            except subprocess.CalledProcessError:
+                # networkctl status may transiently fail e.g. when networkd has not
+                # yet picked up the link from the kernel. Retry until the timeout.
+                time.sleep(0.5)
+                continue
             if re.search(rf'(?m)^\s*State:\s+{operstate}\s+\({setup_state}\)\s*$', output):
                 return True
             time.sleep(0.5)
@@ -6908,14 +6954,35 @@ class NetworkdRATests(unittest.TestCase, Utilities):
         self.wait_route('veth99', r'2002:da8:1:1:1a:2b:3c:4d nhid [0-9]* via fe80::1 proto redirect', ipv='-6', timeout_sec=10)
         self.wait_route('veth99', r'2002:da8:1:2:1a:2b:3c:4d nhid [0-9]* via fe80::2 proto redirect', ipv='-6', timeout_sec=10)
 
+        print('### before sending NA without router flag')
+        output = check_output('ip -6 route show dev veth99')
+        print(output)
+        self.assertIn('2002:da8:1::/64 proto ra', output)
+        self.assertIn('2002:da8:2::/64 proto ra', output)
+        self.assertRegex(output, 'default .* proto ra')
+        self.assertRegex(output, '2002:da8:1:1:1a:2b:3c:4d .* proto redirect')
+        self.assertRegex(output, '2002:da8:1:2:1a:2b:3c:4d .* proto redirect')
+        self.assertIn('2002:da8:1:3:1a:2b:3c:4d proto redirect', output)
+
         # Send Neighbor Advertisement without the router flag to announce the default router is not available anymore.
         # Then, verify that all redirect routes and the default route are dropped.
         output = check_output('ip -6 address show dev veth-peer scope link')
         veth_peer_ipv6ll = re.search('fe80:[:0-9a-f]*', output).group()
         print(f'veth-peer IPv6LL address: {veth_peer_ipv6ll}')
         check_output(f'{test_ndisc_send} --interface veth-peer --type neighbor-advertisement --target-address {veth_peer_ipv6ll} --is-router no')
-        self.wait_route_dropped('veth99', 'proto ra', ipv='-6', timeout_sec=10)
+        self.wait_route_dropped('veth99', 'default .* proto ra', ipv='-6', timeout_sec=10)
         self.wait_route_dropped('veth99', 'proto redirect', ipv='-6', timeout_sec=10)
+
+        # Check if the non-default routes are unchanged, and others are actually dropped.
+        print('### after sending NA without router flag')
+        output = check_output('ip -6 route show dev veth99')
+        print(output)
+        self.assertIn('2002:da8:1::/64 proto ra', output)
+        self.assertIn('2002:da8:2::/64 proto ra', output)
+        self.assertNotRegex(output, 'default .* proto ra')
+        self.assertNotRegex(output, '2002:da8:1:1:1a:2b:3c:4d .* proto redirect')
+        self.assertNotRegex(output, '2002:da8:1:2:1a:2b:3c:4d .* proto redirect')
+        self.assertNotIn('2002:da8:1:3:1a:2b:3c:4d proto redirect', output)
 
         # Check if sd-radv refuses RS from the same interface.
         # See https://github.com/systemd/systemd/pull/32267#discussion_r1566721306
@@ -9297,7 +9364,7 @@ class NetworkdDHCPPDTests(unittest.TestCase, Utilities):
 
         # ipv4masklen: 8
         # 6rd-prefix: 2001:db8::/32
-        # br-addresss: 10.0.0.1
+        # br-address: 10.0.0.1
 
         start_dnsmasq('--dhcp-option=212,08:20:20:01:0d:b8:00:00:00:00:00:00:00:00:00:00:00:00:0a:00:00:01',
                       ipv4_range='10.100.100.100,10.100.100.200',
@@ -9541,7 +9608,14 @@ class NetworkdSysctlTest(unittest.TestCase, Utilities):
     def tearDown(self):
         tear_down_common()
 
-    @unittest.skipUnless(compare_kernel_version("6.12"), reason="On kernels <= 6.12, bpf_current_task_under_cgroup() isn't available for program types BPF_PROG_TYPE_CGROUP_SYSCTL")
+    @unittest.skipUnless(
+        compare_kernel_version('6.12'),
+        reason='On kernels <= 6.12, bpf_current_task_under_cgroup() is not available for program types BPF_PROG_TYPE_CGROUP_SYSCTL',
+    )
+    @unittest.skipUnless(
+        networkd_has_sysctl_monitor_bpf(),
+        reason='systemd-networkd was built without ENABLE_SYSCTL_BPF support (HAVE_VMLINUX_H=0)',
+    )
     def test_sysctl_monitor(self):
         copy_network_unit('12-dummy.network', '12-dummy.netdev', '12-dummy.link')
         start_networkd()
@@ -9566,6 +9640,55 @@ class NetworkdSysctlTest(unittest.TestCase, Utilities):
         self.assertNotIn("changed sysctl '/proc/sys/net/ipv6/conf/dummy98/hop_limit'", log)
         self.assertNotIn("changed sysctl '/proc/sys/net/ipv6/conf/dummy98/max_addresses'", log)
         self.assertNotIn("Sysctl monitor BPF returned error", log)
+
+class NetworkdWWANTests(unittest.TestCase, Utilities):
+
+    def setUp(self):
+        setup_common()
+
+    def tearDown(self):
+        stop_modem_manager_mock()
+        tear_down_common()
+
+    def test_wwan_ipv4v6_static(self):
+        """Test WWAN bearer with both IPv4 and IPv6 static configuration.
+
+        Regression test for https://github.com/systemd/systemd/issues/41389
+        """
+        if not os.path.exists(test_modem_manager_mock):
+            self.skipTest(f'{test_modem_manager_mock} does not exist.')
+
+        copy_network_unit('12-dummy.netdev', '25-wwan-ipv4v6.network')
+        try:
+            start_modem_manager_mock(
+                '--ifname', 'dummy98',
+                '--ipv4-address', '100.120.244.160',
+                '--ipv4-gateway', '100.120.244.161',
+                '--ipv4-prefix', '26',
+                '--ipv6-address', '2001:db8::1',
+                '--ipv6-gateway', '2001:db8::2',
+                '--ipv6-prefix', '64',
+            )
+        except (subprocess.CalledProcessError, PermissionError, OSError) as e:
+            self.skipTest(f'Failed to start mock ModemManager: {e}')
+        start_networkd()
+        self.wait_online('dummy98:routable')
+
+        output = check_output('ip -4 address show dev dummy98')
+        print(output)
+        self.assertIn('100.120.244.160/26', output)
+
+        output = check_output('ip -6 address show dev dummy98')
+        print(output)
+        self.assertIn('2001:db8::1/64', output)
+
+        output = check_output('ip -4 route show dev dummy98')
+        print(output)
+        self.assertIn('default via 100.120.244.161', output)
+
+        output = check_output('ip -6 route show dev dummy98')
+        print(output)
+        self.assertIn('default via 2001:db8::2', output)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -9624,7 +9747,12 @@ if __name__ == '__main__':
     if build_dir:
         test_ndisc_send = os.path.normpath(os.path.join(build_dir, 'test-ndisc-send'))
     else:
-        test_ndisc_send = '/usr/lib/tests/test-ndisc-send'
+        test_ndisc_send = '/usr/lib/systemd/tests/unit-tests/manual/test-ndisc-send'
+
+    if build_dir:
+        test_modem_manager_mock = os.path.normpath(os.path.join(build_dir, 'test-modem-manager-mock'))
+    else:
+        test_modem_manager_mock = '/usr/lib/systemd/tests/unit-tests/manual/test-modem-manager-mock'
 
     if asan_options:
         env.update({'ASAN_OPTIONS': asan_options})

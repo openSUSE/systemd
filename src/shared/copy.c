@@ -193,16 +193,25 @@ int copy_bytes_full(
         if (fdt < 0)
                 return fdt;
 
+        if (FLAGS_SET(copy_flags, COPY_SEEK0_SOURCE) &&
+            lseek(fdf, 0, SEEK_SET) < 0)
+                return -errno;
+
+        if (FLAGS_SET(copy_flags, COPY_SEEK0_TARGET) &&
+            lseek(fdt, 0, SEEK_SET) < 0)
+                return -errno;
+
         /* Try btrfs reflinks first. This only works on regular, seekable files, hence let's check the file offsets of
          * source and destination first. */
         if ((copy_flags & COPY_REFLINK)) {
                 off_t foffset;
 
-                foffset = lseek(fdf, 0, SEEK_CUR);
+                /* In reflink mode, we need to know the current file offset, unless we already sought to 0 anyway. */
+                foffset = FLAGS_SET(copy_flags, COPY_SEEK0_SOURCE) ? 0 : lseek(fdf, 0, SEEK_CUR);
                 if (foffset >= 0) {
                         off_t toffset;
 
-                        toffset = lseek(fdt, 0, SEEK_CUR);
+                        toffset = FLAGS_SET(copy_flags, COPY_SEEK0_TARGET) ? 0 : lseek(fdt, 0, SEEK_CUR);
                         if (toffset >= 0) {
 
                                 if (foffset == 0 && toffset == 0 && max_bytes == UINT64_MAX)
@@ -642,7 +651,7 @@ static int hardlink_context_setup(
          * <= 0, because in that case we will not actually allocate the hardlink inode lookup table directory
          * on disk (we do so lazily, when the first candidate with .n_link > 1 is seen). This means, in the
          * common case where hardlinks are not used at all or only for few files the fact that we store the
-         * table on disk shouldn't matter perfomance-wise. */
+         * table on disk shouldn't matter performance-wise. */
 
         if (!FLAGS_SET(copy_flags, COPY_HARDLINKS))
                 return 0;

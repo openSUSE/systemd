@@ -519,7 +519,7 @@ static int portable_extract_by_path(
                                 seq[0] = safe_close(seq[0]);
                                 errno_pipe_fd[0] = safe_close(errno_pipe_fd[0]);
 
-                                if (setns(CLONE_NEWUSER, userns_fd) < 0) {
+                                if (setns(userns_fd, CLONE_NEWUSER) < 0) {
                                         r = log_debug_errno(errno, "Failed to join userns: %m");
                                         report_errno_and_exit(errno_pipe_fd[1], r);
                                 }
@@ -2431,7 +2431,7 @@ int portable_detach(
                         portable_changes_add_with_prefix(changes, n_changes, PORTABLE_UNLINK, where, md, NULL);
         }
 
-        /* Now, also drop any image symlink or copy, for images outside of the sarch path */
+        /* Now, also drop any image symlink or copy, for images outside of the search path */
         SET_FOREACH(item, markers) {
                 _cleanup_free_ char *target = NULL;
 

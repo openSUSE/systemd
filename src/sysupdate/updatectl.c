@@ -75,6 +75,8 @@ typedef struct Operation {
 
         /* Only used for Acquire()/Install() operations: */
         char *acquired_version;
+        /* The version the user requested, possibly empty */
+        char *requested_version;
 } Operation;
 
 static Operation* operation_free(Operation *p) {
@@ -90,6 +92,7 @@ static Operation* operation_free(Operation *p) {
 
         free(p->job_path);
         free(p->acquired_version);
+        free(p->requested_version);
 
         sd_event_source_disable_unref(p->job_interrupt_source);
         sd_bus_slot_unref(p->job_properties_slot);
@@ -860,6 +863,10 @@ static int update_render_progress(sd_event_source *source, void *userdata) {
                         clear_progress_bar_unbuffered(target);
                         fprintf(stderr, "%s: %s Already up-to-date\n", target, GREEN_CHECK_MARK());
                         n--; /* Don't consider this target in the total */
+                } else if (progress == -EUCLEAN) {
+                        clear_progress_bar_unbuffered(target);
+                        fprintf(stderr, "%s: %s Update is already acquired and partially installed. Vacuum it to try installing again.\n", target, RED_CROSS_MARK());
+                        total += 100;
                 } else if (progress < 0) {
                         clear_progress_bar_unbuffered(target);
                         fprintf(stderr, "%s: %s %s\n", target, RED_CROSS_MARK(), STRERROR(progress));
@@ -1068,7 +1075,7 @@ static int update_acquire_finished(sd_bus_message *m, void *userdata, sd_bus_err
                         update_install_started,
                         op,
                         "st",
-                        op->acquired_version,
+                        op->requested_version,
                         0LU);
         if (r < 0)
                 return log_bus_error(r, NULL, op->target_id, "call Install");
@@ -1246,6 +1253,11 @@ static int do_update(sd_bus *bus, char **targets) {
                                 0LU);
                 if (r < 0)
                         return log_bus_error(r, NULL, targets[i], "call Acquire");
+
+                op->requested_version = strdup(versions[i]);
+                if (!op->requested_version)
+                        return log_oom();
+
                 TAKE_PTR(op);
 
                 remaining++;

@@ -325,6 +325,8 @@ TEST(strrep) {
 
         ASSERT_STREQ(onea, "waldo");
         ASSERT_STREQ(threea, "waldowaldowaldo");
+
+        ASSERT_NULL(strrep("waldo", SIZE_MAX - 1));
 }
 
 TEST(string_has_cc) {
@@ -615,6 +617,28 @@ TEST(split_pair) {
         ASSERT_OK(split_pair("===", "==", &a, &b));
         ASSERT_STREQ(a, "");
         ASSERT_STREQ(b, "=");
+}
+
+TEST(empty_to_null) {
+        const char *s = "asdf", *n = NULL, *e = "";
+        char *t = (char*) "asdf";
+        const char p[] = "asdf";
+        char q[] = "asdf";
+
+        /* empty_to_null cannot be used with constant strings, e.g.
+         * empty_to_null("") fails with 'error: cast specifies array type'. */
+
+        ASSERT_NULL(empty_to_null(NULL));
+        ASSERT_NULL(empty_to_null(n));
+        ASSERT_NULL(empty_to_null(e));
+        ASSERT_STREQ(empty_to_null(s), "asdf");
+        ASSERT_NULL(empty_to_null(s + 4));
+        ASSERT_STREQ(empty_to_null(t), "asdf");
+        ASSERT_NULL(empty_to_null(t + 4));
+        ASSERT_STREQ(empty_to_null(&p[0]), "asdf");
+        ASSERT_NULL(empty_to_null(&p[0] + 4));
+        ASSERT_STREQ(empty_to_null(&q[0]), "asdf");
+        ASSERT_NULL(empty_to_null(&q[0] + 4));
 }
 
 TEST(first_word) {

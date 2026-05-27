@@ -840,6 +840,8 @@ int encrypt_credential_and_warn(
         /* Only one of these two flags may be set at the same time */
         assert(!FLAGS_SET(flags, CREDENTIAL_ALLOW_NULL) || !FLAGS_SET(flags, CREDENTIAL_REFUSE_NULL));
 
+        CLEANUP_ERASE(md);
+
         if (!CRED_KEY_IS_VALID(with_key) && !CRED_KEY_IS_AUTO(with_key))
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Invalid key type: " SD_ID128_FORMAT_STR, SD_ID128_FORMAT_VAL(with_key));
 
@@ -899,7 +901,10 @@ int encrypt_credential_and_warn(
                 try_tpm2 = CRED_KEY_REQUIRES_TPM2(with_key);
 
         if (try_tpm2) {
-                if (CRED_KEY_WANTS_TPM2_PK(with_key) || CRED_KEY_REQUIRES_TPM2_PK(with_key)) {
+                /* If the firmware does not support TPMs, then UKI measurements are not going to work, hence
+                 * PCR 11 public key stuff cannot work. Because of that, if PK is only wanted (but not
+                 * required) we won't try it. */
+                if ((CRED_KEY_WANTS_TPM2_PK(with_key) && tpm2_is_fully_supported()) || CRED_KEY_REQUIRES_TPM2_PK(with_key)) {
 
                         /* Load public key for PCR policies, if one is specified, or explicitly requested */
 
@@ -923,6 +928,8 @@ int encrypt_credential_and_warn(
                 r = tpm2_get_best_pcr_bank(tpm2_context, tpm2_hash_pcr_mask | tpm2_pubkey_pcr_mask, &tpm2_pcr_bank);
                 if (r < 0)
                         return log_error_errno(r, "Could not find best pcr bank: %m");
+
+                log_debug("Selected literal PCR mask: 0x%x, PK PCR mask: 0x%x", tpm2_hash_pcr_mask, tpm2_pubkey_pcr_mask);
 
                 TPML_PCR_SELECTION tpm2_hash_pcr_selection;
                 tpm2_tpml_pcr_selection_from_mask(tpm2_hash_pcr_mask, tpm2_pcr_bank, &tpm2_hash_pcr_selection);
@@ -1203,6 +1210,8 @@ int decrypt_credential_and_warn(
 
         /* Only one of these two flags may be set at the same time */
         assert(!FLAGS_SET(flags, CREDENTIAL_ALLOW_NULL) || !FLAGS_SET(flags, CREDENTIAL_REFUSE_NULL));
+
+        CLEANUP_ERASE(md);
 
         /* Relevant error codes:
          *

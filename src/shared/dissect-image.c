@@ -225,15 +225,23 @@ static int probe_blkid_filter(blkid_probe p) {
         if (r < 0)
                 return r;
 
+        /* allowed_fstypes() returns the list of filesystem types that we are willing to mount. For the
+         * blkid probe filter we additionally need to be able to detect crypto_LUKS (so that we can set up
+         * LUKS decryption for encrypted partitions) and swap (so that we can identify swap partitions). */
+        r = strv_extend_many(&fstypes, "crypto_LUKS", "swap");
+        if (r < 0)
+                return r;
+
         errno = 0;
         r = sym_blkid_probe_filter_superblocks_type(p, BLKID_FLTR_ONLYIN, fstypes);
         if (r != 0)
                 return errno_or_else(EINVAL);
 
-        errno = 0;
-        r = sym_blkid_probe_filter_superblocks_usage(p, BLKID_FLTR_NOTIN, BLKID_USAGE_RAID);
-        if (r != 0)
-                return errno_or_else(EINVAL);
+        /* Note: don't call blkid_probe_filter_superblocks_usage() here. Both filter functions share the
+         * same bitmap internally, and each call resets it before applying its own filter — so a subsequent
+         * usage filter would wipe the type filter we just set. The ONLYIN type filter above already
+         * excludes everything not in the allowed list, including RAID superblocks, so a separate usage
+         * filter is redundant anyway. */
 
         return 0;
 }
@@ -458,11 +466,15 @@ static int partition_is_luks2_integrity(int part_fd, uint64_t offset, uint64_t s
         if (sz != sizeof(header))
                 return log_error_errno(SYNTHETIC_ERRNO(EIO), "Failed to read LUKS header.");
 
-        if (memcmp(header.luks_magic, LUKS2_MAGIC, sizeof(header.luks_magic)) != 0)
-                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Partition's magic is not LUKS.");
+        if (memcmp(header.luks_magic, LUKS2_MAGIC, sizeof(header.luks_magic)) != 0) {
+                log_debug("Partition does not have a LUKS magic header, assuming no integrity.");
+                return 0;
+        }
 
-        if (be16toh(header.version) != 2)
-                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Unsupported LUKS header version: %" PRIu16 ".", be16toh(header.version));
+        if (be16toh(header.version) != 2) {
+                log_debug("Partition is LUKS v%" PRIu16 ", not LUKS2, assuming no integrity.", be16toh(header.version));
+                return 0;
+        }
 
         if (be64toh(header.hdr_len) > size)
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "LUKS header length exceeds partition size.");
@@ -738,7 +750,7 @@ static int acquire_sig_for_roothash(
 
         ssize_t n = pread(fd, buf, partition_size, partition_offset);
         if (n < 0)
-                return -ENOMEM;
+                return -errno;
         if ((uint64_t) n != partition_size)
                 return -EIO;
 
@@ -1301,7 +1313,7 @@ static int dissect_image(
                  * partition already existent. */
 
                 if (FLAGS_SET(flags, DISSECT_IMAGE_ADD_PARTITION_DEVICES)) {
-                        r = block_device_add_partition(fd, node, nr, (uint64_t) start * 512, (uint64_t) size * 512);
+                        r = block_device_add_partition(fd, nr, (uint64_t) start * 512, (uint64_t) size * 512);
                         if (r < 0) {
                                 if (r != -EBUSY)
                                         return log_debug_errno(r, "BLKPG_ADD_PARTITION failed: %m");
@@ -1435,8 +1447,8 @@ static int dissect_image(
 
                                         r = acquire_sig_for_roothash(
                                                         fd,
-                                                        start * 512,
-                                                        size * 512,
+                                                        (uint64_t) start * 512,
+                                                        (uint64_t) size * 512,
                                                         &root_hash,
                                                         /* ret_root_hash_sig= */ NULL);
                                         if (r < 0)
@@ -2393,7 +2405,7 @@ int partition_pick_mount_options(
         case PARTITION_XBOOTLDR:
                 flags |= MS_NOSUID|MS_NOEXEC|MS_NOSYMFOLLOW;
 
-                /* The ESP might contain a pre-boot random seed. Let's make this unaccessible to regular
+                /* The ESP might contain a pre-boot random seed. Let's make this inaccessible to regular
                  * userspace. ESP/XBOOTLDR is almost certainly VFAT, hence if we don't know assume it is. */
                 if (!fstype || fstype_can_fmask_dmask(fstype))
                         if (!strextend_with_separator(&options, ",", "fmask=0177,dmask=0077"))
@@ -3165,7 +3177,7 @@ static int validate_signature_userspace(const VeritySettings *verity, const char
                 return 0;
         }
         if (!b) {
-                log_debug("Userspace dm-verity signature authentication disabled via systemd.allow_userspace_verity= kernel command line variable.");
+                log_debug("Userspace dm-verity signature authentication disabled via systemd.allow_userspace_verity= kernel command line option.");
                 return 0;
         }
 
@@ -3911,7 +3923,7 @@ int verity_settings_load(
                                 if (r < 0) {
                                         _cleanup_free_ char *p = NULL;
 
-                                        if (r != -ENOENT && !ERRNO_IS_XATTR_ABSENT(r))
+                                        if (!ERRNO_IS_XATTR_ABSENT(r))
                                                 return r;
 
                                         p = build_auxiliary_path(image, ".roothash");
@@ -3940,7 +3952,7 @@ int verity_settings_load(
                                 if (r < 0) {
                                         _cleanup_free_ char *p = NULL;
 
-                                        if (r != -ENOENT && !ERRNO_IS_XATTR_ABSENT(r))
+                                        if (!ERRNO_IS_XATTR_ABSENT(r))
                                                 return r;
 
                                         p = build_auxiliary_path(image, ".usrhash");
@@ -4792,7 +4804,7 @@ int mount_image_privately_interactively(
 
         r = loop_device_make_by_path(
                         image,
-                        FLAGS_SET(flags, DISSECT_IMAGE_DEVICE_READ_ONLY) ? O_RDONLY : O_RDWR,
+                        FLAGS_SET(flags, DISSECT_IMAGE_DEVICE_READ_ONLY) ? O_RDONLY : -1,
                         /* sector_size= */ UINT32_MAX,
                         FLAGS_SET(flags, DISSECT_IMAGE_NO_PARTITION_TABLE) ? 0 : LO_FLAGS_PARTSCAN,
                         LOCK_SH,
@@ -5386,6 +5398,9 @@ int mountfsd_mount_image_fd(
                 };
         }
 
+        if (!di)
+                return log_debug_errno(SYNTHETIC_ERRNO(EBADMSG), "Partition list is empty.");
+
         di->single_file_system = p.single_file_system;
         di->image_size = p.image_size;
         di->sector_size = p.sector_size;
@@ -5597,7 +5612,7 @@ int mountfsd_make_directory(
 
         _cleanup_close_ int fd = open(parent, O_DIRECTORY|O_CLOEXEC);
         if (fd < 0)
-                return log_debug_errno(r, "Failed to open '%s': %m", parent);
+                return log_debug_errno(errno, "Failed to open '%s': %m", parent);
 
         return mountfsd_make_directory_fd(vl, fd, dirname, mode, flags, ret_directory_fd);
 }

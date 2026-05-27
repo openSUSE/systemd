@@ -899,6 +899,10 @@ static int event_log_load_firmware(EventLog *el) {
         path = tpm2_firmware_log_path();
 
         r = read_full_file(path, (char**) &buf, &bufsize);
+        if (r == -ENOENT) {
+                log_notice("No '%s' file, assuming TPM without firmware support.", path);
+                return 0;
+        }
         if (r < 0)
                 return log_error_errno(r, "Failed to open TPM2 event log '%s': %m", path);
 
@@ -1943,7 +1947,7 @@ static int event_log_match_component_variant(
                 return r;
 
         if (assign) {
-                /* Take ownership (Note we allow multiple components and variants to take owneship of the same record!) */
+                /* Take ownership (Note we allow multiple components and variants to take ownership of the same record!) */
                 if (!GREEDY_REALLOC(el->records[i]->mapped, el->records[i]->n_mapped+1))
                         return log_oom();
 

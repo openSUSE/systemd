@@ -243,6 +243,7 @@ int json_dispatch_path(const char *name, sd_json_variant *variant, sd_json_dispa
 int json_dispatch_strv_path(const char *name, sd_json_variant *variant, sd_json_dispatch_flags_t flags, void *userdata) {
         _cleanup_strv_free_ char **n = NULL;
         char ***l = ASSERT_PTR(userdata);
+        size_t s = 0;
         int r;
 
         assert(variant);
@@ -262,7 +263,7 @@ int json_dispatch_strv_path(const char *name, sd_json_variant *variant, sd_json_
                 if (r < 0)
                         return r;
 
-                r = strv_extend(&n, a);
+                r = strv_extend_with_size(&n, &s, a);
                 if (r < 0)
                         return json_log_oom(variant, flags);
         }
@@ -603,6 +604,9 @@ int json_dispatch_strv_environment(const char *name, sd_json_variant *variant, s
 
         if (!sd_json_variant_is_array(variant))
                 return json_log(variant, flags, SYNTHETIC_ERRNO(EINVAL), "JSON field '%s' is not an array.", strna(name));
+
+        if (sd_json_variant_elements(variant) > ENVIRONMENT_ASSIGNMENTS_MAX)
+                return json_log(variant, flags, SYNTHETIC_ERRNO(E2BIG), "Too many environment variable assignments.");
 
         sd_json_variant *i;
         JSON_VARIANT_ARRAY_FOREACH(i, variant) {

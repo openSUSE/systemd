@@ -434,6 +434,8 @@ int decompress_blob_lz4(
         size = unaligned_read_le64(src);
         if (size < 0 || (unsigned) size != unaligned_read_le64(src))
                 return -EFBIG;
+        if (dst_max > 0 && (size_t) size > dst_max)
+                return -ENOBUFS;
         out = greedy_realloc(dst, size, 1);
         if (!out)
                 return -ENOMEM;
@@ -721,7 +723,9 @@ int decompress_startswith_zstd(
                 log_debug("ZSTD decoder failed: %s", sym_ZSTD_getErrorName(k));
                 return zstd_ret_to_errno(k);
         }
-        assert(output.pos >= prefix_len + 1);
+
+        if (output.pos < prefix_len + 1)
+                return log_debug_errno(SYNTHETIC_ERRNO(EBADMSG), "ZSTD decoded less data than indicated, probably corrupted stream.");
 
         return memcmp(*buffer, prefix, prefix_len) == 0 &&
                 ((const uint8_t*) *buffer)[prefix_len] == extra;

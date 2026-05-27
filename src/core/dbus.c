@@ -39,7 +39,7 @@
 #include "path-util.h"
 #include "pidref.h"
 #include "process-util.h"
-#include "selinux-access.h"
+#include "selinux-access.h"     /* IWYU pragma: keep */
 #include "serialize.h"
 #include "set.h"
 #include "special.h"
@@ -1059,7 +1059,7 @@ int bus_fdset_add_all(Manager *m, FDSet *fds) {
 
         /* When we are about to reexecute we add all D-Bus fds to the
          * set to pass over to the newly executed systemd. They won't
-         * be used there however, except thatt they are closed at the
+         * be used there however, except that they are closed at the
          * very end of deserialization, those making it possible for
          * clients to synchronously wait for systemd to reexec by
          * simply waiting for disconnection */

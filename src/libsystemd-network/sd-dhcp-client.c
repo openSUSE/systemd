@@ -1020,8 +1020,7 @@ static int client_append_common_discover_request_options(sd_dhcp_client *client,
         if (client->user_class) {
                 r = dhcp_option_append(&packet->dhcp, optlen, optoffset, 0,
                                        SD_DHCP_OPTION_USER_CLASS,
-                                       strv_length(client->user_class),
-                                       client->user_class);
+                                       /* optlen= */ 0, client->user_class);
                 if (r < 0)
                         return r;
         }
@@ -1037,7 +1036,7 @@ static int client_append_common_discover_request_options(sd_dhcp_client *client,
                 r = dhcp_option_append(
                                 &packet->dhcp, optlen, optoffset, 0,
                                 SD_DHCP_OPTION_VENDOR_SPECIFIC,
-                                ordered_hashmap_size(client->vendor_options), client->vendor_options);
+                                /* optlen= */ 0, client->vendor_options);
                 if (r < 0)
                         return r;
         }
@@ -2507,7 +2506,7 @@ int sd_dhcp_client_attach_event(sd_dhcp_client *client, sd_event *event, int64_t
         else {
                 r = sd_event_default(&client->event);
                 if (r < 0)
-                        return 0;
+                        return r;
         }
 
         client->event_priority = priority;
@@ -2544,10 +2543,11 @@ static sd_dhcp_client *dhcp_client_free(sd_dhcp_client *client) {
 
         client_initialize(client);
 
-        client->timeout_resend = sd_event_source_unref(client->timeout_resend);
-        client->timeout_t1 = sd_event_source_unref(client->timeout_t1);
-        client->timeout_t2 = sd_event_source_unref(client->timeout_t2);
-        client->timeout_expire = sd_event_source_unref(client->timeout_expire);
+        sd_event_source_unref(client->timeout_resend);
+        sd_event_source_unref(client->timeout_t1);
+        sd_event_source_unref(client->timeout_t2);
+        sd_event_source_unref(client->timeout_expire);
+        sd_event_source_unref(client->timeout_ipv6_only_mode);
 
         sd_dhcp_client_detach_event(client);
 

@@ -816,10 +816,13 @@ int transfer_vacuum(
                         continue;
                 }
 
-                /* If this is listed among the protected versions, then let's not remove it */
-                if (strv_contains(t->protected_versions, instance->metadata.version) ||
-                    (extra_protected_version && streq(extra_protected_version, instance->metadata.version))) {
-                        log_debug("Version '%s' is pending/partial but protected, not removing.", instance->metadata.version);
+                /* If this is pending and listed among the protected versions, then let's not remove it.
+                 * In future, we will also want to keep partial protected versions, but that’s only useful
+                 * once we support resuming downloads. */
+                if (instance->is_pending &&
+                    (strv_contains(t->protected_versions, instance->metadata.version) ||
+                     (extra_protected_version && streq(extra_protected_version, instance->metadata.version)))) {
+                        log_debug("Version '%s' is pending but protected, not removing.", instance->metadata.version);
                         i++;
                         continue;
                 }
@@ -1609,8 +1612,10 @@ int transfer_process_partial_and_pending_instance(Transfer *t, Instance *i) {
 
         /* Does this instance already exist in the target but isn’t pending? */
         existing = resource_find_instance(&t->target, i->metadata.version);
-        if (existing && !existing->is_pending)
-                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Failed to acquire '%s', instance is already in the target but is not pending.", i->path);
+        if (existing && !existing->is_pending) {
+                log_info("Resource '%s' instance is already in the target but is not pending.", i->path);
+                return 0;
+        }
 
         /* All we need to do is compute the temporary paths. We don’t need to do any of the other work in
          * transfer_acquire_instance(). */
@@ -1743,6 +1748,10 @@ int transfer_install_instance(
                         r = path_make_relative(parent, link_target, &relative);
                         if (r < 0)
                                 return log_error_errno(r, "Failed to make symlink path '%s' relative to '%s': %m", link_target, parent);
+
+                        r = mkdir_parents(link_path, 0755);
+                        if (r < 0)
+                                return log_error_errno(r, "Failed to create directory for current symlink '%s': %m", link_path);
 
                         r = symlink_atomic(relative, link_path);
                         if (r < 0)

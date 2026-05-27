@@ -13,6 +13,7 @@
 #include "bus-common-errors.h"
 #include "bus-error.h"
 #include "bus-util.h"
+#include "cgroup.h"
 #include "chase.h"
 #include "dbus-service.h"
 #include "dbus-unit.h"
@@ -59,6 +60,8 @@
 #define STATUS_TEXT_MAX (16U*1024U)
 
 #define service_spawn(...) service_spawn_internal(__func__, __VA_ARGS__)
+
+#define SERVICE_FD_STORE_POPULATED(s) (!!(s)->fd_store)
 
 static const UnitActiveState state_translation_table[_SERVICE_STATE_MAX] = {
         [SERVICE_DEAD]                       = UNIT_INACTIVE,
@@ -137,6 +140,8 @@ static void service_reload_finish(Service *s, ServiceResult f);
 static void service_enter_reload_by_notify(Service *s);
 
 static bool service_can_reload_extensions(Service *s, bool warn);
+
+static void service_set_state(Service *s, ServiceState state);
 
 static bool SERVICE_STATE_WITH_MAIN_PROCESS(ServiceState state) {
         return IN_SET(state,
@@ -479,12 +484,12 @@ DEFINE_TRIVIAL_CLEANUP_FUNC(ServiceFDStore*, service_fd_store_unlink);
 static void service_release_fd_store(Service *s) {
         assert(s);
 
-        if (!s->fd_store)
+        if (!SERVICE_FD_STORE_POPULATED(s))
                 return;
 
         log_unit_debug(UNIT(s), "Releasing all stored fds.");
 
-        while (s->fd_store)
+        while (SERVICE_FD_STORE_POPULATED(s))
                 service_fd_store_unlink(s->fd_store);
 
         assert(s->n_fd_store == 0);
@@ -571,15 +576,20 @@ static void service_done(Unit *u) {
 
 static int on_fd_store_io(sd_event_source *e, int fd, uint32_t revents, void *userdata) {
         ServiceFDStore *fs = ASSERT_PTR(userdata);
+        Service *s = fs->service;
 
         assert(e);
 
         /* If we get either EPOLLHUP or EPOLLERR, it's time to remove this entry from the fd store */
-        log_unit_debug(UNIT(fs->service),
+        log_unit_debug(UNIT(s),
                        "Received %s on stored fd %d (%s), closing.",
                        revents & EPOLLERR ? "EPOLLERR" : "EPOLLHUP",
                        fs->fd, strna(fs->fdname));
         service_fd_store_unlink(fs);
+
+        if (s->state == SERVICE_DEAD_RESOURCES_PINNED && !SERVICE_FD_STORE_POPULATED(s))
+                service_set_state(s, SERVICE_DEAD);
+
         return 0;
 }
 
@@ -2126,7 +2136,7 @@ static bool service_will_restart(Unit *u) {
 static ServiceState service_determine_dead_state(Service *s) {
         assert(s);
 
-        return s->fd_store && s->fd_store_preserve_mode == EXEC_PRESERVE_YES ? SERVICE_DEAD_RESOURCES_PINNED : SERVICE_DEAD;
+        return SERVICE_FD_STORE_POPULATED(s) && s->fd_store_preserve_mode == EXEC_PRESERVE_YES ? SERVICE_DEAD_RESOURCES_PINNED : SERVICE_DEAD;
 }
 
 static void service_enter_dead(Service *s, ServiceResult f, bool allow_restart) {
@@ -3165,8 +3175,10 @@ static int service_start(Unit *u) {
         exec_status_reset(&s->main_exec_status);
 
         CGroupRuntime *crt = unit_get_cgroup_runtime(u);
-        if (crt)
+        if (crt) {
+                unit_cgroup_disable_all_controllers(u);
                 crt->reset_accounting = true;
+        }
 
         service_enter_condition(s);
         return 1;
@@ -3950,8 +3962,10 @@ static bool service_may_gc(Unit *u) {
                 return false;
 
         /* Only allow collection of actually dead services, i.e. not those that are in the transitionary
-         * SERVICE_DEAD_BEFORE_AUTO_RESTART/SERVICE_FAILED_BEFORE_AUTO_RESTART states. */
-        if (!IN_SET(s->state, SERVICE_DEAD, SERVICE_FAILED, SERVICE_DEAD_RESOURCES_PINNED))
+         * SERVICE_DEAD_BEFORE_AUTO_RESTART/SERVICE_FAILED_BEFORE_AUTO_RESTART states, and not those
+         * that still have resources pinned (fd store with FileDescriptorStorePreserve=yes) in case they are
+         * started again later despite not having any reverse dependency. */
+        if (!IN_SET(s->state, SERVICE_DEAD, SERVICE_FAILED))
                 return false;
 
         return true;
@@ -5612,7 +5626,7 @@ static int service_clean(Unit *u, ExecCleanMask mask) {
 
         /* If we are done, leave quickly */
         if (strv_isempty(l)) {
-                if (s->state == SERVICE_DEAD_RESOURCES_PINNED && !s->fd_store)
+                if (s->state == SERVICE_DEAD_RESOURCES_PINNED && !SERVICE_FD_STORE_POPULATED(s))
                         service_set_state(s, SERVICE_DEAD);
                 return 0;
         }
@@ -5629,6 +5643,7 @@ static int service_clean(Unit *u, ExecCleanMask mask) {
                 goto fail;
         }
 
+        unit_cgroup_disable_all_controllers(u);
         r = unit_fork_and_watch_rm_rf(u, l, &s->control_pid);
         if (r < 0) {
                 log_unit_warning_errno(u, r, "Failed to spawn cleaning task: %m");
@@ -5865,7 +5880,7 @@ static void service_release_resources(Unit *u) {
         if (s->fd_store_preserve_mode != EXEC_PRESERVE_YES)
                 service_release_fd_store(s);
 
-        if (s->state == SERVICE_DEAD_RESOURCES_PINNED && !s->fd_store)
+        if (s->state == SERVICE_DEAD_RESOURCES_PINNED && !SERVICE_FD_STORE_POPULATED(s))
                 service_set_state(s, SERVICE_DEAD);
 }
 
