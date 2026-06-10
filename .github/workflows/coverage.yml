@@ -23,7 +23,7 @@ jobs:
     if: github.repository == 'systemd/systemd' || github.repository == 'systemd/systemd-stable'
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           persist-credentials: false
       - uses: systemd/mkosi@60ed8c964f8d98aa4b325f381c4b3bc6de91a0b7
