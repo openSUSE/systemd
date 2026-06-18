@@ -674,23 +674,25 @@ char *strextend(char **x, ...) {
         return r + l;
 }
 
-char *strrep(const char *s, unsigned n) {
+char *strrep(const char *s, size_t n) {
+        char *ret, *p;
         size_t l;
-        char *r, *p;
-        unsigned i;
 
         assert(s);
 
         l = strlen(s);
-        p = r = malloc(l * n + 1);
-        if (!r)
+        if (l != 0 && n > (SIZE_MAX - 1) / l) /* check for overflow */
                 return NULL;
 
-        for (i = 0; i < n; i++)
+        p = ret = malloc(l * n + 1);
+        if (!ret)
+                return NULL;
+
+        for (size_t i = 0; i < n; i++)
                 p = stpcpy(p, s);
 
         *p = 0;
-        return r;
+        return ret;
 }
 
 int split_pair(const char *s, const char *sep, char **l, char **r) {

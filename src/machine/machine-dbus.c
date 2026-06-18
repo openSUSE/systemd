@@ -380,9 +380,28 @@ int bus_machine_method_get_os_release(sd_bus_message *message, void *userdata, s
         Machine *m = userdata;
         char **k, **v;
         int r;
+        const char *details[] = {
+                "machine", m->name,
+                "verb", "get_os_release",
+                NULL
+        };
 
         assert(message);
         assert(m);
+
+        r = bus_verify_polkit_async(
+                        message,
+                        CAP_SYS_ADMIN,
+                        "org.freedesktop.machine1.inspect-machines",
+                        details,
+                        false,
+                        UID_INVALID,
+                        &m->manager->polkit_registry,
+                        error);
+        if (r < 0)
+                return r;
+        if (r == 0)
+                return 1; /* Will call us back */
 
         switch (m->class) {
 
@@ -678,6 +697,10 @@ int bus_machine_method_open_shell(sd_bus_message *message, void *userdata, sd_bu
         r = sd_bus_message_read_strv(message, &env);
         if (r < 0)
                 return r;
+
+        if (strv_length(env) > ENVIRONMENT_ASSIGNMENTS_MAX)
+                return sd_bus_error_set(error, SD_BUS_ERROR_LIMITS_EXCEEDED,
+                                        "Too many environment assignments in a single query.");
         if (!strv_env_is_valid(env))
                 return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid environment assignments");
 
@@ -1149,13 +1172,13 @@ int bus_machine_method_copy(sd_bus_message *message, void *userdata, sd_bus_erro
         if (r < 0)
                 return r;
 
-        if (!path_is_absolute(src))
-                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Source path must be absolute.");
+        if (!path_is_absolute(src) || !path_is_normalized(src))
+                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Source path must be absolute and normalized.");
 
         if (isempty(dest))
                 dest = src;
-        else if (!path_is_absolute(dest))
-                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Destination path must be absolute.");
+        else if (!path_is_absolute(dest) || !path_is_normalized(dest))
+                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Destination path must be absolute and normalized.");
 
         r = bus_verify_polkit_async(
                         message,

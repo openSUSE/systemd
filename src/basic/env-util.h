@@ -25,6 +25,8 @@
 
 #include "macro.h"
 
+#define ENVIRONMENT_ASSIGNMENTS_MAX 16384U
+
 bool env_name_is_valid(const char *e);
 bool env_value_is_valid(const char *e);
 bool env_assignment_is_valid(const char *e);

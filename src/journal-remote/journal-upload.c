@@ -264,10 +264,13 @@ int start_upload(Uploader *u,
                                     LOG_ERR, return -EXFULL);
                 }
 
-                if (streq_ptr(arg_trust, "all"))
+                if (streq_ptr(arg_trust, "all")) {
+                        log_info("Server certificate verification disabled.");
                         easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0,
                                     LOG_ERR, return -EUCLEAN);
-                else if (arg_trust || startswith(u->url, "https://"))
+                        easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L,
+                                    LOG_ERR, return -EUCLEAN);
+                } else if (arg_trust || startswith(u->url, "https://"))
                         easy_setopt(curl, CURLOPT_CAINFO, arg_trust ?: TRUST_FILE,
                                     LOG_ERR, return -EXFULL);
 

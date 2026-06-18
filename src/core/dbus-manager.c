@@ -874,9 +874,9 @@ static int list_units_filtered(sd_bus_message *message, void *userdata, sd_bus_e
 
         /* Anyone can call this method */
 
-        r = mac_selinux_access_check(message, "status", error);
-        if (r < 0)
-                return r;
+        if (strv_length(states) > MANAGER_MAX_STATES_PER_CALL)
+                return sd_bus_error_set(error, SD_BUS_ERROR_LIMITS_EXCEEDED,
+                                        "Too many states in a single query.");
 
         r = sd_bus_message_new_method_return(message, &reply);
         if (r < 0)
@@ -887,11 +887,16 @@ static int list_units_filtered(sd_bus_message *message, void *userdata, sd_bus_e
                 return r;
 
         HASHMAP_FOREACH_KEY(u, k, m->units, i) {
+                _cleanup_(sd_bus_error_free) sd_bus_error ignored_error = SD_BUS_ERROR_NULL;
                 _cleanup_free_ char *unit_path = NULL, *job_path = NULL;
                 Unit *following;
 
                 if (k != u->id)
                         continue;
+
+                r = mac_selinux_unit_access_check(u, message, "status", /* error= */ &ignored_error);
+                if (r < 0)
+                        continue; /* silently skip units the caller is not allowed to see */
 
                 following = unit_following(u);
 
@@ -1327,6 +1332,10 @@ static int method_set_environment(sd_bus_message *message, void *userdata, sd_bu
         r = sd_bus_message_read_strv(message, &plus);
         if (r < 0)
                 return r;
+
+        if (strv_length(plus) > ENVIRONMENT_ASSIGNMENTS_MAX)
+                return sd_bus_error_set(error, SD_BUS_ERROR_LIMITS_EXCEEDED,
+                                        "Too many environment assignments in a single query.");
         if (!strv_env_is_valid(plus))
                 return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid environment assignments");
 
@@ -1359,6 +1368,9 @@ static int method_unset_environment(sd_bus_message *message, void *userdata, sd_
         if (r < 0)
                 return r;
 
+        if (strv_length(minus) > ENVIRONMENT_ASSIGNMENTS_MAX)
+                return sd_bus_error_set(error, SD_BUS_ERROR_LIMITS_EXCEEDED,
+                                        "Too many environment variable names in a single query.");
         if (!strv_env_name_or_assignment_is_valid(minus))
                 return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid environment variable names or assignments");
 
@@ -1395,6 +1407,9 @@ static int method_unset_and_set_environment(sd_bus_message *message, void *userd
         if (r < 0)
                 return r;
 
+        if (strv_length(plus) > ENVIRONMENT_ASSIGNMENTS_MAX || strv_length(minus) > ENVIRONMENT_ASSIGNMENTS_MAX)
+                return sd_bus_error_set(error, SD_BUS_ERROR_LIMITS_EXCEEDED,
+                                        "Too many environment variable names or assignments in a single query.");
         if (!strv_env_name_or_assignment_is_valid(minus))
                 return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid environment variable names or assignments");
         if (!strv_env_is_valid(plus))

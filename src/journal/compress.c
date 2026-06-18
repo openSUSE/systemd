@@ -203,6 +203,8 @@ int decompress_blob_lz4(const void *src, uint64_t src_size,
         size = le64toh( *(le64_t*)src );
         if (size < 0 || (le64_t) size != *(le64_t*)src)
                 return -EFBIG;
+        if (dst_max > 0 && (size_t) size > dst_max)
+                return -ENOBUFS;
         if ((size_t) size > *dst_alloc_size) {
                 out = realloc(*dst, size);
                 if (!out)
