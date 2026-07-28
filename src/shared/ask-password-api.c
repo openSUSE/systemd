@@ -450,6 +450,9 @@ int ask_password_plymouth(
                         if (strv_isempty(l))
                                 return log_debug_errno(SYNTHETIC_ERRNO(ECANCELED), "Received an empty password.");
 
+                        if (req->keyring)
+                                (void) add_to_keyring_and_log(req->keyring, flags, l);
+
                         *ret = TAKE_PTR(l);
                         return 0;
 
@@ -903,6 +906,9 @@ int ask_password_agent(
 
                 if (req->id)
                         fprintf(f, "Id=%s\n", req->id);
+
+                if (req->keyring)
+                        fprintf(f, "Keyring=%s\n", req->keyring);
         }
 
         if (fchmod(fileno(f), 0644) < 0) {

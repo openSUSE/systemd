@@ -130,6 +130,7 @@ static int agent_ask_password_tty(
                 const char *message,
                 usec_t until,
                 AskPasswordFlags flags,
+                const char *keyring,
                 const char *flag_file,
                 char ***ret) {
 
@@ -148,6 +149,7 @@ static int agent_ask_password_tty(
 
         AskPasswordRequest req = {
                 .message = message,
+                .keyring = keyring,
         };
 
         r = ask_password_tty(tty_fd, &req, until, flags, flag_file, ret);
@@ -165,7 +167,7 @@ static int agent_ask_password_tty(
 }
 
 static int process_one_password_file(const char *filename, FILE *f) {
-        _cleanup_free_ char *socket_name = NULL, *message = NULL;
+        _cleanup_free_ char *socket_name = NULL, *message = NULL, *keyring = NULL;
         bool accept_cached = false, echo = false, silent = false;
         uint64_t not_after = 0;
         pid_t pid = 0;
@@ -178,6 +180,7 @@ static int process_one_password_file(const char *filename, FILE *f) {
                 { "Ask", "AcceptCached", config_parse_bool,   0,                        &accept_cached },
                 { "Ask", "Echo",         config_parse_bool,   0,                        &echo          },
                 { "Ask", "Silent",       config_parse_bool,   0,                        &silent        },
+                { "Ask", "Keyring",      config_parse_string, 0,                        &keyring       },
                 {}
         };
 
@@ -242,6 +245,9 @@ static int process_one_password_file(const char *filename, FILE *f) {
                 SET_FLAG(flags, ASK_PASSWORD_CONSOLE_COLOR, arg_console);
                 SET_FLAG(flags, ASK_PASSWORD_ECHO, echo);
                 SET_FLAG(flags, ASK_PASSWORD_SILENT, silent);
+                /* Keyring= in the ask file implies the requester wants caching */
+                if (keyring)
+                        flags |= ASK_PASSWORD_PUSH_CACHE;
 
                 if (arg_plymouth) {
                         AskPasswordRequest req = {
@@ -250,7 +256,7 @@ static int process_one_password_file(const char *filename, FILE *f) {
 
                         r = ask_password_plymouth(&req, not_after, flags, filename, &passwords);
                 } else
-                        r = agent_ask_password_tty(message, not_after, flags, filename, &passwords);
+                        r = agent_ask_password_tty(message, not_after, flags, keyring, filename, &passwords);
                 if (r < 0) {
                         /* If the query went away, that's OK */
                         if (IN_SET(r, -ETIME, -ENOENT))
