@@ -2216,7 +2216,10 @@ RestrictNamespaces=~cgroup net</programlisting>
         <varname>NoNewPrivileges=yes</varname> is implied. Realtime scheduling policies may be used to monopolize CPU
         time for longer periods of time, and may hence be used to lock up or otherwise trigger Denial-of-Service
         situations on the system. It is hence recommended to restrict access to realtime scheduling to the few programs
-        that actually require them. Defaults to off.</para></listitem>
+        that actually require them. Note that the scheduling policy passed to
+        <citerefentry project='man-pages'><refentrytitle>sched_setattr</refentrytitle><manvolnum>2</manvolnum></citerefentry>
+        cannot be inspected by the system call filter, hence that system call is refused altogether, including
+        for non-realtime uses. Defaults to off.</para></listitem>
       </varlistentry>
 
       <varlistentry>

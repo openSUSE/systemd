@@ -5164,10 +5164,18 @@ static int exec_child(
                         .sched_flags = context->cpu_sched_reset_on_fork ? SCHED_FLAG_RESET_ON_FORK : 0,
                 };
 
-                r = sched_setattr(/* pid= */ 0, &attr, /* flags= */ 0);
+                r = RET_NERRNO(sched_setattr(/* pid= */ 0, &attr, /* flags= */ 0));
+                if (r == -EPERM && !context->cpu_sched_reset_on_fork) {
+                        /* RestrictRealtime= refuses sched_setattr() altogether (possibly in an outer
+                         * manager), hence fall back to sched_setscheduler(), which it filters per policy.
+                         * We cannot do that with SCHED_RESET_ON_FORK, which the filter refuses too. */
+                        struct sched_param param = { .sched_priority = context->cpu_sched_priority };
+
+                        r = RET_NERRNO(sched_setscheduler(/* pid= */ 0, context->cpu_sched_policy, &param));
+                }
                 if (r < 0) {
                         *exit_status = EXIT_SETSCHEDULER;
-                        return log_unit_error_errno(unit, errno, "Failed to set up CPU scheduling: %m");
+                        return log_unit_error_errno(unit, r, "Failed to set up CPU scheduling: %m");
                 }
         }
 
