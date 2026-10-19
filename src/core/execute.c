@@ -1252,7 +1252,10 @@ static int apply_address_families(const ExecContext *c) {
 
                 /* If this is a blacklist, then generate one rule for
                  * each address family that are then combined in OR
-                 * checks. */
+                 * checks. The kernel takes the domain as an int, i.e. it
+                 * truncates the 64-bit register to its low 32 bits, hence
+                 * only compare those. A plain equality check could be
+                 * bypassed by setting any of the upper bits. */
 
                 SET_FOREACH(af, c->address_families, i) {
 
@@ -1261,7 +1264,7 @@ static int apply_address_families(const ExecContext *c) {
                                         SCMP_ACT_ERRNO(EPROTONOSUPPORT),
                                         SCMP_SYS(socket),
                                         1,
-                                        SCMP_A0(SCMP_CMP_EQ, PTR_TO_INT(af)));
+                                        SCMP_A0(SCMP_CMP_MASKED_EQ, UINT32_MAX, (uint32_t) PTR_TO_INT(af)));
                         if (r < 0)
                                 goto finish;
                 }
